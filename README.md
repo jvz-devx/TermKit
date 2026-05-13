@@ -46,7 +46,13 @@ npm run dev
 Run Drizzle migrations or schema pushes with `DATABASE_URL` set:
 
 ```sh
-npm run db:push
+npm run db:migrate
+```
+
+Generate new checked-in migrations after schema changes:
+
+```sh
+DATABASE_URL=postgres://termixkit:termixkit@localhost:5432/termixkit npm run db:generate
 ```
 
 ## Developer Notes
@@ -59,7 +65,7 @@ npm run db:push
 
 ```sh
 POSTGRES_PASSWORD=dev-password \
-APP_SECRET=dev-app-secret \
+ORIGIN=https://termix.example \
 CREDENTIAL_MASTER_KEY=dev-credential-master-key \
 GATEWAY_PROVISIONER_KEY=dev-gateway-key \
 docker compose config
@@ -70,8 +76,8 @@ docker compose config
 Do not commit real values for any secret.
 
 - `DATABASE_URL`: Postgres connection string used by the app and Drizzle.
-- `ORIGIN`: public app origin, for example `http://localhost:3000`; use the external `https://` origin in production behind a TLS-terminating reverse proxy so session cookies are marked secure.
-- `APP_SECRET`: app-level cookie/session signing secret reserved by the V1 spec.
+- `ORIGIN`: public app origin. Compose defaults to `https://localhost:3000` so production cookies are secure by default; set the external `https://` origin behind a TLS-terminating reverse proxy.
+- `TERMIXKIT_INSECURE_LOCAL_HTTP`: set to `1` only for direct local HTTP development with an `http://localhost` or loopback `ORIGIN`. Production startup rejects other HTTP origins.
 - `CREDENTIAL_MASTER_KEY`: high-entropy key used to derive credential encryption material.
 - `GATEWAY_URL`: internal Devolutions Gateway URL, defaulting to `http://gateway:7171` in Compose.
 - `GATEWAY_PROVISIONER_KEY`: Gateway provisioning key shared with the app.
@@ -83,7 +89,7 @@ Do not commit real values for any secret.
 The importer is a one-way service under `src/lib/server/import` with upload parsing, validation, import execution, and an `import_jobs` persistence interface. The current API surface is:
 
 - `POST /api/import/validate`: accepts multipart `file` upload and persists a validation job.
-- `GET /api/import/jobs`: lists in-memory import jobs for the signed-in user.
+- `GET /api/import/jobs`: lists persisted import jobs for the signed-in user.
 - `POST /api/import/jobs`: accepts multipart `file` upload, imports mapped hosts and credentials, and persists the job result.
 
 Supported uploads are JSON arrays or JSON objects with `records`, `connections`, or `hosts` arrays. Supported target protocols are SSH, RDP, VNC, and Telnet; SFTP is normalized to SSH. The importer records warnings for unsupported protocols, encrypted source credentials without a decryption hook, Guacamole-only settings, snippets, and server statistics.
@@ -91,8 +97,8 @@ Supported uploads are JSON arrays or JSON objects with `records`, `connections`,
 Current limitations are intentional and visible in validation results:
 
 - SQLite files are detected but not parsed yet.
-- Import jobs use the repository interface and in-memory implementation until the Drizzle-backed `import_jobs` repository is wired.
-- Imported hosts and credentials follow the current service layer, which is still in-memory in this worker branch.
+- Import jobs are persisted through the Drizzle-backed `import_jobs` repository.
+- Imported hosts and credentials are persisted through the current Drizzle-backed service repository.
 - The source decrypt secret field is reserved; encrypted Termix source credentials are still skipped.
 
 ## Verification
@@ -132,4 +138,10 @@ Build the app image:
 
 ```sh
 docker compose build app
+```
+
+Run the production migration job used by Compose:
+
+```sh
+docker compose run --rm migrate
 ```

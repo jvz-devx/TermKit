@@ -40,7 +40,6 @@
 	let fileInput: HTMLInputElement;
 
 	async function loadDirectory(nextPath = path) {
-		path = nextPath;
 		loading = true;
 		error = null;
 
@@ -50,11 +49,11 @@
 			);
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.error ?? 'Could not list directory');
+			path = nextPath;
 			entries = body.entries;
 			selected = null;
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not list directory';
-			entries = [];
 		} finally {
 			loading = false;
 		}
@@ -88,12 +87,12 @@
 
 	async function createFolder() {
 		if (!newFolderName.trim()) return;
-		await mutate(
+		const created = await mutate(
 			'/mkdir',
 			{ path: joinPath(path, newFolderName.trim()) },
 			'Could not create directory'
 		);
-		newFolderName = '';
+		if (created) newFolderName = '';
 	}
 
 	async function renameSelected() {
@@ -107,12 +106,12 @@
 
 	async function deleteSelected() {
 		if (!selected || !confirm(`Delete ${selected.name}?`)) return;
-		await request(
+		const deleted = await request(
 			`/delete?path=${encodeURIComponent(selected.path)}`,
 			{ method: 'DELETE' },
 			'Could not delete path'
 		);
-		await loadDirectory(path);
+		if (deleted) await loadDirectory(path);
 	}
 
 	async function openText(entry = selected) {
@@ -137,7 +136,7 @@
 
 	async function saveText() {
 		if (!textPath) return;
-		await request(
+		const saved = await request(
 			'/text',
 			{
 				method: 'PUT',
@@ -146,12 +145,14 @@
 			},
 			'Could not save text file'
 		);
-		textDirty = false;
-		await loadDirectory(path);
+		if (saved) {
+			textDirty = false;
+			await loadDirectory(path);
+		}
 	}
 
 	async function mutate(route: string, body: Record<string, unknown>, fallback: string) {
-		await request(
+		const succeeded = await request(
 			route,
 			{
 				method: 'POST',
@@ -160,7 +161,8 @@
 			},
 			fallback
 		);
-		await loadDirectory(path);
+		if (succeeded) await loadDirectory(path);
+		return succeeded;
 	}
 
 	async function request(route: string, init: RequestInit, fallback: string) {
@@ -170,8 +172,10 @@
 			const response = await fetch(`/api/sftp/${encodeURIComponent(hostId)}${route}`, init);
 			const body = await response.json().catch(() => ({}));
 			if (!response.ok) throw new Error(body.error ?? fallback);
+			return true;
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : fallback;
+			return false;
 		} finally {
 			loading = false;
 		}

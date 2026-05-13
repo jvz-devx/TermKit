@@ -3,20 +3,33 @@ services:
     build:
       context: .
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       gateway:
         condition: service_started
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-termixkit}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-termixkit}
-      ORIGIN: ${ORIGIN:-http://localhost:3000}
-      APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
+      ORIGIN: ${ORIGIN:-https://localhost:3000}
+      TERMIXKIT_INSECURE_LOCAL_HTTP: ${TERMIXKIT_INSECURE_LOCAL_HTTP:-0}
       CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:?set CREDENTIAL_MASTER_KEY in .env}
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:7171}
       GATEWAY_PROVISIONER_KEY: ${GATEWAY_PROVISIONER_KEY:?set GATEWAY_PROVISIONER_KEY in .env}
     ports:
       - '${APP_PORT:-3000}:3000'
     restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+    command: ['node', 'scripts/migrate.mjs']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-termixkit}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-termixkit}
+    restart: 'no'
 
   postgres:
     image: postgres:17-alpine

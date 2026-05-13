@@ -75,4 +75,48 @@ describe('CredentialService', () => {
 			)
 		).toThrow();
 	});
+
+	it('keeps credential secrets write-only during metadata edits and rotates them on replacement', async () => {
+		expect.assertions(8);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const crypto = new AesGcmCredentialCrypto('test-master-key');
+		const credentials = new CredentialService(repository, crypto);
+
+		const created = await credentials.create('user-1', {
+			name: 'ops password',
+			kind: 'password',
+			username: 'ops',
+			secret: 'initial-secret'
+		});
+		const [storedBefore] = await repository.listCredentials('user-1');
+
+		const updated = await credentials.update('user-1', created.id, {
+			name: 'ops ssh',
+			kind: 'ssh_key',
+			username: 'shell'
+		});
+		const [storedAfterMetadataEdit] = await repository.listCredentials('user-1');
+
+		expect(updated).toMatchObject({ name: 'ops ssh', kind: 'ssh_key', username: 'shell' });
+		expect(updated).not.toHaveProperty('encryptedSecret');
+		expect(storedAfterMetadataEdit?.encryptedSecret).toBe(storedBefore?.encryptedSecret);
+		expect(storedAfterMetadataEdit?.encryption).toEqual(storedBefore?.encryption);
+
+		await credentials.update('user-1', created.id, { secret: 'rotated-secret' });
+		const [storedAfterRotation] = await repository.listCredentials('user-1');
+
+		expect(storedAfterRotation?.encryptedSecret).not.toBe(storedAfterMetadataEdit?.encryptedSecret);
+		expect(
+			crypto.decrypt(
+				{
+					ciphertext: storedAfterRotation!.encryptedSecret,
+					metadata: storedAfterRotation!.encryption
+				},
+				credentialSecretContext('user-1', created.id)
+			)
+		).toBe('rotated-secret');
+		expect(storedAfterRotation?.name).toBe('ops ssh');
+		expect(storedAfterRotation?.kind).toBe('ssh_key');
+	});
 });

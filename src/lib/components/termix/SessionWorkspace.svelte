@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { page } from '$app/state';
 	import {
 		Database,
@@ -18,6 +19,7 @@
 		type SessionLaunch
 	} from '$lib/termix.remote';
 	import StatePanel from './StatePanel.svelte';
+	import RdpPane from './session/RdpPane.svelte';
 	import SftpBrowser from './session/SftpBrowser.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
 	import VncPane from './session/VncPane.svelte';
@@ -33,66 +35,48 @@
 		telnet: Terminal
 	};
 
-	let activeProtocol = $state<WorkspaceProtocol>('ssh');
-	let launch = $state<SessionLaunch | null>(null);
-	let launchKey = $state('');
-	let launchError = $state<string | null>(null);
+	let chosenProtocol = $state<WorkspaceProtocol | null>(null);
+	let reconnectNonce = $state(0);
+	let sessionPaused = $state(false);
 	let hosts = $derived(hostsQuery.current ?? []);
 	let selectedHost = $derived.by(() => {
 		const requestedHostId = page.url.searchParams.get('host');
 		return hosts.find((host) => host.id === requestedHostId) ?? hosts[0] ?? null;
 	});
 	let availableTabs = $derived(selectedHost ? protocolsForHost(selectedHost) : []);
-	let websocketUrl = $derived(
-		launch?.websocketPath ? toWebSocketUrl(launch.websocketPath) : undefined
-	);
-
-	$effect(() => {
+	let requestedProtocol = $derived.by(() => {
 		const requestedTab = page.url.searchParams.get('tab') as WorkspaceProtocol | null;
-		if (requestedTab && isWorkspaceProtocol(requestedTab)) activeProtocol = requestedTab;
+		return requestedTab && isWorkspaceProtocol(requestedTab) ? requestedTab : null;
+	});
+	let activeProtocol = $derived.by(() => {
+		const candidate = chosenProtocol ?? requestedProtocol ?? 'ssh';
+		if (availableTabs.includes(candidate)) return candidate;
+		return availableTabs[0] ?? candidate;
 	});
 
-	$effect(() => {
-		if (!selectedHost || availableTabs.length === 0) return;
-		if (!availableTabs.includes(activeProtocol)) activeProtocol = availableTabs[0];
-	});
+	async function getSessionLaunch(hostId: string, protocol: WorkspaceProtocol) {
+		const cached = readStoredLaunch(hostId, protocol);
+		if (cached) return cached;
 
-	$effect(() => {
-		if (!selectedHost || activeProtocol === 'sftp') {
-			launch = null;
-			launchError = null;
-			return;
+		const created = await createSessionLaunch({ hostId, protocol });
+		if (created.expiresAt) {
+			sessionStorage.setItem(launchStorageKey(hostId, protocol), JSON.stringify(created));
 		}
-		if (selectedHost.protocol !== activeProtocol) return;
-
-		const key = `${selectedHost.id}:${activeProtocol}`;
-		if (launchKey === key) return;
-		launchKey = key;
-		launch = readStoredLaunch(selectedHost.id, activeProtocol);
-		launchError = null;
-
-		if (!launch) {
-			void createLaunch(selectedHost.id, activeProtocol);
-		}
-	});
-
-	async function createLaunch(hostId: string, protocol: WorkspaceProtocol) {
-		try {
-			const created = await createSessionLaunch({ hostId, protocol });
-			launch = created;
-			if (created.websocketPath) {
-				sessionStorage.setItem(launchStorageKey(hostId, protocol), JSON.stringify(created));
-			}
-		} catch (caught) {
-			launchError = caught instanceof Error ? caught.message : 'Could not create session ticket';
-			launch = null;
-		}
+		return created;
 	}
 
 	function reconnect() {
 		if (!selectedHost || activeProtocol === 'sftp') return;
 		sessionStorage.removeItem(launchStorageKey(selectedHost.id, activeProtocol));
-		launchKey = '';
+		sessionPaused = false;
+		reconnectNonce += 1;
+	}
+
+	function disconnect() {
+		if (!selectedHost || activeProtocol === 'sftp') return;
+		sessionStorage.removeItem(launchStorageKey(selectedHost.id, activeProtocol));
+		sessionPaused = true;
+		reconnectNonce += 1;
 	}
 
 	function protocolsForHost(host: HostSummary): WorkspaceProtocol[] {
@@ -109,6 +93,7 @@
 	}
 
 	function readStoredLaunch(hostId: string, protocol: WorkspaceProtocol): SessionLaunch | null {
+		if (!browser) return null;
 		const raw = sessionStorage.getItem(launchStorageKey(hostId, protocol));
 		if (!raw) return null;
 		try {
@@ -123,6 +108,10 @@
 
 	function launchStorageKey(hostId: string, protocol: string) {
 		return `termix-launch:${hostId}:${protocol}`;
+	}
+
+	function errorMessage(caught: unknown) {
+		return caught instanceof Error ? caught.message : 'Could not create session ticket';
 	}
 </script>
 
@@ -148,7 +137,7 @@
 			<Button size="icon" variant="ghost" aria-label="Fullscreen">
 				<Maximize2 class="size-4" />
 			</Button>
-			<Button size="icon" variant="ghost" aria-label="Disconnect" onclick={() => (launch = null)}>
+			<Button size="icon" variant="ghost" aria-label="Disconnect" onclick={disconnect}>
 				<Power class="size-4" />
 			</Button>
 		</div>
@@ -173,10 +162,17 @@
 			/>
 		</div>
 	{:else}
-		<Tabs.Root bind:value={activeProtocol} class="flex min-h-0 flex-1 flex-col">
+		<Tabs.Root value={activeProtocol} class="flex min-h-0 flex-1 flex-col">
 			<Tabs.List class="h-10 justify-start rounded-none border-b bg-muted/20 px-2">
 				{#each availableTabs as tab (tab)}
-					<Tabs.Trigger value={tab} class="h-8 gap-2">
+					<Tabs.Trigger
+						value={tab}
+						class="h-8 gap-2"
+						onclick={() => {
+							chosenProtocol = tab;
+							sessionPaused = false;
+						}}
+					>
 						{@const Icon = tabIcons[tab]}
 						<Icon class="size-4" />
 						{tab.toUpperCase()}
@@ -185,12 +181,34 @@
 			</Tabs.List>
 
 			<Tabs.Content value="ssh" class="m-0 min-h-0 flex-1 p-3">
-				<TerminalPane
-					title="SSH terminal"
-					subtitle={`${selectedHost.username ?? 'user'}@${selectedHost.hostname}`}
-					{websocketUrl}
-					welcome={[`$ ssh ${selectedHost.hostname}`, 'Opening websocket bridge...', '']}
-				/>
+				{#if sessionPaused && activeProtocol === 'ssh'}
+					<StatePanel
+						state="disconnected"
+						title="SSH disconnected"
+						detail="Reconnect to create a new session."
+					/>
+				{:else if browser && activeProtocol === 'ssh'}
+					{#key `ssh:${selectedHost.id}:${reconnectNonce}`}
+						{#await getSessionLaunch(selectedHost.id, 'ssh')}
+							<StatePanel state="loading" title="Opening SSH" detail="Creating a session ticket." />
+						{:then currentLaunch}
+							<TerminalPane
+								title="SSH terminal"
+								subtitle={`${selectedHost.username ?? 'user'}@${selectedHost.hostname}`}
+								websocketUrl={currentLaunch.websocketPath
+									? toWebSocketUrl(currentLaunch.websocketPath)
+									: undefined}
+								welcome={[`$ ssh ${selectedHost.hostname}`, 'Opening websocket bridge...', '']}
+							/>
+						{:catch caught}
+							<StatePanel
+								state="error"
+								title="Session launch failed"
+								detail={errorMessage(caught)}
+							/>
+						{/await}
+					{/key}
+				{/if}
 			</Tabs.Content>
 
 			<Tabs.Content value="sftp" class="m-0 min-h-0 flex-1 p-3">
@@ -198,40 +216,89 @@
 			</Tabs.Content>
 
 			<Tabs.Content value="rdp" class="m-0 min-h-0 flex-1 p-3">
-				<div class="relative h-full min-h-[480px] overflow-hidden rounded-md border bg-neutral-950">
-					<div class="absolute inset-0 grid place-items-center bg-neutral-900">
-						<div class="h-3/4 w-3/4 rounded-sm border border-neutral-800 bg-neutral-950"></div>
-					</div>
-					<StatePanel
-						state={launchError ? 'error' : 'loading'}
-						title={launchError ? 'RDP launch failed' : 'Gateway authorization pending'}
-						detail={launchError ?? 'Waiting for RDP gateway bootstrap.'}
-						class="absolute right-3 bottom-3 left-3 bg-background"
+				{#if sessionPaused && activeProtocol === 'rdp'}
+					<RdpPane
+						launch={null}
+						error="Disconnected. Reconnect to create a new session."
+						onReconnect={reconnect}
 					/>
-				</div>
+				{:else if browser && activeProtocol === 'rdp'}
+					{#key `rdp:${selectedHost.id}:${reconnectNonce}`}
+						{#await getSessionLaunch(selectedHost.id, 'rdp')}
+							<RdpPane launch={null} error={null} onReconnect={reconnect} />
+						{:then currentLaunch}
+							<RdpPane launch={currentLaunch} error={null} onReconnect={reconnect} />
+						{:catch caught}
+							<RdpPane launch={null} error={errorMessage(caught)} onReconnect={reconnect} />
+						{/await}
+					{/key}
+				{/if}
 			</Tabs.Content>
 
 			<Tabs.Content value="vnc" class="m-0 min-h-0 flex-1 p-3">
-				<VncPane {websocketUrl} username={selectedHost.username ?? undefined} />
+				{#if sessionPaused && activeProtocol === 'vnc'}
+					<StatePanel
+						state="disconnected"
+						title="VNC disconnected"
+						detail="Reconnect to create a new session."
+					/>
+				{:else if browser && activeProtocol === 'vnc'}
+					{#key `vnc:${selectedHost.id}:${reconnectNonce}`}
+						{#await getSessionLaunch(selectedHost.id, 'vnc')}
+							<StatePanel state="loading" title="Opening VNC" detail="Creating a session ticket." />
+						{:then currentLaunch}
+							<VncPane
+								websocketUrl={currentLaunch.websocketPath
+									? toWebSocketUrl(currentLaunch.websocketPath)
+									: undefined}
+								username={selectedHost.username ?? undefined}
+								credentialStrategy={selectedHost.credentialId ? 'saved' : 'none'}
+							/>
+						{:catch caught}
+							<StatePanel
+								state="error"
+								title="Session launch failed"
+								detail={errorMessage(caught)}
+							/>
+						{/await}
+					{/key}
+				{/if}
 			</Tabs.Content>
 
 			<Tabs.Content value="telnet" class="m-0 min-h-0 flex-1 p-3">
-				<TerminalPane
-					title="Telnet terminal"
-					subtitle={`${selectedHost.hostname}:${selectedHost.port}`}
-					{websocketUrl}
-					welcome={[`Trying ${selectedHost.hostname}...`, 'Opening websocket bridge...', '']}
-				/>
+				{#if sessionPaused && activeProtocol === 'telnet'}
+					<StatePanel
+						state="disconnected"
+						title="Telnet disconnected"
+						detail="Reconnect to create a new session."
+					/>
+				{:else if browser && activeProtocol === 'telnet'}
+					{#key `telnet:${selectedHost.id}:${reconnectNonce}`}
+						{#await getSessionLaunch(selectedHost.id, 'telnet')}
+							<StatePanel
+								state="loading"
+								title="Opening Telnet"
+								detail="Creating a session ticket."
+							/>
+						{:then currentLaunch}
+							<TerminalPane
+								title="Telnet terminal"
+								subtitle={`${selectedHost.hostname}:${selectedHost.port}`}
+								websocketUrl={currentLaunch.websocketPath
+									? toWebSocketUrl(currentLaunch.websocketPath)
+									: undefined}
+								welcome={[`Trying ${selectedHost.hostname}...`, 'Opening websocket bridge...', '']}
+							/>
+						{:catch caught}
+							<StatePanel
+								state="error"
+								title="Session launch failed"
+								detail={errorMessage(caught)}
+							/>
+						{/await}
+					{/key}
+				{/if}
 			</Tabs.Content>
 		</Tabs.Root>
-
-		{#if launchError}
-			<StatePanel
-				state="error"
-				title="Session launch failed"
-				detail={launchError}
-				class="absolute right-3 bottom-3 left-3 bg-background"
-			/>
-		{/if}
 	{/if}
 </section>

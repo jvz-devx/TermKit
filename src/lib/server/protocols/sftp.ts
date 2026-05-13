@@ -8,6 +8,10 @@ import {
 } from 'ssh2';
 import { ServiceNotFoundError, ServiceValidationError } from '$lib/server/services/errors';
 import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
+import {
+	credentialPassphraseContext,
+	credentialSecretContext
+} from '$lib/server/services/credentials';
 import { termixRepository } from '$lib/server/services/repository';
 import type {
 	CredentialCrypto,
@@ -70,7 +74,7 @@ export async function resolveSftpTarget(
 		host: host.hostname,
 		port: host.port,
 		username,
-		credential: credential ? decryptCredential(credential, crypto) : undefined
+		credential: credential ? decryptCredential(userId, credential, crypto) : undefined
 	};
 }
 
@@ -284,11 +288,18 @@ function toEntry(directory: string, entry: FileEntryWithStats): SftpEntry {
 	};
 }
 
-function decryptCredential(credential: CredentialRecord, crypto: CredentialCrypto): Credential {
-	const secret = crypto.decrypt({
-		ciphertext: credential.encryptedSecret,
-		metadata: credential.encryption
-	});
+function decryptCredential(
+	userId: string,
+	credential: CredentialRecord,
+	crypto: CredentialCrypto
+): Credential {
+	const secret = crypto.decrypt(
+		{
+			ciphertext: credential.encryptedSecret,
+			metadata: credential.encryption
+		},
+		credentialSecretContext(userId, credential.id)
+	);
 
 	if (credential.kind === 'password') {
 		return {
@@ -302,9 +313,51 @@ function decryptCredential(credential: CredentialRecord, crypto: CredentialCrypt
 		kind: 'ssh_key',
 		username: credential.username ?? undefined,
 		privateKey: secret,
-		passphrase:
-			typeof credential.metadata.passphrase === 'string'
-				? credential.metadata.passphrase
-				: undefined
+		passphrase: decryptPassphrase(userId, credential, crypto)
 	};
+}
+
+function decryptPassphrase(
+	userId: string,
+	credential: CredentialRecord,
+	crypto: CredentialCrypto
+): string | undefined {
+	const encrypted = credential.metadata.encryptedPassphrase;
+	if (isEncryptedMetadataSecret(encrypted)) {
+		return crypto.decrypt(
+			{
+				ciphertext: encrypted.ciphertext,
+				metadata: encrypted.encryption
+			},
+			credentialPassphraseContext(userId, credential.id)
+		);
+	}
+
+	return typeof credential.metadata.passphrase === 'string'
+		? credential.metadata.passphrase
+		: undefined;
+}
+
+function isEncryptedMetadataSecret(
+	value: unknown
+): value is { ciphertext: string; encryption: CredentialRecord['encryption'] } {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		!Array.isArray(value) &&
+		typeof (value as { ciphertext?: unknown }).ciphertext === 'string' &&
+		isEncryptionMetadata((value as { encryption?: unknown }).encryption)
+	);
+}
+
+function isEncryptionMetadata(value: unknown): value is CredentialRecord['encryption'] {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+	const metadata = value as Partial<CredentialRecord['encryption']>;
+	return (
+		metadata.algorithm === 'aes-256-gcm' &&
+		typeof metadata.keyVersion === 'number' &&
+		typeof metadata.iv === 'string' &&
+		typeof metadata.authTag === 'string' &&
+		typeof metadata.salt === 'string'
+	);
 }

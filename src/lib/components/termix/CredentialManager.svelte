@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { KeyRound, Plus, ShieldCheck, Trash2 } from '@lucide/svelte';
+	import { KeyRound, Pencil, Plus, ShieldCheck, Trash2 } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -8,7 +8,12 @@
 	import * as Select from '$lib/components/ui/select';
 	import * as Table from '$lib/components/ui/table';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { deleteCredential, listCredentials, saveCredential } from '$lib/termix.remote';
+	import {
+		deleteCredential,
+		listCredentials,
+		saveCredential,
+		type CredentialSummary
+	} from '$lib/termix.remote';
 
 	const credentialsQuery = listCredentials();
 
@@ -17,12 +22,17 @@
 	let saving = $state(false);
 	let deletingId = $state<string | null>(null);
 	let error = $state<string | null>(null);
-	let form = $state({
-		name: '',
-		kind: 'password',
-		username: '',
-		secret: ''
-	});
+	let editingCredential = $state<CredentialSummary | null>(null);
+	let form = $state(emptyForm());
+
+	type CredentialForm = {
+		name: string;
+		kind: CredentialSummary['kind'];
+		username: string;
+		secret: string;
+	};
+
+	const isEditing = $derived(Boolean(editingCredential));
 
 	let credentials = $derived(credentialsQuery.current ?? []);
 	let filteredCredentials = $derived.by(() => {
@@ -37,12 +47,50 @@
 		);
 	});
 
+	function emptyForm(): CredentialForm {
+		return { name: '', kind: 'password', username: '', secret: '' };
+	}
+
+	function credentialForm(credential: CredentialSummary): CredentialForm {
+		return {
+			name: credential.name,
+			kind: credential.kind,
+			username: credential.username ?? '',
+			secret: ''
+		};
+	}
+
+	function openCreateDialog() {
+		editingCredential = null;
+		form = emptyForm();
+		error = null;
+		open = true;
+	}
+
+	function openEditDialog(credential: CredentialSummary) {
+		editingCredential = credential;
+		form = credentialForm(credential);
+		error = null;
+		open = true;
+	}
+
+	function closeDialog() {
+		open = false;
+	}
+
 	async function submit() {
 		saving = true;
 		error = null;
 		try {
-			await saveCredential(form).updates(listCredentials);
-			form = { name: '', kind: 'password', username: '', secret: '' };
+			await saveCredential({
+				id: editingCredential?.id,
+				name: form.name,
+				kind: form.kind,
+				username: form.username,
+				...(form.secret ? { secret: form.secret } : {})
+			}).updates(listCredentials);
+			editingCredential = null;
+			form = emptyForm();
 			open = false;
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not save credential';
@@ -72,19 +120,29 @@
 			<p class="text-sm text-muted-foreground">Encrypted password and SSH key records.</p>
 		</div>
 		<Dialog.Root bind:open>
-			<Dialog.Trigger>
-				<Button size="sm"><Plus class="size-4" />Credential</Button>
-			</Dialog.Trigger>
+			<Button size="sm" onclick={openCreateDialog}><Plus class="size-4" />Credential</Button>
 			<Dialog.Content class="max-w-xl">
 				<Dialog.Header>
-					<Dialog.Title>Credential</Dialog.Title>
-					<Dialog.Description>Secret values are write-only after save.</Dialog.Description>
+					<Dialog.Title>{isEditing ? 'Edit credential' : 'Credential'}</Dialog.Title>
+					<Dialog.Description>
+						{isEditing
+							? 'Secret values are write-only. Enter a replacement only when rotating.'
+							: 'Secret values are write-only after save.'}
+					</Dialog.Description>
 				</Dialog.Header>
 				<form class="space-y-4" onsubmit={(event) => (event.preventDefault(), submit())}>
 					<div class="grid gap-4 sm:grid-cols-2">
 						<div class="space-y-2">
-							<Label for="credential-name">Name</Label>
-							<Input id="credential-name" bind:value={form.name} required />
+							<Label
+								for={isEditing ? `credential-name-${editingCredential?.id}` : 'credential-name'}
+							>
+								Name
+							</Label>
+							<Input
+								id={isEditing ? `credential-name-${editingCredential?.id}` : 'credential-name'}
+								bind:value={form.name}
+								required
+							/>
 						</div>
 						<div class="space-y-2">
 							<Label>Kind</Label>
@@ -99,17 +157,45 @@
 							</Select.Root>
 						</div>
 						<div class="space-y-2 sm:col-span-2">
-							<Label for="credential-username">Username</Label>
-							<Input id="credential-username" bind:value={form.username} />
+							<Label
+								for={isEditing
+									? `credential-username-${editingCredential?.id}`
+									: 'credential-username'}
+							>
+								Username
+							</Label>
+							<Input
+								id={isEditing
+									? `credential-username-${editingCredential?.id}`
+									: 'credential-username'}
+								bind:value={form.username}
+							/>
 						</div>
 						<div class="space-y-2 sm:col-span-2">
-							<Label for="credential-secret">
+							<Label
+								for={isEditing ? `credential-secret-${editingCredential?.id}` : 'credential-secret'}
+							>
 								{form.kind === 'ssh_key' ? 'Private key' : 'Password'}
 							</Label>
 							{#if form.kind === 'ssh_key'}
-								<Textarea id="credential-secret" bind:value={form.secret} required />
+								<Textarea
+									id={isEditing
+										? `credential-secret-${editingCredential?.id}`
+										: 'credential-secret'}
+									bind:value={form.secret}
+									placeholder={isEditing ? 'Leave blank to keep the current private key' : ''}
+									required={!isEditing}
+								/>
 							{:else}
-								<Input id="credential-secret" type="password" bind:value={form.secret} required />
+								<Input
+									id={isEditing
+										? `credential-secret-${editingCredential?.id}`
+										: 'credential-secret'}
+									type="password"
+									bind:value={form.secret}
+									placeholder={isEditing ? 'Leave blank to keep the current password' : ''}
+									required={!isEditing}
+								/>
 							{/if}
 						</div>
 					</div>
@@ -117,9 +203,9 @@
 						<p class="text-sm text-destructive">{error}</p>
 					{/if}
 					<Dialog.Footer>
-						<Button type="button" variant="outline" onclick={() => (open = false)}>Cancel</Button>
+						<Button type="button" variant="outline" onclick={closeDialog}>Cancel</Button>
 						<Button type="submit" disabled={saving}>
-							{saving ? 'Saving...' : 'Save credential'}
+							{saving ? 'Saving...' : isEditing ? 'Save changes' : 'Save credential'}
 						</Button>
 					</Dialog.Footer>
 				</form>
@@ -146,7 +232,7 @@
 							<Table.Head>Username</Table.Head>
 							<Table.Head>Used by</Table.Head>
 							<Table.Head>Updated</Table.Head>
-							<Table.Head class="w-12"></Table.Head>
+							<Table.Head class="w-24 text-right">Actions</Table.Head>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
@@ -171,15 +257,25 @@
 										{new Date(credential.updatedAt).toLocaleString()}
 									</Table.Cell>
 									<Table.Cell>
-										<Button
-											variant="ghost"
-											size="icon"
-											aria-label={`Delete ${credential.name}`}
-											disabled={deletingId === credential.id}
-											onclick={() => remove(credential.id, credential.name)}
-										>
-											<Trash2 class="size-4" />
-										</Button>
+										<div class="flex justify-end gap-1">
+											<Button
+												variant="ghost"
+												size="icon"
+												aria-label={`Edit ${credential.name}`}
+												onclick={() => openEditDialog(credential)}
+											>
+												<Pencil class="size-4" />
+											</Button>
+											<Button
+												variant="ghost"
+												size="icon"
+												aria-label={`Delete ${credential.name}`}
+												disabled={deletingId === credential.id}
+												onclick={() => remove(credential.id, credential.name)}
+											>
+												<Trash2 class="size-4" />
+											</Button>
+										</div>
 									</Table.Cell>
 								</Table.Row>
 							{:else}

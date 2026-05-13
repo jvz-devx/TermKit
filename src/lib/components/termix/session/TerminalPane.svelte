@@ -6,6 +6,7 @@
 	import StatePanel from '../StatePanel.svelte';
 
 	type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected';
+	type TerminalResizeFrame = { type: 'terminal.resize'; cols: number; rows: number };
 
 	let {
 		title,
@@ -23,9 +24,10 @@
 	let dimensions = $state('pending');
 	let connectionState = $state<ConnectionState>('idle');
 	let detail = $state('Waiting for session ticket.');
+	const textEncoder = new TextEncoder();
 
 	onMount(() => {
-		const terminal = new Terminal({
+		const instance = new Terminal({
 			cursorBlink: true,
 			fontFamily: 'JetBrains Mono, Menlo, Consolas, monospace',
 			fontSize: 13,
@@ -38,7 +40,6 @@
 			}
 		});
 		const fitAddon = new FitAddon();
-		let socket: WebSocket | undefined;
 		let fitTimer: ReturnType<typeof setTimeout> | undefined;
 
 		const fit = () => {
@@ -46,39 +47,53 @@
 			fitTimer = setTimeout(() => {
 				try {
 					fitAddon.fit();
-					dimensions = `${terminal.cols}x${terminal.rows}`;
+					dimensions = `${instance.cols}x${instance.rows}`;
 				} catch {
 					// xterm can briefly be detached while tabs resize.
 				}
 			}, 40);
 		};
 
-		terminal.loadAddon(fitAddon);
-		terminal.open(terminalElement);
-		terminal.focus();
+		instance.loadAddon(fitAddon);
+		instance.open(terminalElement);
+		instance.focus();
 		fit();
 
 		for (const line of welcome) {
-			terminal.writeln(line);
+			instance.writeln(line);
 		}
 
 		const resizeObserver = new ResizeObserver(fit);
 		resizeObserver.observe(terminalElement);
+		let socket: WebSocket | undefined;
+		let dataDisposable: { dispose: () => void } | undefined;
+		let resizeDisposable: { dispose: () => void } | undefined;
 
-		if (websocketUrl) {
+		if (!websocketUrl) {
+			connectionState = 'idle';
+			detail = 'Waiting for session ticket.';
+		} else {
 			connectionState = 'connecting';
 			detail = 'Opening websocket session.';
+
 			socket = new WebSocket(websocketUrl);
 			socket.binaryType = 'arraybuffer';
 
+			dataDisposable = instance.onData((data) => {
+				if (socket?.readyState === WebSocket.OPEN) socket.send(textEncoder.encode(data));
+			});
+			resizeDisposable = instance.onResize((size) => socket && sendResize(socket, size));
+
 			socket.addEventListener('open', () => {
+				if (!socket || socket.readyState !== WebSocket.OPEN) return;
 				connectionState = 'connected';
 				detail = 'Terminal stream is connected.';
-				terminal.focus();
+				sendResize(socket, { cols: instance.cols, rows: instance.rows });
+				instance.focus();
 			});
 			socket.addEventListener('message', (event) => {
-				if (typeof event.data === 'string') terminal.write(event.data);
-				else terminal.write(new Uint8Array(event.data));
+				if (typeof event.data === 'string') instance.write(event.data);
+				else instance.write(new Uint8Array(event.data));
 			});
 			socket.addEventListener('close', () => {
 				connectionState = 'disconnected';
@@ -88,16 +103,27 @@
 				connectionState = 'error';
 				detail = 'Terminal websocket failed.';
 			});
-			terminal.onData((data) => socket?.readyState === WebSocket.OPEN && socket.send(data));
 		}
 
 		return () => {
 			clearTimeout(fitTimer);
 			resizeObserver.disconnect();
+			dataDisposable?.dispose();
+			resizeDisposable?.dispose();
 			socket?.close();
-			terminal.dispose();
+			instance.dispose();
 		};
 	});
+
+	function sendResize(socket: WebSocket, size: { cols: number; rows: number }) {
+		if (socket.readyState !== WebSocket.OPEN) return;
+		const frame: TerminalResizeFrame = {
+			type: 'terminal.resize',
+			cols: size.cols,
+			rows: size.rows
+		};
+		socket.send(JSON.stringify(frame));
+	}
 </script>
 
 <div class="flex h-full min-h-[480px] flex-col overflow-hidden rounded-md border bg-zinc-950">

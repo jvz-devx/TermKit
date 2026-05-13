@@ -3,6 +3,8 @@ import { hostService } from '$lib/server/services/hosts';
 import { credentialService } from '$lib/server/services/credentials';
 import { sessionTicketService } from '$lib/server/services/session-tickets';
 import { ServiceUnauthorizedError, ServiceValidationError } from '$lib/server/services/errors';
+import { RdpGatewayBootstrapper, type RdpGatewayBootstrap } from '$lib/server/rdp/gateway';
+import { SessionTicketConsumer } from '$lib/server/ws/ticket-consumer';
 import type { CredentialKind, HostProtocol } from '$lib/server/services/types';
 
 export type HostSummary = {
@@ -60,6 +62,7 @@ export type SessionLaunch = {
 	ticket: string | null;
 	websocketPath: string | null;
 	expiresAt: string | null;
+	rdp: RdpGatewayBootstrap | null;
 };
 
 export const listHosts = query(async () => {
@@ -208,7 +211,8 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 				protocol,
 				ticket: null,
 				websocketPath: null,
-				expiresAt: null
+				expiresAt: null,
+				rdp: null
 			};
 		}
 
@@ -220,12 +224,29 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 		const launchProtocol = created.record.protocol;
 		const ticket = created.ticket;
 
+		if (launchProtocol === 'rdp') {
+			const bootstrapper = new RdpGatewayBootstrapper();
+			const consumed = await new SessionTicketConsumer().consume(ticket, 'rdp');
+			if (!consumed) throw new ServiceValidationError(['Could not authorize RDP launch']);
+			const rdp = await bootstrapper.bootstrap(consumed);
+
+			return {
+				hostId,
+				protocol: launchProtocol,
+				ticket: null,
+				websocketPath: null,
+				expiresAt: created.record.expiresAt.toISOString(),
+				rdp
+			};
+		}
+
 		return {
 			hostId,
 			protocol: launchProtocol,
 			ticket,
 			websocketPath: `/ws/${launchProtocol}/${encodeURIComponent(ticket)}`,
-			expiresAt: created.record.expiresAt.toISOString()
+			expiresAt: created.record.expiresAt.toISOString(),
+			rdp: null
 		};
 	}
 );

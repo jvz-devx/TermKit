@@ -4,16 +4,17 @@
 	import RFB, { type RfbClient } from './novnc-rfb';
 
 	type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected';
+	type CredentialStrategy = 'none' | 'saved';
 
 	let {
 		websocketUrl,
 		username,
-		password,
+		credentialStrategy = 'none',
 		viewOnly = false
 	}: {
 		websocketUrl?: string;
 		username?: string;
-		password?: string;
+		credentialStrategy?: CredentialStrategy;
 		viewOnly?: boolean;
 	} = $props();
 
@@ -26,13 +27,17 @@
 		let rfb: RfbClient | undefined;
 		let resizeObserver: ResizeObserver | undefined;
 
-		if (!websocketUrl) return;
+		if (!websocketUrl) {
+			connectionState = 'idle';
+			detail = 'Waiting for VNC session ticket.';
+			return;
+		}
 
 		connectionState = 'connecting';
 		detail = 'Opening VNC websocket.';
 		rfb = new RFB(mountElement, websocketUrl, {
 			shared: true,
-			credentials: { username, password }
+			credentials: username ? { username } : undefined
 		});
 		rfb.viewOnly = viewOnly;
 		rfb.focusOnClick = true;
@@ -56,11 +61,11 @@
 			detail = 'VNC security negotiation failed.';
 		});
 		rfb.addEventListener('credentialsrequired', () => {
-			if (password) rfb?.sendCredentials({ username, password });
-			else {
-				connectionState = 'error';
-				detail = 'VNC password is required by the target.';
-			}
+			connectionState = 'error';
+			detail =
+				credentialStrategy === 'saved'
+					? 'Saved VNC credentials are kept server-side and are not exposed to this browser session.'
+					: 'VNC password is required by the target.';
 		});
 		rfb.addEventListener('desktopname', (event) => {
 			desktopName =

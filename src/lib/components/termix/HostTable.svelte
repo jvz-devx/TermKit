@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { MoreHorizontal, Play, Search, SlidersHorizontal, Trash2 } from '@lucide/svelte';
+	import { Play, Search, SlidersHorizontal, Trash2 } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -158,6 +158,7 @@
 									>
 										<Play class="size-4" />
 									</Button>
+									<HostDialog {credentials} {host} onSaved={() => hostsQuery.refresh()} />
 									<Button
 										size="icon"
 										variant="ghost"
@@ -166,9 +167,6 @@
 										onclick={() => remove(host)}
 									>
 										<Trash2 class="size-4" />
-									</Button>
-									<Button size="icon" variant="ghost" aria-label={`More actions for ${host.name}`}>
-										<MoreHorizontal class="size-4" />
 									</Button>
 								</div>
 							</Table.Cell>
