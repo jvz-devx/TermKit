@@ -5,8 +5,8 @@ import { InMemoryTermixServicesRepository } from '../repository';
 import { SshLiveSessionService } from '../ssh-live-sessions';
 
 describe('SshLiveSessionService', () => {
-	it('creates an SSH live session and reuses the open session for the same host', async () => {
-		expect.assertions(6);
+	it('creates separate same-host sessions unless reuse is requested', async () => {
+		expect.assertions(9);
 
 		const repository = new InMemoryTermixServicesRepository();
 		const hosts = new HostService(repository);
@@ -24,10 +24,15 @@ describe('SshLiveSessionService', () => {
 			terminalRows: 32,
 			now: new Date('2026-05-13T12:00:00.000Z')
 		});
+		const second = await service.createOrReuse('user-1', {
+			hostId: host.id,
+			now: new Date('2026-05-13T12:00:01.000Z')
+		});
 		const reused = await service.createOrReuse('user-1', {
 			hostId: host.id,
 			title: 'Renamed tab',
-			now: new Date('2026-05-13T12:00:01.000Z')
+			reuseExisting: true,
+			now: new Date('2026-05-13T12:00:02.000Z')
 		});
 
 		expect(created.reused).toBe(false);
@@ -39,10 +44,13 @@ describe('SshLiveSessionService', () => {
 			terminalCols: 120,
 			terminalRows: 32
 		});
+		expect(second.reused).toBe(false);
+		expect(second.session.id).not.toBe(created.session.id);
+		expect(second.session.title).toBe('Production shell 2');
 		expect(reused.reused).toBe(true);
 		expect(reused.session.id).toBe(created.session.id);
 		expect(reused.session.title).toBe('Renamed tab');
-		await expect(service.list('user-1')).resolves.toHaveLength(1);
+		await expect(service.list('user-1')).resolves.toHaveLength(2);
 	});
 
 	it('rejects non-SSH hosts and unavailable host credentials', async () => {
@@ -82,6 +90,61 @@ describe('SshLiveSessionService', () => {
 		).rejects.toMatchObject({
 			issues: ['host credential must reference an existing credential owned by the user']
 		});
+	});
+
+	it('allows multiple live sessions per user up to the configured limit', async () => {
+		expect.assertions(9);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository, {
+			maxLiveSessionsPerUser: 2
+		});
+		const firstHost = await hosts.create('user-1', {
+			name: 'Shell 1',
+			protocol: 'ssh',
+			hostname: 'shell-1.example.test',
+			port: 22
+		});
+		const secondHost = await hosts.create('user-1', {
+			name: 'Shell 2',
+			protocol: 'ssh',
+			hostname: 'shell-2.example.test',
+			port: 22
+		});
+		const thirdHost = await hosts.create('user-1', {
+			name: 'Shell 3',
+			protocol: 'ssh',
+			hostname: 'shell-3.example.test',
+			port: 22
+		});
+		const otherUserHost = await hosts.create('user-2', {
+			name: 'Other shell',
+			protocol: 'ssh',
+			hostname: 'other.example.test',
+			port: 22
+		});
+
+		const first = await service.createOrReuse('user-1', { hostId: firstHost.id });
+		const second = await service.createOrReuse('user-1', { hostId: firstHost.id });
+
+		expect(first.reused).toBe(false);
+		expect(second.reused).toBe(false);
+		expect(second.session.id).not.toBe(first.session.id);
+		expect(second.session.title).toBe('Shell 1 2');
+		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(2);
+		await expect(service.createOrReuse('user-1', { hostId: secondHost.id })).rejects.toMatchObject({
+			issues: ['live SSH session limit reached (2)']
+		});
+
+		const otherUser = await service.createOrReuse('user-2', { hostId: otherUserHost.id });
+		expect(otherUser.reused).toBe(false);
+
+		await service.end('user-1', first.session.id);
+		const afterEnd = await service.createOrReuse('user-1', { hostId: thirdHost.id });
+
+		expect(afterEnd.reused).toBe(false);
+		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(2);
 	});
 
 	it('renames sessions and records attach/detach idle metadata', async () => {
@@ -166,6 +229,85 @@ describe('SshLiveSessionService', () => {
 		await expect(
 			service.consumeAttachTicket(created.ticket, new Date('2026-05-13T12:00:02.000Z'), 'user-2')
 		).rejects.toBeInstanceOf(TicketInvalidError);
+	});
+
+	it('persists close, end, and fail terminal statuses', async () => {
+		expect.assertions(9);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository, {
+			detachedIdleTtlMs: 5_000
+		});
+		const closeHost = await hosts.create('user-1', {
+			name: 'Close shell',
+			protocol: 'ssh',
+			hostname: 'close.example.test',
+			port: 22
+		});
+		const endHost = await hosts.create('user-1', {
+			name: 'End shell',
+			protocol: 'ssh',
+			hostname: 'end.example.test',
+			port: 22
+		});
+		const failHost = await hosts.create('user-1', {
+			name: 'Fail shell',
+			protocol: 'ssh',
+			hostname: 'fail.example.test',
+			port: 22
+		});
+		const closeSession = await service.createOrReuse('user-1', { hostId: closeHost.id });
+		const endSession = await service.createOrReuse('user-1', { hostId: endHost.id });
+		const failSession = await service.createOrReuse('user-1', { hostId: failHost.id });
+
+		await service.markDetached(
+			'user-1',
+			closeSession.session.id,
+			new Date('2026-05-13T12:00:00.000Z')
+		);
+
+		await expect(
+			service.close('user-1', closeSession.session.id, new Date('2026-05-13T12:00:01.000Z'))
+		).resolves.toMatchObject({
+			status: 'ended',
+			endedAt: new Date('2026-05-13T12:00:01.000Z'),
+			expiresAt: null
+		});
+		await expect(
+			service.end('user-1', endSession.session.id, new Date('2026-05-13T12:00:02.000Z'))
+		).resolves.toMatchObject({
+			status: 'ended',
+			endedAt: new Date('2026-05-13T12:00:02.000Z'),
+			expiresAt: null
+		});
+		await expect(
+			service.fail('user-1', failSession.session.id, new Date('2026-05-13T12:00:03.000Z'))
+		).resolves.toMatchObject({
+			status: 'failed',
+			endedAt: new Date('2026-05-13T12:00:03.000Z'),
+			expiresAt: null
+		});
+		await expect(
+			service.createAttachTicket('user-1', closeSession.session.id)
+		).rejects.toMatchObject({ issues: ['SSH live session is not attachable'] });
+		await expect(service.createAttachTicket('user-1', endSession.session.id)).rejects.toMatchObject(
+			{
+				issues: ['SSH live session is not attachable']
+			}
+		);
+		await expect(
+			service.createAttachTicket('user-1', failSession.session.id)
+		).rejects.toMatchObject({ issues: ['SSH live session is not attachable'] });
+		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(0);
+		await expect(service.list('user-1')).resolves.toHaveLength(3);
+		await expect(service.list('user-1')).resolves.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: closeSession.session.id, status: 'ended' }),
+				expect.objectContaining({ id: endSession.session.id, status: 'ended' }),
+				expect.objectContaining({ id: failSession.session.id, status: 'failed' })
+			])
+		);
 	});
 
 	it('rejects expired attach tickets without consuming them', async () => {

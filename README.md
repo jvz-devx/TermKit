@@ -1,6 +1,6 @@
 # TermixKit
 
-TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. V1 targets one Docker Compose deployment with the app, Postgres, and Devolutions Gateway wiring for browser-based RDP through the app's single public HTTP port.
+TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. The current V2 app keeps the V1 Docker Compose shape: one public app port, Postgres on the Compose network or loopback for local tooling, and Devolutions Gateway reached through the app's `/gateway` proxy for browser RDP.
 
 ## Milestones
 
@@ -16,23 +16,41 @@ TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. V1 t
 
 ## Application Navigation
 
-TermixKit keeps the sidebar at the application-workflow level rather than listing individual hosts. Host records live under **Inventory**, reusable secrets live under **Credentials**, Termix data migration lives under **Import from Termix**, and all protocol launches start from the **Session workspace**. The session workspace has its own host search and protocol filters, so SSH, SFTP, RDP, VNC, and Telnet choices stay close to the actual session UI instead of becoming global sidebar destinations.
+TermixKit uses logical workspace navigation, not a host tree in the sidebar:
+
+- **Inventory**: host records at `/hosts`, reusable secrets at `/credentials`, and the Termix importer at `/import`.
+- **Connections**: the session workspace at `/sessions`.
+- **Administration**: application defaults at `/settings`.
+
+The session workspace is the launcher for every protocol. It stores the selected host and protocol in URL query parameters, provides host search and protocol filters, and only shows protocol tabs supported by the selected host. SSH hosts expose both SSH and SFTP tabs; RDP, VNC, and Telnet hosts expose their own protocol tab.
 
 ## Live SSH Sessions
 
-V2 adds app-owned live SSH sessions behind `/ws/ssh/live/:ticket`. The remote functions create short-lived attach tickets, the production server consumes them after normal app-session authentication, and an in-process live SSH manager keeps the shell alive across browser websocket disconnects. Reattaching to a live session replays bounded scrollback and takes over the active browser attachment for that session.
+V2 adds app-owned live SSH sessions behind `/ws/ssh/live/:ticket`. Remote functions create short-lived attach tickets, the production server consumes them after normal app-session authentication, and an in-process live SSH manager keeps the shell alive across browser websocket disconnects. Reattaching replays bounded in-memory scrollback and takes over the single active browser attachment for that live session.
 
-The session workspace now has a compact SSH tab strip for opening, renaming, reattaching, and closing live SSH sessions. Live session metadata is stored in Postgres through `ssh_live_sessions` and `ssh_attach_tickets`; startup reconciliation and detached idle expiry are implemented in the service layer so stale app-owned sessions can be marked without relying on browser state.
+The session workspace has an SSH tab strip for opening, renaming, reattaching, and closing live SSH sessions. Metadata is stored in Postgres through `ssh_live_sessions` and `ssh_attach_tickets`, but SSH processes and terminal output are not persisted. A live SSH tab can survive browser refreshes and reconnects while the TermixKit app process stays up; it does not survive app or container restart. Startup marks old metadata as `stale`, detached sessions expire after the default two-hour idle window, attach tickets default to 60 seconds, and each user is limited to 10 live SSH sessions. SFTP, RDP, VNC, and Telnet continue to use the V1 launch-ticket behavior.
+
+## Microsoft Entra Login
+
+Local username/password auth remains available. Microsoft Entra login is enabled only when `MICROSOFT_AUTH_ENABLED` is truthy and the required tenant, client, secret, allowed-domain, and admin-email settings are present. Configure the Entra app registration as a web app with the redirect URI `${ORIGIN}/auth/microsoft/callback`, or set `MICROSOFT_REDIRECT_URI` to an absolute override.
+
+The flow uses authorization code + PKCE and defaults to `openid profile email` scopes. `MICROSOFT_SCOPES` can override the scopes but must include `openid`. Tenant IDs must be tenant-specific UUIDs or verified tenant domains; shared authorities such as `common`, `organizations`, and `consumers` are rejected in production. New Microsoft users are auto-provisioned only when their normalized email domain is in `MICROSOFT_ALLOWED_DOMAINS`. If TermixKit has no users yet, the first Microsoft sign-in must match `MICROSOFT_ADMIN_EMAILS`; after setup, domain-allowed Microsoft users can provision normal sessions, and any listed admin email is promoted to a TermixKit admin on provisioning or subsequent login.
 
 ## Local Development
 
-Enter the Nix dev shell before running project tooling:
+Enter the Nix dev shell before running interactive project tooling:
 
 ```sh
 nix develop
 ```
 
-Install dependencies inside the shell:
+One-shot commands should also run through the dev shell:
+
+```sh
+nix develop -c npm install
+```
+
+Install dependencies inside an already-entered shell:
 
 ```sh
 npm install
@@ -118,6 +136,8 @@ Do not commit real values for any secret.
 - `MICROSOFT_CLIENT_SECRET`: Entra application client secret. Keep it out of source control and rotate it through the deployment secret store.
 - `MICROSOFT_ALLOWED_DOMAINS`: comma-separated bare email domains allowed to auto-provision through Microsoft login, for example `example.com,example.org`. Wildcards are rejected.
 - `MICROSOFT_ADMIN_EMAILS`: comma-separated Microsoft account email addresses that should provision as TermixKit admins.
+- `MICROSOFT_REDIRECT_URI`: optional absolute redirect URI override. Defaults to `${ORIGIN}/auth/microsoft/callback`.
+- `MICROSOFT_SCOPES`: optional comma- or whitespace-separated OIDC scopes. Defaults to `openid profile email` and must include `openid`.
 - Microsoft app registration: configure a web redirect URI at `${ORIGIN}/auth/microsoft/callback` unless `MICROSOFT_REDIRECT_URI` is explicitly set. The auth flow uses authorization code + PKCE with `openid profile email` scopes by default.
 - `TERMIXKIT_SSH_KNOWN_HOSTS_PATH`: JSON SSH/SFTP known-host trust store. Compose mounts `app-data` at `/var/lib/termixkit` and defaults this to `/var/lib/termixkit/ssh-known-hosts.json` so TOFU pins survive container rebuilds.
 - `TERMIXKIT_SSH_TRUST_ON_FIRST_USE`: set to `1` only while enrolling trusted SSH/SFTP hosts. Leave unset or `0` for strict known-host checking.
@@ -156,7 +176,7 @@ Current limitations are intentional and visible in validation results:
 Run the importer tests:
 
 ```sh
-npm run test:unit -- --run src/lib/server/import/termix.spec.ts
+nix develop -c npm run test:unit -- --run src/lib/server/import/termix.spec.ts
 ```
 
 Run the full unit suite:

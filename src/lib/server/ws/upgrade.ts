@@ -485,14 +485,17 @@ async function handleLiveSshConnection(
 				terminalRows: attachTicket.terminalRows
 			})
 			.catch(() => undefined);
-		webSocket.once('close', (_code, reason) => {
+		webSocket.once('close', (code, reason) => {
 			const closeReason = reason.toString('utf8');
 			if (closeReason === 'ssh session reattached') return;
 			if (liveSshManager.hasActiveAttachment?.(attachTicket.sshLiveSessionId)) return;
 
-			void persistLiveSshSocketClose(liveSshSessions, attachTicket, closeReason);
+			void persistLiveSshSocketClose(liveSshSessions, attachTicket, code, closeReason);
 		});
 	} catch {
+		void liveSshSessions
+			.fail(attachTicket.userId, attachTicket.sshLiveSessionId)
+			.catch(() => undefined);
 		if (webSocket.readyState === webSocket.OPEN) {
 			webSocket.close(1011, 'live ssh manager failed');
 		}
@@ -502,6 +505,7 @@ async function handleLiveSshConnection(
 async function persistLiveSshSocketClose(
 	liveSshSessions: Pick<SshLiveSessionService, 'markDetached' | 'end' | 'fail'>,
 	attachTicket: SshAttachTicket,
+	closeCode: number,
 	closeReason: string
 ): Promise<void> {
 	if (closeReason === 'ssh shell closed') {
@@ -512,6 +516,7 @@ async function persistLiveSshSocketClose(
 	}
 
 	if (
+		isFailedCloseCode(closeCode) ||
 		closeReason === 'ssh shell failed' ||
 		closeReason === 'ssh connection failed' ||
 		closeReason === 'ssh host key not trusted' ||

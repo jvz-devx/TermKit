@@ -84,7 +84,7 @@ try {
 	const api = createApiClient(app.baseUrl, auth.cookieHeader);
 	const credential = await createSshCredential(api);
 	const sshHost = await createHost(api, {
-		name: 'Smoke SSH fixture',
+		name: 'Smoke SSH fixture A',
 		protocol: 'ssh',
 		hostname: '127.0.0.1',
 		port: fixtures.sshPort,
@@ -97,8 +97,11 @@ try {
 	await smokeSshWebSocket(api, app.baseUrl, auth.cookieHeader, sshHost.id);
 	pass('SSH websocket shell', 'saw ssh-ready and ssh-echo:smoke-shell');
 
-	await smokeLiveSshSessionUi(auth.page, sshHost.id);
-	pass('Live SSH workspace tab', 'opened /ws/ssh/live session and saw shell readiness');
+	await smokeLiveSshSessionUi(auth.page, app.baseUrl, sshHost.id);
+	pass(
+		'Live SSH workspace tabs',
+		'created multiple tabs, reattached after refresh/new context, and closed from UI'
+	);
 
 	await smokeSftpApi(api, sshHost.id);
 	pass('SFTP API list/download/upload', 'verified smoke.txt and uploaded.txt');
@@ -524,23 +527,108 @@ async function smokeSshWebSocket(api, baseUrl, cookieHeader, hostId) {
 	}
 }
 
-async function smokeLiveSshSessionUi(page, hostId) {
+async function smokeLiveSshSessionUi(page, baseUrl, primaryHostId) {
 	const livePage = await page.context().newPage();
+	let detachedBrowser;
+	const primaryTitle = 'Smoke SSH fixture A';
+	const secondTitle = 'Smoke SSH fixture A 2';
 
 	try {
-		await livePage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=ssh`);
-		await livePage.getByRole('button', { name: 'SSH tab' }).click();
-		await waitFor(async () => {
-			const bodyText = (await livePage.locator('body').textContent()) ?? '';
-			return bodyText.includes('Attaching live SSH session...');
-		}, 'Live SSH terminal did not switch to the live websocket path.');
-		await waitFor(async () => {
-			const bodyText = (await livePage.locator('body').textContent()) ?? '';
-			return bodyText.includes('ssh-ready');
-		}, 'Live SSH terminal did not render fixture shell readiness.');
+		await createLiveSshTab(livePage, primaryHostId, primaryTitle);
+		await createLiveSshTab(livePage, primaryHostId, secondTitle);
+		await waitForLiveSshTabCount(livePage, 2);
+
+		await livePage.reload();
+		await attachLiveSshTab(livePage, secondTitle, {
+			message: 'Live SSH tab did not reattach after browser refresh.'
+		});
+
+		detachedBrowser = await openDetachedBrowserContext(page, baseUrl);
+		await detachedBrowser.page.goto(`/sessions?host=${encodeURIComponent(primaryHostId)}&tab=ssh`);
+		await attachLiveSshTab(detachedBrowser.page, primaryTitle, {
+			message: 'Live SSH tab did not reattach from a separate browser context.'
+		});
+
+		await closeLiveSshTab(detachedBrowser.page, primaryTitle);
+		await closeLiveSshTab(detachedBrowser.page, secondTitle);
 	} finally {
+		await detachedBrowser?.close().catch(() => {});
 		await livePage.close().catch(() => {});
 	}
+}
+
+async function createLiveSshTab(page, hostId, title) {
+	await page.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=ssh`);
+	await page.getByRole('button', { name: 'SSH tab' }).click();
+	await waitForLiveSshTab(page, title);
+	await waitForLiveSshAttach(page, `Live SSH terminal for ${title} did not attach.`);
+}
+
+async function attachLiveSshTab(page, title, { message }) {
+	await waitForLiveSshTab(page, title);
+	await liveSshTabRow(page, title).locator('button').first().click();
+	await waitForLiveSshAttach(page, message);
+}
+
+async function closeLiveSshTab(page, title) {
+	await waitForLiveSshTab(page, title);
+	await liveSshTabRow(page, title)
+		.getByRole('button', { name: `Close SSH tab ${title}`, exact: true })
+		.click();
+	await waitFor(
+		async () => (await liveSshTabRow(page, title).count()) === 0,
+		`Live SSH tab ${title} was not removed after closing.`
+	);
+}
+
+async function waitForLiveSshTab(page, title) {
+	await waitFor(
+		async () => (await liveSshTabRow(page, title).count()) > 0,
+		`Live SSH tab ${title} did not appear.`
+	);
+}
+
+async function waitForLiveSshTabCount(page, expectedCount) {
+	await waitFor(
+		async () => (await page.locator('[data-active]').count()) >= expectedCount,
+		`Live SSH tab strip did not show ${expectedCount} sessions.`
+	);
+}
+
+async function waitForLiveSshAttach(page, message) {
+	await waitFor(async () => {
+		const bodyText = (await page.locator('body').textContent()) ?? '';
+		return bodyText.includes('Attaching live SSH session...');
+	}, 'Live SSH terminal did not switch to the live websocket path.');
+	await waitFor(async () => {
+		const bodyText = (await page.locator('body').textContent()) ?? '';
+		return bodyText.includes('ssh-ready');
+	}, message);
+}
+
+function liveSshTabRow(page, title) {
+	return page.locator(`[data-live-ssh-tab-title="${cssAttributeValue(title)}"]`);
+}
+
+function cssAttributeValue(value) {
+	return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+async function openDetachedBrowserContext(page, baseUrl) {
+	const browser = await chromium.launch({
+		headless: true,
+		executablePath: await chromiumExecutablePath(),
+		args: ['--no-first-run', '--disable-default-apps']
+	});
+	const context = await browser.newContext({
+		baseURL: baseUrl,
+		storageState: await page.context().storageState()
+	});
+
+	return {
+		page: await context.newPage(),
+		close: () => browser.close()
+	};
 }
 
 async function smokeSftpApi(api, hostId) {

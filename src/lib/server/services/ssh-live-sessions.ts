@@ -34,6 +34,7 @@ export interface CreateOrReuseSshLiveSessionInput {
 	title?: unknown;
 	terminalCols?: unknown;
 	terminalRows?: unknown;
+	reuseExisting?: unknown;
 	now?: Date;
 }
 
@@ -78,9 +79,21 @@ export class SshLiveSessionService {
 		const { hostId, title, terminalCols, terminalRows } = validateCreateInput(input);
 		const host = await this.getSshHostForUser(userId, hostId);
 		const now = input.now ?? new Date();
-		const reusable = await this.repository.findReusableSshLiveSession(userId, host.id);
+		const reuseExisting = input.reuseExisting === true;
+		const openSessions = await this.repository.listSshLiveSessions(userId);
+		const activeSessions: SshLiveSessionRecord[] = [];
 
-		if (reusable && !isExpiredDetachedSession(reusable, now)) {
+		for (const session of openSessions) {
+			if (!isLiveStatus(session.status)) continue;
+			if (isExpiredDetachedSession(session, now)) {
+				await this.endExpiredSession(userId, session, now);
+				continue;
+			}
+			activeSessions.push(session);
+		}
+
+		const reusable = activeSessions.find((session) => session.hostId === host.id) ?? null;
+		if (reuseExisting && reusable) {
 			const updated = await this.repository.updateSshLiveSession(userId, reusable.id, {
 				title: title ?? reusable.title,
 				terminalCols,
@@ -90,20 +103,21 @@ export class SshLiveSessionService {
 			return { session: updated ?? reusable, reused: true };
 		}
 
-		if (reusable) await this.endExpiredSession(userId, reusable, now);
-
-		const openCount = await this.repository.countOpenSshLiveSessions(userId);
-		if (openCount >= this.maxLiveSessionsPerUser) {
+		if (activeSessions.length >= this.maxLiveSessionsPerUser) {
 			throw new ServiceValidationError([
 				`live SSH session limit reached (${this.maxLiveSessionsPerUser})`
 			]);
 		}
 
+		const sessionTitle = uniqueLiveSessionTitle(
+			title ?? host.name,
+			activeSessions.filter((session) => session.hostId === host.id).map((session) => session.title)
+		);
 		const session = await this.repository.createSshLiveSession({
 			id: randomUUID(),
 			userId,
 			hostId: host.id,
-			title: title ?? host.name,
+			title: sessionTitle,
 			status: 'starting',
 			startedAt: now,
 			lastAttachedAt: null,
@@ -355,4 +369,16 @@ function isExpiredDetachedSession(session: SshLiveSessionRecord, now: Date): boo
 		session.expiresAt !== null &&
 		session.expiresAt.getTime() <= now.getTime()
 	);
+}
+
+function uniqueLiveSessionTitle(baseTitle: string, existingTitles: string[]): string {
+	const used = new Set(existingTitles);
+	if (!used.has(baseTitle)) return baseTitle;
+
+	for (let index = 2; index < 1000; index += 1) {
+		const candidate = `${baseTitle} ${index}`;
+		if (!used.has(candidate)) return candidate;
+	}
+
+	return `${baseTitle} ${randomUUID().slice(0, 8)}`;
 }

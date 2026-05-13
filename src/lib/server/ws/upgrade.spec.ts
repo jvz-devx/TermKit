@@ -279,6 +279,62 @@ describe('websocket upgrade routing', () => {
 		expect(calls).toEqual(['attached:ssh-live-session-1', 'end:ssh-live-session-1']);
 	});
 
+	it('records ordinary live SSH websocket closure as detached', async () => {
+		expect.assertions(2);
+
+		const calls: string[] = [];
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket) {
+					setTimeout(() => socket.close(1000, 'browser closed'), 0);
+				}
+			},
+			liveSshSessions: liveSshSessionRecorder(calls)
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1000);
+		await waitFor(() => calls.includes('detached:ssh-live-session-1'));
+		expect(calls).toEqual(['attached:ssh-live-session-1', 'detached:ssh-live-session-1']);
+	});
+
+	it('records failed live SSH websocket closure code as failed instead of detached', async () => {
+		expect.assertions(2);
+
+		const calls: string[] = [];
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket) {
+					setTimeout(() => socket.close(1011), 0);
+				}
+			},
+			liveSshSessions: liveSshSessionRecorder(calls)
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1011);
+		await waitFor(() => calls.includes('fail:ssh-live-session-1'));
+		expect(calls).toEqual(['attached:ssh-live-session-1', 'fail:ssh-live-session-1']);
+	});
+
 	it('does not mark live SSH detached when a newer attachment takes over', async () => {
 		expect.assertions(2);
 
@@ -305,6 +361,65 @@ describe('websocket upgrade routing', () => {
 		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1000);
 		await waitFor(() => calls.includes('attached:ssh-live-session-1'));
 		expect(calls).toEqual(['attached:ssh-live-session-1']);
+	});
+
+	it('does not mark a stale live SSH socket detached when the manager reports an active attachment', async () => {
+		expect.assertions(2);
+
+		const calls: string[] = [];
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket) {
+					setTimeout(() => socket.close(1000, 'browser closed'), 0);
+				},
+				hasActiveAttachment() {
+					return true;
+				}
+			},
+			liveSshSessions: liveSshSessionRecorder(calls)
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1000);
+		await waitFor(() => calls.includes('attached:ssh-live-session-1'));
+		expect(calls).toEqual(['attached:ssh-live-session-1']);
+	});
+
+	it('records live SSH manager failures as failed', async () => {
+		expect.assertions(2);
+
+		const calls: string[] = [];
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle() {
+					throw new Error('manager failed');
+				}
+			},
+			liveSshSessions: liveSshSessionRecorder(calls)
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1011);
+		await waitFor(() => calls.includes('fail:ssh-live-session-1'));
+		expect(calls).toEqual(['fail:ssh-live-session-1']);
 	});
 
 	it('rejects upgrades with invalid tickets before an adapter is called', async () => {

@@ -291,6 +291,59 @@ describe('Microsoft auth routes', () => {
 		);
 	});
 
+	it('auto-provisions a domain-allowed Microsoft user as a normal session user', async () => {
+		expect.assertions(8);
+		const nonce = 'expected-nonce';
+		const { idToken, jwk } = createSignedIdToken({ nonce, email: 'user@example.com' });
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValueOnce({
+					ok: true,
+					json: async () => ({
+						access_token: 'access-token',
+						expires_in: 3600,
+						id_token: idToken,
+						token_type: 'Bearer'
+					})
+				})
+				.mockResolvedValueOnce({
+					ok: true,
+					json: async () => ({ keys: [jwk] })
+				})
+		);
+		mockNoExistingIdentity();
+		const transaction = mockProvisionTransaction();
+		const { GET } = await import('./callback/+server');
+		const event = createEvent(
+			'/auth/microsoft/callback?code=code-1&state=expected-state',
+			createCookies({
+				termixkit_microsoft_oauth_state: 'expected-state',
+				termixkit_microsoft_oauth_nonce: nonce,
+				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			})
+		);
+
+		await expect(GET(event as never)).rejects.toMatchObject({ status: 303, location: '/hosts' });
+		expect(db.transaction).toHaveBeenCalledOnce();
+		expect(db.select).toHaveBeenCalledOnce();
+		expect(password.hashPassword).toHaveBeenCalledOnce();
+		expect(auth.createSessionForUser).toHaveBeenCalledWith('user-1', event);
+		expect(auth.setSessionCookie).toHaveBeenCalledWith(event.cookies, 'session-token', true);
+		expect(transaction.updateValues).toEqual([]);
+		expect(transaction.insertValues).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ username: 'user@example.com', isAdmin: false }),
+				expect.objectContaining({
+					provider: 'microsoft',
+					providerSubject: 'subject-1',
+					email: 'user@example.com'
+				})
+			])
+		);
+	});
+
 	it('rejects Microsoft users outside the configured allowed domains', async () => {
 		expect.assertions(2);
 		const nonce = 'expected-nonce';
