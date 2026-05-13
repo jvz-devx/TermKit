@@ -35,6 +35,36 @@ describe('RDP Gateway bootstrap', () => {
 		).toThrow('GATEWAY_PUBLIC_URL must be browser-reachable in production');
 	});
 
+	it('allows explicitly opted-in local http Gateway public URLs in production', () => {
+		expect(() =>
+			loadRdpGatewayConfig({
+				NODE_ENV: 'production',
+				TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'http://localhost:7171',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			})
+		).not.toThrow();
+	});
+
+	it('rejects invalid internal Gateway URLs', () => {
+		expect(() =>
+			loadRdpGatewayConfig({
+				GATEWAY_URL: 'ftp://gateway',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			})
+		).toThrow('GATEWAY_URL must use http:// or https://');
+
+		expect(() =>
+			loadRdpGatewayConfig({
+				GATEWAY_URL: 'http://user:pass@gateway:7171',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			})
+		).toThrow('GATEWAY_URL must not include credentials or fragments');
+	});
+
 	it('provisions a Devolutions Gateway app token and RDP association token', async () => {
 		expect.assertions(9);
 		const calls: Array<{ url: string; init?: RequestInit }> = [];

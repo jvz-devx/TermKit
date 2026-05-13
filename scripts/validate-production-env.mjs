@@ -11,7 +11,9 @@ export function validateProductionEnv(env = process.env) {
 	const allowInsecureLocalHttp = isEnabled(env.TERMIXKIT_INSECURE_LOCAL_HTTP);
 
 	validateCredentialMasterKey(env.CREDENTIAL_MASTER_KEY);
-	validateGatewayPublicUrl(env.GATEWAY_PUBLIC_URL);
+	validateGatewayUrl(env.GATEWAY_URL);
+	validateGatewayPublicUrl(env.GATEWAY_PUBLIC_URL, allowInsecureLocalHttp);
+	validateGatewayProvisionerKey(env.GATEWAY_PROVISIONER_KEY);
 
 	if (origin.protocol === 'https:') return;
 
@@ -55,7 +57,10 @@ function isEnabled(value) {
  * @param {string} hostname
  */
 function isLocalHostname(hostname) {
-	return hostname === 'localhost' || hostname === '::1' || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+	const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+	return (
+		normalized === 'localhost' || normalized === '::1' || /^127(?:\.\d{1,3}){3}$/.test(normalized)
+	);
 }
 
 /**
@@ -76,7 +81,32 @@ function validateCredentialMasterKey(masterKey) {
 /**
  * @param {string | undefined} value
  */
-function validateGatewayPublicUrl(value) {
+function validateGatewayUrl(value) {
+	if (!value) {
+		throw new Error('GATEWAY_URL is required in production for Gateway provisioning.');
+	}
+
+	let url;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error(`GATEWAY_URL must be an absolute URL, received: ${value}`);
+	}
+
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+		throw new Error('GATEWAY_URL must use http:// or https:// in production.');
+	}
+
+	if (url.username || url.password || url.hash) {
+		throw new Error('GATEWAY_URL must not include credentials or fragments.');
+	}
+}
+
+/**
+ * @param {string | undefined} value
+ * @param {boolean} allowInsecureLocalHttp
+ */
+function validateGatewayPublicUrl(value, allowInsecureLocalHttp) {
 	if (!value) {
 		throw new Error('GATEWAY_PUBLIC_URL is required in production for browser RDP launches.');
 	}
@@ -93,13 +123,34 @@ function validateGatewayPublicUrl(value) {
 	}
 
 	if (url.protocol !== 'https:') {
-		throw new Error('GATEWAY_PUBLIC_URL must use https:// in production.');
+		if (!allowInsecureLocalHttp) {
+			throw new Error(
+				'GATEWAY_PUBLIC_URL must use https:// in production. For direct local HTTP only, set TERMIXKIT_INSECURE_LOCAL_HTTP=1.'
+			);
+		}
+
+		if (url.protocol !== 'http:' || !isLocalHostname(url.hostname)) {
+			throw new Error(
+				'TERMIXKIT_INSECURE_LOCAL_HTTP=1 only permits local http://localhost or loopback GATEWAY_PUBLIC_URL values.'
+			);
+		}
+
+		return;
 	}
 
 	if (isInternalGatewayHostname(url.hostname)) {
 		throw new Error(
 			'GATEWAY_PUBLIC_URL must be browser-reachable in production, not localhost, loopback, wildcard, or the internal Compose gateway hostname.'
 		);
+	}
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function validateGatewayProvisionerKey(value) {
+	if (!value?.trim()) {
+		throw new Error('GATEWAY_PROVISIONER_KEY is required in production for Gateway provisioning.');
 	}
 }
 

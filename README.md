@@ -30,6 +30,11 @@ Copy the environment template and fill in local secrets:
 cp .env.example .env
 ```
 
+The template is set up for direct local Compose: `ORIGIN` and `GATEWAY_PUBLIC_URL`
+use `http://localhost` values and `TERMIXKIT_INSECURE_LOCAL_HTTP=1`. Production
+deployments should remove that opt-in and set browser-reachable `https://`
+origins.
+
 Start Postgres, Gateway, and the production app container:
 
 ```sh
@@ -78,15 +83,15 @@ Do not commit real values for any secret.
 
 - `DATABASE_URL`: Postgres connection string used by the app and Drizzle.
 - `ORIGIN`: public app origin. Compose defaults to `https://localhost:3000` so production cookies are secure by default; set the external `https://` origin behind a TLS-terminating reverse proxy.
-- `TERMIXKIT_INSECURE_LOCAL_HTTP`: set to `1` only for direct local HTTP development with an `http://localhost` or loopback `ORIGIN`. Production startup rejects other HTTP origins.
-- `BODY_SIZE_LIMIT`: global SvelteKit/Node request body cap. Compose defaults to `55M`, which leaves multipart overhead above the 50 MiB SFTP upload cap while still returning 413 before oversized bodies are accepted.
+- `TERMIXKIT_INSECURE_LOCAL_HTTP`: set to `1` only for direct local HTTP development with an `http://localhost` or loopback `ORIGIN` or `GATEWAY_PUBLIC_URL`. Production startup rejects non-local HTTP values.
+- `BODY_SIZE_LIMIT`: global SvelteKit/Node request body cap. Compose defaults to `55M`, which leaves multipart overhead above the 50 MiB SFTP upload cap while still returning 413 before oversized declared or chunked bodies are accepted.
 - `CREDENTIAL_MASTER_KEY`: high-entropy key used to derive credential encryption material.
 - `TERMIXKIT_SSH_KNOWN_HOSTS_PATH`: JSON SSH/SFTP known-host trust store. Compose mounts `app-data` at `/var/lib/termixkit` and defaults this to `/var/lib/termixkit/ssh-known-hosts.json` so TOFU pins survive container rebuilds.
 - `TERMIXKIT_SSH_TRUST_ON_FIRST_USE`: set to `1` only while enrolling trusted SSH/SFTP hosts. Leave unset or `0` for strict known-host checking.
 - `TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU`: production-only override for TOFU enrollment. Prefer seeding `TERMIXKIT_SSH_KNOWN_HOSTS_PATH` and disabling TOFU after enrollment.
-- `GATEWAY_URL`: internal Devolutions Gateway URL, defaulting to `http://gateway:7171` in Compose.
-- `GATEWAY_PUBLIC_URL`: browser-reachable Devolutions Gateway URL used by IronRDP. Production requires `https://` and rejects internal Compose names such as `https://gateway`; local Compose can use `http://localhost:7171`.
-- `GATEWAY_PROVISIONER_KEY`: Gateway provisioning key shared with the app.
+- `GATEWAY_URL`: internal Devolutions Gateway URL, defaulting to `http://gateway:7171` in Compose. Production startup requires an absolute `http://` or `https://` URL.
+- `GATEWAY_PUBLIC_URL`: browser-reachable Devolutions Gateway URL used by IronRDP. Production requires `https://` and rejects internal Compose names such as `https://gateway`; direct local Compose can use `http://localhost:7171` only with `TERMIXKIT_INSECURE_LOCAL_HTTP=1`.
+- `GATEWAY_PROVISIONER_KEY`: Gateway provisioning key shared with the app. Production startup requires this value before accepting traffic.
 - `GATEWAY_PORT`: local Compose host port for the Gateway listener, defaulting to `7171`.
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`: local Compose database settings.
 - `DEVOLUTIONS_GATEWAY_TAG`: Gateway container tag. The Compose file currently pins `2026.1.1` by default.
@@ -99,7 +104,7 @@ The importer is a one-way service under `src/lib/server/import` with upload pars
 - `GET /api/import/jobs`: lists persisted import jobs for the signed-in user.
 - `POST /api/import/jobs`: accepts multipart `file` upload, imports mapped hosts and credentials, and persists the job result.
 
-Importer uploads are capped at 10 MiB. SFTP uploads are capped at 50 MiB, and the Compose `BODY_SIZE_LIMIT` default is 55 MiB so oversized multipart requests are rejected with 413 before application parsing continues.
+Importer uploads are capped at 10 MiB. SFTP uploads are capped at 50 MiB, and the Compose `BODY_SIZE_LIMIT` default is 55 MiB so oversized declared or chunked multipart requests are rejected with 413 before application parsing continues.
 
 Supported uploads are JSON arrays or JSON objects with `records`, `connections`, or `hosts` arrays. Supported target protocols are SSH, RDP, VNC, and Telnet; SFTP is normalized to SSH. The importer records warnings for unsupported protocols, encrypted source credentials without a decryption hook, Guacamole-only settings, snippets, and server statistics.
 

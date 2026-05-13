@@ -35,21 +35,25 @@
 	let rfbClient = $state<RfbClient | null>(null);
 	let authPromptVisible = $state(false);
 	let authRequiredTypes = $state<string[]>([]);
+	let savedCredentialFallbackPrompt = $state(false);
+	let savedPasswordCleared = $state(false);
 	let defaultUsername = $derived(credentials?.username ?? '');
 	let sessionUsername = $state('');
 	let sessionPassword = $state('');
 	let suppliedCredentials = $derived(toNoVncCredentials(credentials));
 	let authSummary = $derived(
-		credentialStrategy === 'saved-password'
+		credentialStrategy === 'saved-password' && !savedPasswordCleared
 			? 'saved password staged in browser memory'
 			: credentials?.username
 				? 'username staged'
 				: 'credentials requested by target'
 	);
 	let authPromptDetail = $derived(
-		credentialStrategy === 'saved-password'
-			? 'The saved password was not enough for this VNC target. Enter credentials for this tab only; they are sent directly to noVNC and are not stored in the URL or session storage.'
-			: 'Enter VNC credentials for this tab only. Passwords are sent directly to noVNC and are not stored in the URL or session storage.'
+		savedCredentialFallbackPrompt
+			? 'The saved VNC password was rejected. Enter credentials for this tab only; they are sent directly to noVNC and are not stored in the URL or session storage.'
+			: credentialStrategy === 'saved-password'
+				? 'The saved password was not enough for this VNC target. Enter credentials for this tab only; they are sent directly to noVNC and are not stored in the URL or session storage.'
+				: 'Enter VNC credentials for this tab only. Passwords are sent directly to noVNC and are not stored in the URL or session storage.'
 	);
 	let canSubmitCredentials = $derived(Boolean(rfbClient && sessionPassword));
 
@@ -81,26 +85,38 @@
 		rfb.addEventListener('connect', () => {
 			connectionState = 'connected';
 			authPromptVisible = false;
+			savedCredentialFallbackPrompt = false;
 			detail = 'VNC framebuffer is connected.';
 			rfb?.focus();
 		});
 		rfb.addEventListener('disconnect', () => {
+			if (savedCredentialFallbackPrompt) {
+				connectionState = 'error';
+				authPromptVisible = true;
+				detail = 'Saved VNC password was rejected. Enter VNC credentials to retry manually.';
+				return;
+			}
+
 			connectionState = 'disconnected';
 			authPromptVisible = false;
 			detail = 'VNC session closed.';
 		});
 		rfb.addEventListener('securityfailure', () => {
 			connectionState = 'error';
+			if (credentialStrategy === 'saved-password' && !savedPasswordCleared) {
+				clearStagedSavedPassword(rfb);
+				showManualCredentialPrompt(['username', 'password']);
+				detail = 'Saved VNC password was rejected. Enter VNC credentials to retry manually.';
+				return;
+			}
+
 			authPromptVisible = false;
 			detail =
 				'VNC security negotiation failed. Reconnect the session if the target rejected the credentials.';
 		});
 		rfb.addEventListener('credentialsrequired', (event) => {
 			connectionState = 'error';
-			authPromptVisible = true;
-			authRequiredTypes = event.detail?.types ?? [];
-			sessionPassword = '';
-			sessionUsername = sessionUsername || defaultUsername;
+			showManualCredentialPrompt(event.detail?.types ?? []);
 			detail =
 				credentialStrategy === 'saved-password'
 					? 'Saved VNC password was supplied, but the target requested more credentials.'
@@ -141,6 +157,21 @@
 		detail = 'Submitting VNC credentials.';
 	}
 
+	function clearStagedSavedPassword(rfb: RfbClient) {
+		savedPasswordCleared = true;
+		savedCredentialFallbackPrompt = true;
+
+		const username = sessionUsername.trim() || defaultUsername;
+		rfb.sendCredentials(username ? { username } : {});
+	}
+
+	function showManualCredentialPrompt(types: string[]) {
+		authPromptVisible = true;
+		authRequiredTypes = types;
+		sessionPassword = '';
+		sessionUsername = sessionUsername || defaultUsername;
+	}
+
 	function toNoVncCredentials(value: VncCredentials | undefined) {
 		if (!value?.username && !value?.password) return undefined;
 
@@ -165,7 +196,7 @@
 	</div>
 	<div bind:this={mountElement} class="h-[calc(100%-2.5rem)] w-full overflow-hidden"></div>
 
-	{#if credentialStrategy === 'saved-password' && connectionState !== 'connected' && !authPromptVisible}
+	{#if credentialStrategy === 'saved-password' && !savedPasswordCleared && connectionState !== 'connected' && !authPromptVisible}
 		<Alert.Root
 			class="absolute top-[3.25rem] right-3 left-3 border-neutral-800 bg-neutral-950 text-neutral-100"
 		>

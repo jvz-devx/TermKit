@@ -198,6 +198,7 @@ export function loadRdpGatewayConfig(
 	const gatewayUrl = normalizeUrl(env.GATEWAY_URL);
 	const gatewayPublicUrl = normalizeUrl(env.GATEWAY_PUBLIC_URL);
 	const provisionerKey = env.GATEWAY_PROVISIONER_KEY?.trim();
+	const allowInsecureLocalHttp = isEnabled(env.TERMIXKIT_INSECURE_LOCAL_HTTP);
 	const provisionerSubject = env.GATEWAY_PROVISIONER_SUBJECT?.trim() || 'TermixKit';
 	const sessionLifetimeSeconds = readPositiveInteger(
 		env.GATEWAY_RDP_SESSION_TTL_SECONDS,
@@ -210,12 +211,17 @@ export function loadRdpGatewayConfig(
 	const issues: string[] = [];
 
 	if (!gatewayUrl) issues.push('GATEWAY_URL is required for RDP launches');
+	else {
+		const gatewayUrlIssue = validateGatewayUrl(gatewayUrl);
+		if (gatewayUrlIssue) issues.push(gatewayUrlIssue);
+	}
 	if (!gatewayPublicUrl) {
 		issues.push('GATEWAY_PUBLIC_URL is required for browser RDP launches');
 	} else {
 		const publicUrlIssue = validateGatewayPublicUrl(
 			gatewayPublicUrl,
-			env.NODE_ENV === 'production'
+			env.NODE_ENV === 'production',
+			allowInsecureLocalHttp
 		);
 		if (publicUrlIssue) issues.push(publicUrlIssue);
 	}
@@ -274,7 +280,24 @@ function normalizeUrl(value: string | undefined): string | null {
 	}
 }
 
-function validateGatewayPublicUrl(value: string, production: boolean): string | null {
+function validateGatewayUrl(value: string): string | null {
+	const url = new URL(value);
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+		return 'GATEWAY_URL must use http:// or https://';
+	}
+
+	if (url.username || url.password || url.hash) {
+		return 'GATEWAY_URL must not include credentials or fragments';
+	}
+
+	return null;
+}
+
+function validateGatewayPublicUrl(
+	value: string,
+	production: boolean,
+	allowInsecureLocalHttp: boolean
+): string | null {
 	const url = new URL(value);
 	if (url.username || url.password || url.hash) {
 		return 'GATEWAY_PUBLIC_URL must not include credentials or fragments';
@@ -282,7 +305,15 @@ function validateGatewayPublicUrl(value: string, production: boolean): string | 
 
 	if (!production) return null;
 	if (url.protocol !== 'https:') {
-		return 'GATEWAY_PUBLIC_URL must use https:// in production';
+		if (!allowInsecureLocalHttp) {
+			return 'GATEWAY_PUBLIC_URL must use https:// in production. For direct local HTTP only, set TERMIXKIT_INSECURE_LOCAL_HTTP=1';
+		}
+
+		if (url.protocol !== 'http:' || !isLocalHostname(url.hostname)) {
+			return 'TERMIXKIT_INSECURE_LOCAL_HTTP=1 only permits local http://localhost or loopback GATEWAY_PUBLIC_URL values';
+		}
+
+		return null;
 	}
 
 	if (isInternalGatewayHostname(url.hostname)) {
@@ -290,6 +321,10 @@ function validateGatewayPublicUrl(value: string, production: boolean): string | 
 	}
 
 	return null;
+}
+
+function isEnabled(value: string | undefined): boolean {
+	return value === '1' || value?.toLowerCase() === 'true';
 }
 
 function isInternalGatewayHostname(hostname: string): boolean {
@@ -301,6 +336,13 @@ function isInternalGatewayHostname(hostname: string): boolean {
 		normalized === '::' ||
 		normalized === '::1' ||
 		/^127(?:\.\d{1,3}){3}$/.test(normalized)
+	);
+}
+
+function isLocalHostname(hostname: string): boolean {
+	const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+	return (
+		normalized === 'localhost' || normalized === '::1' || /^127(?:\.\d{1,3}){3}$/.test(normalized)
 	);
 }
 

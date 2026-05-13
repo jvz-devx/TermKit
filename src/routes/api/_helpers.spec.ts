@@ -25,6 +25,14 @@ describe('API request helpers', () => {
 		expect(() => assertContentLength(request, 100)).toThrow(ServiceValidationError);
 	});
 
+	it('allows missing content-length so streaming and parsed file limits can enforce the cap', () => {
+		const request = new Request('https://termix.test/upload', {
+			method: 'POST'
+		});
+
+		expect(() => assertContentLength(request, 100)).not.toThrow();
+	});
+
 	it('serializes upload limit failures as 413 responses', async () => {
 		expect.assertions(2);
 		const response = serviceJson(

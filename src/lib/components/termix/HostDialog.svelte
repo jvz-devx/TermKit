@@ -41,17 +41,26 @@
 		notes: string;
 	};
 
+	type HostProtocol = HostSummary['protocol'];
+
 	const isEditing = $derived(Boolean(host));
 	const title = $derived(isEditing ? 'Edit host' : 'Host configuration');
 	const description = $derived(
 		isEditing ? 'Update the saved connection target.' : 'Connection target and credential binding.'
 	);
 
-	const protocolLabels: Record<HostSummary['protocol'], string> = {
+	const protocolLabels: Record<HostProtocol, string> = {
 		ssh: 'SSH',
 		rdp: 'RDP',
 		vnc: 'VNC',
 		telnet: 'Telnet'
+	};
+
+	const defaultPorts: Record<HostProtocol, number> = {
+		ssh: 22,
+		rdp: 3389,
+		vnc: 5900,
+		telnet: 23
 	};
 
 	function createForm(source: HostSummary | null = null): HostForm {
@@ -59,13 +68,24 @@
 			name: source?.name ?? '',
 			protocol: source?.protocol ?? 'ssh',
 			hostname: source?.hostname ?? '',
-			port: source?.port ?? 22,
+			port: source?.port ?? defaultPorts.ssh,
 			username: source?.username ?? '',
 			credentialId: source?.credentialId ?? 'none',
 			folder: source?.folder ?? '',
 			tags: source?.tags.join(', ') ?? '',
 			notes: source?.notes ?? ''
 		};
+	}
+
+	function changeProtocol(protocol: string) {
+		if (!(protocol in defaultPorts)) return;
+
+		const nextProtocol = protocol as HostProtocol;
+		const previousProtocol = form.protocol;
+		const shouldUseDefaultPort = Number(form.port) === defaultPorts[previousProtocol];
+
+		form.protocol = nextProtocol;
+		if (shouldUseDefaultPort) form.port = defaultPorts[nextProtocol];
 	}
 
 	function openDialog() {
@@ -133,7 +153,7 @@
 				</div>
 				<div class="space-y-2">
 					<Label>Protocol</Label>
-					<Select.Root type="single" bind:value={form.protocol}>
+					<Select.Root type="single" value={form.protocol} onValueChange={changeProtocol}>
 						<Select.Trigger class="w-full">{protocolLabels[form.protocol]}</Select.Trigger>
 						<Select.Content>
 							<Select.Item value="ssh">SSH</Select.Item>

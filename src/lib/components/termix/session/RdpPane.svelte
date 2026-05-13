@@ -20,8 +20,8 @@
 	type IronReadyDetail = { irgUserInteraction?: UserInteraction };
 	type RdpDesktopSize = { width: number; height: number };
 
-	const minDesktopWidth = 640;
-	const minDesktopHeight = 480;
+	const minDesktopWidth = 2;
+	const minDesktopHeight = 1;
 	const maxDesktopWidth = 7680;
 	const maxDesktopHeight = 4320;
 
@@ -103,9 +103,7 @@
 		return () => {
 			disposed = true;
 			stopResizeObserver();
-			if (connectionState === 'connecting' || connectionState === 'connected') {
-				void recordRdpLifecycle('ended');
-			}
+			finalizeRdpLifecycleOnDispose();
 			api?.shutdown();
 		};
 	});
@@ -125,6 +123,7 @@
 		} catch (caught) {
 			connectionState = 'error';
 			detail = `Could not load IronRDP client: ${errorMessage(caught)}`;
+			void recordRdpLifecycle('failed', rdpClientErrorCode(caught));
 		}
 	}
 
@@ -133,6 +132,7 @@
 		if (!userInteraction) {
 			connectionState = 'error';
 			detail = 'IronRDP client did not expose a session API.';
+			void recordRdpLifecycle('failed', 'rdp_client_missing_session_api');
 			return;
 		}
 
@@ -283,6 +283,23 @@
 		return requireEven && clamped % 2 === 1 ? clamped - 1 : clamped;
 	}
 
+	function finalizeRdpLifecycleOnDispose() {
+		if (connectionState === 'error') {
+			void recordRdpLifecycle('failed', 'rdp_client_pane_abandoned_error');
+			return;
+		}
+
+		if (
+			connectionState === 'loading' ||
+			connectionState === 'ready' ||
+			connectionState === 'connecting' ||
+			connectionState === 'connected' ||
+			connectionState === 'disconnected'
+		) {
+			void recordRdpLifecycle('ended');
+		}
+	}
+
 	async function recordRdpLifecycle(
 		event: 'connected' | 'ended' | 'failed',
 		errorCode?: string
@@ -307,7 +324,7 @@
 	}
 </script>
 
-<div class="flex h-full min-h-[480px] flex-col overflow-hidden rounded-md border bg-background">
+<div class="flex h-full min-h-0 flex-col overflow-hidden rounded-md border bg-background">
 	<div class="flex h-10 shrink-0 items-center justify-between border-b px-3">
 		<div class="flex min-w-0 items-center gap-2">
 			<Monitor class="size-4 shrink-0 text-muted-foreground" />
@@ -339,8 +356,8 @@
 			/>
 		</div>
 	{:else}
-		<div class="grid min-h-0 flex-1 grid-rows-[1fr_auto] bg-neutral-950">
-			<div class="relative min-h-0" bind:this={viewportElement}>
+		<div class="flex min-h-0 flex-1 flex-col bg-neutral-950">
+			<div class="relative min-h-0 flex-1" bind:this={viewportElement}>
 				<div class="h-full w-full overflow-hidden">
 					{#if webComponentReady && rdpModule}
 						<svelte:element
@@ -368,52 +385,54 @@
 				{/if}
 			</div>
 
-			<div class="border-t bg-background p-3">
-				<form class="grid gap-3 lg:grid-cols-[1fr_1fr_auto]" onsubmit={submitConnect}>
-					<div class="grid gap-1.5">
-						<Label for="rdp-username">Username</Label>
-						<Input
-							id="rdp-username"
-							bind:value={sessionUsername}
-							autocomplete="username"
-							placeholder="Target username"
-							disabled={connectionState === 'connecting' || connectionState === 'connected'}
-						/>
-					</div>
-					<div class="grid gap-1.5">
-						<Label for="rdp-password">Session password</Label>
-						<Input
-							id="rdp-password"
-							type="password"
-							bind:value={sessionPassword}
-							autocomplete="current-password"
-							placeholder="Required by the RDP target"
-							disabled={connectionState === 'connecting' || connectionState === 'connected'}
-						/>
-					</div>
-					<div class="flex items-end">
-						<Button type="submit" disabled={!canConnect} class="w-full lg:w-auto">
-							<KeyRound class="size-4" />
-							Connect
-						</Button>
-					</div>
-				</form>
+			{#if connectionState !== 'connected'}
+				<div class="border-t bg-background p-3">
+					<form class="grid gap-3 lg:grid-cols-[1fr_1fr_auto]" onsubmit={submitConnect}>
+						<div class="grid gap-1.5">
+							<Label for="rdp-username">Username</Label>
+							<Input
+								id="rdp-username"
+								bind:value={sessionUsername}
+								autocomplete="username"
+								placeholder="Target username"
+								disabled={connectionState === 'connecting'}
+							/>
+						</div>
+						<div class="grid gap-1.5">
+							<Label for="rdp-password">Session password</Label>
+							<Input
+								id="rdp-password"
+								type="password"
+								bind:value={sessionPassword}
+								autocomplete="current-password"
+								placeholder="Required by the RDP target"
+								disabled={connectionState === 'connecting'}
+							/>
+						</div>
+						<div class="flex items-end">
+							<Button type="submit" disabled={!canConnect} class="w-full lg:w-auto">
+								<KeyRound class="size-4" />
+								Connect
+							</Button>
+						</div>
+					</form>
 
-				<div class="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
-					<div class="flex min-w-0 items-center gap-2">
-						<ShieldCheck class="size-4 shrink-0" />
-						<span class="truncate">{bootstrap.gatewayPublicUrl}</span>
-					</div>
-					<div class="flex min-w-0 items-center gap-2">
-						<Unplug class="size-4 shrink-0" />
-						<span class="truncate">{bootstrap.destination}</span>
-					</div>
-					<div class="flex min-w-0 items-center gap-2">
-						<AlertTriangle class="size-4 shrink-0" />
-						<span class="truncate">{targetCredentialState}</span>
+					<div class="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+						<div class="flex min-w-0 items-center gap-2">
+							<ShieldCheck class="size-4 shrink-0" />
+							<span class="truncate">{bootstrap.gatewayPublicUrl}</span>
+						</div>
+						<div class="flex min-w-0 items-center gap-2">
+							<Unplug class="size-4 shrink-0" />
+							<span class="truncate">{bootstrap.destination}</span>
+						</div>
+						<div class="flex min-w-0 items-center gap-2">
+							<AlertTriangle class="size-4 shrink-0" />
+							<span class="truncate">{targetCredentialState}</span>
+						</div>
 					</div>
 				</div>
-			</div>
+			{/if}
 		</div>
 	{/if}
 </div>

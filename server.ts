@@ -1,4 +1,9 @@
-import { createServer, type RequestListener } from 'node:http';
+import {
+	createServer,
+	type IncomingMessage,
+	type RequestListener,
+	type ServerResponse
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { env } from 'node:process';
 import { createSessionTicketConsumer } from './src/lib/server/ws/ticket-consumer.js';
@@ -15,16 +20,11 @@ const requestBodyLimit = parseBodySizeLimit(env.BODY_SIZE_LIMIT ?? '512K');
 const server = createServer((request, response) => {
 	const contentLength = request.headers['content-length'];
 	if (requestBodyLimit !== Infinity && isContentLengthOverLimit(contentLength, requestBodyLimit)) {
-		const message = `Request body exceeds the configured ${formatByteLimit(requestBodyLimit)} limit`;
-		response.writeHead(413, {
-			connection: 'close',
-			'content-type': 'application/json'
-		});
-		response.end(JSON.stringify({ error: message, issues: [message] }));
-		request.destroy();
+		rejectOversizedRequestBody(request, response, requestBodyLimit);
 		return;
 	}
 
+	installStreamingBodyLimit(request, response, requestBodyLimit);
 	handler(request, response);
 });
 
@@ -45,6 +45,72 @@ function isContentLengthOverLimit(
 	const contentLength = Array.isArray(value) ? value[0] : value;
 	if (!contentLength || !/^\d+$/.test(contentLength)) return false;
 	return BigInt(contentLength) > BigInt(limitBytes);
+}
+
+function installStreamingBodyLimit(
+	request: IncomingMessage,
+	response: ServerResponse,
+	limitBytes: number
+): void {
+	if (limitBytes === Infinity || request.method === 'GET' || request.method === 'HEAD') return;
+
+	let receivedBytes = 0;
+	let rejected = false;
+	const originalEmit = request.emit;
+	const callOriginalEmit = originalEmit as (
+		this: IncomingMessage,
+		eventName: string | symbol,
+		...args: unknown[]
+	) => boolean;
+
+	request.emit = function limitedEmit(
+		this: IncomingMessage,
+		eventName: string | symbol,
+		...args: unknown[]
+	): boolean {
+		if (eventName === 'data' && !rejected) {
+			receivedBytes += getChunkByteLength(args[0]);
+			if (receivedBytes > limitBytes) {
+				rejected = true;
+				request.pause();
+				rejectOversizedRequestBody(request, response, limitBytes);
+				return false;
+			}
+		}
+
+		return callOriginalEmit.call(this, eventName, ...args);
+	} as IncomingMessage['emit'];
+
+	request.once('close', () => {
+		request.emit = originalEmit;
+	});
+}
+
+function getChunkByteLength(chunk: unknown): number {
+	if (typeof chunk === 'string') return Buffer.byteLength(chunk);
+	if (chunk instanceof ArrayBuffer) return chunk.byteLength;
+	if (ArrayBuffer.isView(chunk)) return chunk.byteLength;
+	return 0;
+}
+
+function rejectOversizedRequestBody(
+	request: IncomingMessage,
+	response: ServerResponse,
+	limitBytes: number
+): void {
+	const message = `Request body exceeds the configured ${formatByteLimit(limitBytes)} limit`;
+	if (response.headersSent || response.writableEnded) {
+		request.destroy();
+		return;
+	}
+
+	response.writeHead(413, {
+		connection: 'close',
+		'content-type': 'application/json'
+	});
+	response.end(JSON.stringify({ error: message, issues: [message] }), () => {
+		request.destroy();
+	});
 }
 
 function parseBodySizeLimit(value: string): number {

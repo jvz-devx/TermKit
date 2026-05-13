@@ -25,6 +25,17 @@ describe('production environment validation', () => {
 		).not.toThrow();
 	});
 
+	it('allows explicitly opted-in local http Gateway public URLs', () => {
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					GATEWAY_PUBLIC_URL: 'http://localhost:7171',
+					TERMIXKIT_INSECURE_LOCAL_HTTP: 'true'
+				})
+			)
+		).not.toThrow();
+	});
+
 	it('rejects insecure non-local origins even with the local flag', () => {
 		expect(() =>
 			validateProductionEnv(
@@ -53,6 +64,24 @@ describe('production environment validation', () => {
 		).toThrow('CREDENTIAL_MASTER_KEY must be at least 32 bytes and high-entropy');
 	});
 
+	it('requires production Gateway provisioning configuration at startup', () => {
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					GATEWAY_URL: ''
+				})
+			)
+		).toThrow('GATEWAY_URL is required in production');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					GATEWAY_PROVISIONER_KEY: ''
+				})
+			)
+		).toThrow('GATEWAY_PROVISIONER_KEY is required in production');
+	});
+
 	it('requires a secure browser-reachable Gateway public URL in production', () => {
 		expect(() =>
 			validateProductionEnv(
@@ -76,6 +105,16 @@ describe('production environment validation', () => {
 			validateProductionEnv(
 				productionEnv({
 					ORIGIN: 'https://termix.example',
+					GATEWAY_PUBLIC_URL: 'http://rdp.example',
+					TERMIXKIT_INSECURE_LOCAL_HTTP: '1'
+				})
+			)
+		).toThrow('only permits local');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					ORIGIN: 'https://termix.example',
 					GATEWAY_PUBLIC_URL: 'https://gateway'
 				})
 			)
@@ -86,8 +125,11 @@ describe('production environment validation', () => {
 function productionEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
 	return {
 		NODE_ENV: 'production',
+		ORIGIN: 'https://termix.example',
 		CREDENTIAL_MASTER_KEY: 'v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL',
+		GATEWAY_URL: 'http://gateway:7171',
 		GATEWAY_PUBLIC_URL: 'https://rdp.example',
+		GATEWAY_PROVISIONER_KEY: 'shared-key',
 		...overrides
 	};
 }

@@ -14,6 +14,10 @@ export type RfbClient = {
 		type: 'credentialsrequired',
 		listener: (event: CustomEvent<{ types?: string[] }>) => void
 	): void;
+	addEventListener(
+		type: 'securityfailure',
+		listener: (event: CustomEvent<{ status?: number; reason?: string }>) => void
+	): void;
 	disconnect(): void;
 	focus(): void;
 	sendCredentials(credentials: { username?: string; password?: string }): void;
