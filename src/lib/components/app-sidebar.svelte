@@ -32,14 +32,7 @@
 				title: 'Connections',
 				url: '/sessions',
 				icon: SquareTerminalIcon,
-				items: [
-					{ title: 'Session workspace', url: '/sessions' },
-					{ title: 'SSH', url: '/sessions?tab=ssh' },
-					{ title: 'SFTP', url: '/sessions?tab=sftp' },
-					{ title: 'RDP', url: '/sessions?tab=rdp' },
-					{ title: 'VNC', url: '/sessions?tab=vnc' },
-					{ title: 'Telnet', url: '/sessions?tab=telnet' }
-				]
+				items: [{ title: 'Session workspace', url: '/sessions' }]
 			},
 			{
 				title: 'Administration',

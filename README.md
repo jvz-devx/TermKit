@@ -10,6 +10,10 @@ TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. V1 t
 - V1 wave 4: SSH/SFTP, Telnet, VNC, and RDP launch flows.
 - V1 hardening: import job persistence, gateway provisioning, production runbook, backup/restore checks.
 
+## Application Navigation
+
+TermixKit keeps the sidebar at the application-workflow level rather than listing individual hosts. Host records live under **Inventory**, reusable secrets live under **Credentials**, Termix data migration lives under **Import from Termix**, and all protocol launches start from the **Session workspace**. The session workspace has its own host search and protocol filters, so SSH, SFTP, RDP, VNC, and Telnet choices stay close to the actual session UI instead of becoming global sidebar destinations.
+
 ## Local Development
 
 Enter the Nix dev shell before running project tooling:
@@ -37,11 +41,16 @@ origins. Keep `GATEWAY_PUBLIC_URL` on the app origin, for example
 `https://termix.example/gateway`; the app reverse-proxies that path to the
 internal Gateway container so reverse proxies only expose the app port.
 
-Start Postgres, Gateway, and the production app container:
+Start Postgres, Gateway, the migration job, and the production app container:
 
 ```sh
 docker compose up --build
 ```
+
+Compose publishes only the app on `APP_PORT` and binds Postgres to loopback for
+local tooling. Devolutions Gateway is reachable only on the Compose network; the
+app proxies browser RDP traffic from `/gateway/jet/...` to the internal Gateway
+container.
 
 For SvelteKit development against a local Postgres database:
 
@@ -68,6 +77,9 @@ DATABASE_URL=postgres://termixkit:termixkit@localhost:5432/termixkit npm run db:
 - For SvelteKit app logic, prefer remote functions over `+page.server.ts` where possible.
 - Use standalone `+server.ts` endpoints for real HTTP/API boundaries.
 - Current verification gates should run inside `nix develop`.
+- The dev shell sets `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to Nix Chromium and
+  applies a Docker Compose DNS override (`1.1.1.1`, `8.8.8.8`) for builds and
+  services on NixOS hosts where Docker DNS is unreliable.
 - Validate Compose wiring with dummy secret values before changing deployment defaults:
 
 ```sh
@@ -92,7 +104,7 @@ Do not commit real values for any secret.
 - `TERMIXKIT_SSH_TRUST_ON_FIRST_USE`: set to `1` only while enrolling trusted SSH/SFTP hosts. Leave unset or `0` for strict known-host checking.
 - `TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU`: production-only override for TOFU enrollment. Prefer seeding `TERMIXKIT_SSH_KNOWN_HOSTS_PATH` and disabling TOFU after enrollment.
 - `GATEWAY_URL`: internal Devolutions Gateway URL, defaulting to `http://gateway:7171` in Compose. Production startup requires an absolute `http://` or `https://` URL.
-- `GATEWAY_PUBLIC_URL`: browser-reachable app proxy URL used by IronRDP, defaulting to `https://localhost:3000/gateway` in Compose. Production requires `https://` and rejects internal Compose names such as `https://gateway`; direct local Compose can use `http://localhost:3000/gateway` only with `TERMIXKIT_INSECURE_LOCAL_HTTP=1`.
+- `GATEWAY_PUBLIC_URL`: browser-reachable app proxy URL used by IronRDP, defaulting to `https://localhost:3000/gateway` in Compose. Production requires `https://`, requires the exact `/gateway` app proxy mount, and rejects internal Compose names such as `https://gateway`; direct local Compose can use `http://localhost:3000/gateway` only with `TERMIXKIT_INSECURE_LOCAL_HTTP=1`.
 - `GATEWAY_PROVISIONER_KEY`: Gateway provisioning key shared with the app. Production startup requires this value before accepting traffic.
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`: local Compose database settings.
 - `DEVOLUTIONS_GATEWAY_TAG`: Gateway container tag. The Compose file currently pins `2026.1.1` by default.
@@ -107,14 +119,14 @@ The importer is a one-way service under `src/lib/server/import` with upload pars
 
 Importer uploads are capped at 10 MiB. SFTP uploads are capped at 50 MiB, and the Compose `BODY_SIZE_LIMIT` default is 55 MiB so oversized declared or chunked multipart requests are rejected with 413 before application parsing continues.
 
-Supported uploads are JSON arrays or JSON objects with `records`, `connections`, or `hosts` arrays. Supported target protocols are SSH, RDP, VNC, and Telnet; SFTP is normalized to SSH. The importer records warnings for unsupported protocols, encrypted source credentials without a decryption hook, Guacamole-only settings, snippets, and server statistics.
+Supported uploads are JSON arrays, JSON objects with `records`, `connections`, or `hosts` arrays, and SQLite `.sqlite`, `.sqlite3`, or `.db` files with supported Termix host tables. Supported target protocols are SSH, RDP, VNC, and Telnet; SFTP is normalized to SSH. Plaintext passwords, SSH keys, `ip` host aliases, reusable SQLite `ssh_credentials` records, host `credential_id` links, and supported Termix AES-256-GCM/HKDF encrypted password/key fields can be imported. Encrypted source fields require a `sourceSecret` multipart field; missing secrets, unsupported encrypted formats, and failed decrypts are recorded as warnings.
 
 Current limitations are intentional and visible in validation results:
 
-- SQLite files are detected but not parsed yet.
+- SQLite parsing is intentionally bounded to supported Termix host and credential tables. Corrupt files, unsupported SQLite page shapes, and unsupported tables are rejected or surfaced as validation warnings instead of being guessed.
 - Import jobs are persisted through the Drizzle-backed `import_jobs` repository.
 - Imported hosts and credentials are persisted through the current Drizzle-backed service repository.
-- The source decrypt secret field is reserved; encrypted Termix source credentials are still skipped.
+- Guacamole-only settings, snippets, server statistics, unsupported protocols, and unsupported encrypted credential formats are surfaced as warnings rather than imported as first-class records.
 
 ## Verification
 
@@ -149,14 +161,34 @@ Smoke-test the production WebSocket upgrade entrypoint:
 nix develop -c npm run smoke:ws
 ```
 
-Build the app image:
+Smoke-test Postgres migrations in a disposable container:
 
 ```sh
-docker compose build app
+nix develop -c npm run smoke:postgres
+```
+
+Smoke-test local protocol loopbacks for Telnet, VNC banner negotiation, SSH, and SFTP:
+
+```sh
+nix develop -c npm run smoke:protocols
+```
+
+Run the browser first-run/authentication smoke. The script selects Nix Chromium
+inside `nix develop` and falls back to a system Chrome/Chromium when run outside
+the shell:
+
+```sh
+nix develop -c npm run test:e2e
+```
+
+Build the app and migration images:
+
+```sh
+nix develop -c docker compose build app migrate
 ```
 
 Run the production migration job used by Compose:
 
 ```sh
-docker compose run --rm migrate
+nix develop -c docker compose run --rm migrate
 ```

@@ -16,6 +16,7 @@ import {
 	type ImportMappingResult,
 	type TermixSourceRecord
 } from './termix';
+import { isSqliteBuffer, parseTermixSqliteDatabase } from './sqlite';
 
 export type ImportUploadInput = {
 	fileName: string;
@@ -181,14 +182,18 @@ export class ImportService {
 }
 
 export function parseImportUpload(upload: ImportUploadInput): ParsedImportSource {
-	const text = uploadToText(upload.bytes).trim();
-	if (!text) throw new ServiceValidationError(['import file is empty']);
+	const bytes = uploadToBytes(upload.bytes);
+	if (bytes.byteLength === 0) throw new ServiceValidationError(['import file is empty']);
 
-	if (isSqliteFile(upload.fileName, text)) {
-		throw new ServiceValidationError([
-			'SQLite imports are detected but not parsed yet; upload a JSON export for this importer worker.'
-		]);
+	if (isSqliteFile(upload.fileName) || isSqliteBuffer(bytes)) {
+		return {
+			sourceKind: 'sqlite',
+			records: parseTermixSqliteDatabase(bytes)
+		};
 	}
+
+	const text = Buffer.from(bytes).toString('utf8').trim();
+	if (!text) throw new ServiceValidationError(['import file is empty']);
 
 	const parsed = parseJson(text);
 	const rows = extractRecordArray(parsed);
@@ -204,14 +209,14 @@ export function parseImportUpload(upload: ImportUploadInput): ParsedImportSource
 	};
 }
 
-function uploadToText(bytes: ImportUploadInput['bytes']): string {
-	if (typeof bytes === 'string') return bytes;
-	if (bytes instanceof Uint8Array) return Buffer.from(bytes).toString('utf8');
-	return Buffer.from(bytes).toString('utf8');
+function uploadToBytes(bytes: ImportUploadInput['bytes']): Uint8Array {
+	if (typeof bytes === 'string') return Buffer.from(bytes, 'utf8');
+	if (bytes instanceof Uint8Array) return bytes;
+	return new Uint8Array(bytes);
 }
 
-function isSqliteFile(fileName: string, text: string): boolean {
-	return fileName.toLowerCase().endsWith('.sqlite') || text.startsWith('SQLite format 3');
+function isSqliteFile(fileName: string): boolean {
+	return /\.(sqlite|sqlite3|db)$/i.test(fileName);
 }
 
 function parseJson(text: string): unknown {

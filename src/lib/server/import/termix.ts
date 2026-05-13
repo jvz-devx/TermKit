@@ -28,6 +28,9 @@ export type TermixSourceRecord = {
 	privateKey?: SourceSecretValue | null;
 	sshKey?: SourceSecretValue | null;
 	key?: SourceSecretValue | null;
+	credentialSourceId?: string | number | null;
+	credentialName?: string | null;
+	credentialUsername?: string | null;
 	domain?: string | null;
 	folder?: string | null;
 	tags?: string[] | string | null;
@@ -111,6 +114,7 @@ export function mapTermixRecords(
 ): ImportMappingResult {
 	const hosts: ImportedHostDto[] = [];
 	const credentials: ImportedCredentialDto[] = [];
+	const credentialSourceIds = new Set<string>();
 	const warnings: ImportWarning[] = [];
 	let skippedRecords = 0;
 
@@ -153,7 +157,10 @@ export function mapTermixRecords(
 		const username = firstPresent(record.username, record.user);
 		const credential = mapCredential(record, sourceId, username, options, warnings);
 		if (credential) {
-			credentials.push(credential);
+			if (!credentialSourceIds.has(credential.sourceId)) {
+				credentialSourceIds.add(credential.sourceId);
+				credentials.push(credential);
+			}
 		}
 
 		collectUnsupportedWarnings(record, sourceId, warnings);
@@ -250,14 +257,18 @@ function mapCredential(
 		options,
 		warnings
 	);
+	const credentialSourceId =
+		firstPresent(String(record.credentialSourceId ?? ''), sourceId) ?? sourceId;
+	const credentialUsername = firstPresent(record.credentialUsername, username);
+	const metadata = credentialMetadata(sourceId, credentialSourceId);
 	if (privateKey) {
 		return {
-			sourceId: `${sourceId}:ssh-key`,
-			name: `${recordDisplayName(record, sourceId)} SSH key`,
+			sourceId: `${credentialSourceId}:ssh-key`,
+			name: firstPresent(record.credentialName) ?? `${recordDisplayName(record, sourceId)} SSH key`,
 			kind: 'ssh_key',
-			username: username || undefined,
+			username: credentialUsername || undefined,
 			secret: privateKey,
-			metadata: { sourceRecordId: sourceId }
+			metadata
 		};
 	}
 
@@ -265,13 +276,19 @@ function mapCredential(
 	if (!password) return undefined;
 
 	return {
-		sourceId: `${sourceId}:password`,
-		name: `${recordDisplayName(record, sourceId)} password`,
+		sourceId: `${credentialSourceId}:password`,
+		name: firstPresent(record.credentialName) ?? `${recordDisplayName(record, sourceId)} password`,
 		kind: 'password',
-		username: username || undefined,
+		username: credentialUsername || undefined,
 		secret: password,
-		metadata: { sourceRecordId: sourceId }
+		metadata
 	};
+}
+
+function credentialMetadata(sourceId: string, credentialSourceId: string): Record<string, string> {
+	return credentialSourceId === sourceId
+		? { sourceRecordId: sourceId }
+		: { sourceRecordId: sourceId, sourceCredentialId: credentialSourceId };
 }
 
 function firstResolvedSecret(

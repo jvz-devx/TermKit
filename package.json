@@ -17,6 +17,7 @@
 		"test:e2e": "node scripts/run-playwright.mjs",
 		"test:unit": "vitest",
 		"smoke:postgres": "node scripts/smoke-postgres-migrations.mjs",
+		"smoke:protocols": "node scripts/smoke-protocols.mjs",
 		"smoke:ws": "node scripts/smoke-production-websocket.mjs",
 		"test": "npm run test:unit -- --run",
 		"db:start": "docker compose up",

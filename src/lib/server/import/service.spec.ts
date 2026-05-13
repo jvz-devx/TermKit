@@ -56,8 +56,8 @@ describe('ImportService', () => {
 
 	it('detects SQLite uploads before attempting JSON parsing', () => {
 		expect(() =>
-			parseImportUpload({ fileName: 'termix.sqlite', bytes: 'SQLite format 3\u0000' })
-		).toThrow('SQLite imports are detected but not parsed yet');
+			parseImportUpload({ fileName: 'termix.sqlite', bytes: 'not a sqlite database' })
+		).toThrow('SQLite file header is invalid');
 	});
 
 	it('validates uploads into persisted import jobs without importing records', async () => {

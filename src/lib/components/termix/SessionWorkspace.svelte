@@ -11,9 +11,12 @@
 		Network,
 		Power,
 		RotateCcw,
+		Server,
 		Terminal
 	} from '@lucide/svelte';
+	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { getAppSettings, type BasicAppSettings } from '$lib/settings.remote';
 	import { createSessionLaunch, listHosts, type HostSummary } from '$lib/termix.remote';
@@ -24,6 +27,7 @@
 	import VncPane from './session/VncPane.svelte';
 
 	type WorkspaceProtocol = 'ssh' | 'sftp' | 'rdp' | 'vnc' | 'telnet';
+	type LauncherProtocolFilter = WorkspaceProtocol | 'all';
 
 	const hostsQuery = listHosts();
 	const settingsQuery = getAppSettings();
@@ -34,6 +38,14 @@
 		rememberLastActiveTab: true
 	};
 	const lastProtocolStoragePrefix = 'termixkit:last-protocol:';
+	const launcherProtocolOptions: LauncherProtocolFilter[] = [
+		'all',
+		'ssh',
+		'sftp',
+		'rdp',
+		'vnc',
+		'telnet'
+	];
 	const tabIcons = {
 		ssh: Terminal,
 		sftp: Database,
@@ -44,6 +56,7 @@
 
 	let reconnectNonce = $state(0);
 	let pausedSessionKey = $state<string | null>(null);
+	let sessionSearch = $state('');
 	let hosts = $derived(hostsQuery.current ?? []);
 	let appSettings = $derived(settingsQuery.current ?? defaultSessionSettings);
 	let requestedHostId = $derived(page.url.searchParams.get('host'));
@@ -56,30 +69,46 @@
 		const requestedTab = page.url.searchParams.get('tab') as WorkspaceProtocol | null;
 		return requestedTab && isWorkspaceProtocol(requestedTab) ? requestedTab : null;
 	});
-	let hostSelectionProtocol = $derived(requestedProtocol ?? null);
+	let launcherProtocol = $derived<LauncherProtocolFilter>(requestedProtocol ?? 'all');
 	let hostSelectionHosts = $derived.by(() =>
-		hostSelectionProtocol
-			? hosts.filter((host) => protocolsForHost(host).includes(hostSelectionProtocol))
-			: hosts
+		hosts.filter((host) => {
+			if (launcherProtocol !== 'all' && !protocolsForHost(host).includes(launcherProtocol)) {
+				return false;
+			}
+
+			const needle = sessionSearch.trim().toLowerCase();
+			if (!needle) return true;
+
+			return [host.name, host.hostname, host.username, host.folder, host.protocol, ...host.tags]
+				.filter(Boolean)
+				.join(' ')
+				.toLowerCase()
+				.includes(needle);
+		})
 	);
 	let hostSelectionTitle = $derived.by(() => {
 		if (requestedHostId) return 'Host not found';
-		if (hostSelectionProtocol) return `Select a ${hostSelectionProtocol.toUpperCase()} host`;
+		if (launcherProtocol !== 'all') return `Select a ${launcherProtocol.toUpperCase()} host`;
 		return 'Select a host';
 	});
 	let hostSelectionDetail = $derived.by(() => {
 		if (requestedHostId) return 'The requested host does not exist or is no longer available.';
-		if (hostSelectionProtocol) {
+		if (launcherProtocol !== 'all') {
 			return hostSelectionHosts.length
-				? `Choose a host that supports ${hostSelectionProtocol.toUpperCase()} before launching.`
-				: `No hosts support ${hostSelectionProtocol.toUpperCase()} yet.`;
+				? `Choose a host that supports ${launcherProtocol.toUpperCase()} before launching.`
+				: `No hosts support ${launcherProtocol.toUpperCase()} yet.`;
 		}
 		return 'Choose a host from the inventory before launching a session.';
 	});
 	let activeProtocol = $derived.by(() => {
-		const candidate = requestedProtocol ?? 'ssh';
-		if (availableTabs.includes(candidate)) return candidate;
-		return availableTabs[0] ?? candidate;
+		if (requestedProtocol && availableTabs.includes(requestedProtocol)) return requestedProtocol;
+
+		if (selectedHost) {
+			const remembered = rememberedProtocol(selectedHost.id);
+			if (remembered && availableTabs.includes(remembered)) return remembered;
+		}
+
+		return availableTabs[0] ?? requestedProtocol ?? 'ssh';
 	});
 	let activePauseKey = $derived(
 		selectedHost ? sessionPauseKey(selectedHost.id, activeProtocol) : null
@@ -103,6 +132,22 @@
 		reconnectNonce += 1;
 	}
 
+	function setLauncherProtocol(protocol: LauncherProtocolFilter) {
+		const params = new SvelteURLSearchParams(page.url.searchParams);
+		params.delete('host');
+		if (protocol === 'all') {
+			params.delete('tab');
+		} else {
+			params.set('tab', protocol);
+		}
+		pausedSessionKey = null;
+		void goto(resolve(sessionUrl(params) as '/'), {
+			keepFocus: true,
+			noScroll: true,
+			replaceState: true
+		});
+	}
+
 	function selectHost(host: HostSummary) {
 		const params = new SvelteURLSearchParams(page.url.searchParams);
 		const protocol = protocolForSelectedHost(host);
@@ -111,6 +156,14 @@
 		rememberProtocol(host.id, protocol);
 		pausedSessionKey = null;
 		void goto(resolve(`/sessions?${params.toString()}` as '/'));
+	}
+
+	function returnToLauncher() {
+		const params = new SvelteURLSearchParams(page.url.searchParams);
+		params.delete('host');
+		if (activeProtocol) params.set('tab', activeProtocol);
+		pausedSessionKey = null;
+		void goto(resolve(sessionUrl(params) as '/'));
 	}
 
 	function selectProtocol(protocol: WorkspaceProtocol) {
@@ -125,8 +178,7 @@
 
 	function protocolForSelectedHost(host: HostSummary): WorkspaceProtocol {
 		const available = protocolsForHost(host);
-		if (hostSelectionProtocol && available.includes(hostSelectionProtocol))
-			return hostSelectionProtocol;
+		if (requestedProtocol && available.includes(requestedProtocol)) return requestedProtocol;
 
 		const remembered = rememberedProtocol(host.id);
 		if (remembered && available.includes(remembered)) return remembered;
@@ -152,6 +204,19 @@
 
 	function isWorkspaceProtocol(value: string): value is WorkspaceProtocol {
 		return ['ssh', 'sftp', 'rdp', 'vnc', 'telnet'].includes(value);
+	}
+
+	function sessionUrl(params: SvelteURLSearchParams) {
+		const query = params.toString();
+		return query ? `/sessions?${query}` : '/sessions';
+	}
+
+	function launcherProtocolLabel(protocol: LauncherProtocolFilter) {
+		return protocol === 'all' ? 'All' : protocol.toUpperCase();
+	}
+
+	function launchProtocolLabel(host: HostSummary) {
+		return protocolForSelectedHost(host).toUpperCase();
 	}
 
 	function toWebSocketUrl(path: string) {
@@ -184,6 +249,12 @@
 			</p>
 		</div>
 		<div class="flex gap-1">
+			{#if selectedHost}
+				<Button size="sm" variant="outline" class="gap-2" onclick={returnToLauncher}>
+					<Server class="size-4" />
+					Change host
+				</Button>
+			{/if}
 			<Button
 				size="icon"
 				variant="ghost"
@@ -234,6 +305,30 @@
 					title={hostSelectionTitle}
 					detail={hostSelectionDetail}
 				/>
+				<div class="flex flex-col gap-2 rounded-md border bg-background p-3">
+					<div class="flex flex-col gap-2 md:flex-row">
+						<div class="relative min-w-0 flex-1">
+							<Terminal class="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
+							<Input
+								class="pl-8"
+								placeholder="Search hosts by name, address, folder, or tag"
+								bind:value={sessionSearch}
+							/>
+						</div>
+						<div class="flex flex-wrap gap-1" aria-label="Protocol filters">
+							{#each launcherProtocolOptions as protocol (protocol)}
+								<Button
+									size="sm"
+									variant={launcherProtocol === protocol ? 'secondary' : 'outline'}
+									aria-pressed={launcherProtocol === protocol}
+									onclick={() => setLauncherProtocol(protocol)}
+								>
+									{launcherProtocolLabel(protocol)}
+								</Button>
+							{/each}
+						</div>
+					</div>
+				</div>
 				{#if hostSelectionHosts.length}
 					<div class="overflow-hidden rounded-md border">
 						{#each hostSelectionHosts as host (host.id)}
@@ -242,20 +337,38 @@
 								class="h-auto w-full justify-start rounded-none border-b p-3 text-left last:border-b-0"
 								onclick={() => selectHost(host)}
 							>
-								<div class="min-w-0">
-									<div class="flex items-center gap-2">
-										<span class="truncate font-medium">{host.name}</span>
-										<span class="text-xs text-muted-foreground">
-											{(hostSelectionProtocol ?? host.protocol).toUpperCase()}
-										</span>
+								<div class="flex min-w-0 flex-1 items-center justify-between gap-3">
+									<div class="min-w-0">
+										<div class="flex items-center gap-2">
+											<span class="truncate font-medium">{host.name}</span>
+											<Badge variant="outline">{launchProtocolLabel(host)}</Badge>
+										</div>
+										<div class="truncate font-mono text-xs text-muted-foreground">
+											{host.username ? `${host.username}@` : ''}{host.hostname}:{host.port}
+										</div>
+										{#if host.folder || host.tags.length}
+											<div class="mt-1 truncate text-xs text-muted-foreground">
+												{host.folder ?? 'No folder'}{host.tags.length
+													? ` · ${host.tags.join(', ')}`
+													: ''}
+											</div>
+										{/if}
 									</div>
-									<div class="truncate font-mono text-xs text-muted-foreground">
-										{host.username ? `${host.username}@` : ''}{host.hostname}:{host.port}
+									<div class="flex items-center gap-2">
+										{#each protocolsForHost(host) as protocol (protocol)}
+											<span class="text-xs text-muted-foreground">{protocol.toUpperCase()}</span>
+										{/each}
 									</div>
 								</div>
 							</Button>
 						{/each}
 					</div>
+				{:else if hosts.length}
+					<StatePanel
+						state="error"
+						title="No matching hosts"
+						detail="Adjust the search or protocol filter to launch a session."
+					/>
 				{/if}
 			</div>
 		</div>

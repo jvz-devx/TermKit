@@ -122,7 +122,8 @@
 	<div>
 		<h1 class="text-lg font-semibold">Termix import</h1>
 		<p class="text-sm text-muted-foreground">
-			Upload a Termix JSON export, validate the mapped records, then import hosts and credentials.
+			Upload a Termix JSON export or SQLite database, validate the mapped records, then import hosts
+			and credentials.
 		</p>
 	</div>
 	<div class="grid gap-4 lg:grid-cols-[1fr_360px]">
@@ -133,7 +134,7 @@
 					<Input
 						id="import-file"
 						type="file"
-						accept=".json,.sqlite,.db,application/json"
+						accept=".json,.sqlite,.sqlite3,.db,application/json"
 						onchange={handleFileChange}
 					/>
 				</div>
