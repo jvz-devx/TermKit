@@ -11,6 +11,7 @@
 		Trash2,
 		Upload
 	} from '@lucide/svelte';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as Table from '$lib/components/ui/table';
@@ -30,6 +31,8 @@
 	let path = $state('/');
 	let entries = $state<SftpEntry[]>([]);
 	let selected = $state<SftpEntry | null>(null);
+	let deleteTarget = $state<SftpEntry | null>(null);
+	let deleteDialogOpen = $state(false);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let newFolderName = $state('');
@@ -104,14 +107,25 @@
 		);
 	}
 
+	function requestDeleteSelected() {
+		if (!selected) return;
+		deleteTarget = selected;
+		deleteDialogOpen = true;
+	}
+
 	async function deleteSelected() {
-		if (!selected || !confirm(`Delete ${selected.name}?`)) return;
+		if (!deleteTarget) return;
+		const target = deleteTarget;
 		const deleted = await request(
-			`/delete?path=${encodeURIComponent(selected.path)}`,
+			`/delete?path=${encodeURIComponent(target.path)}`,
 			{ method: 'DELETE' },
 			'Could not delete path'
 		);
-		if (deleted) await loadDirectory(path);
+		if (deleted) {
+			deleteDialogOpen = false;
+			deleteTarget = null;
+			await loadDirectory(path);
+		}
 	}
 
 	async function openText(entry = selected) {
@@ -211,6 +225,7 @@
 	}
 
 	onMount(() => {
+		path = initialPath;
 		void loadDirectory(initialPath);
 	});
 </script>
@@ -281,7 +296,7 @@
 				variant="destructive"
 				aria-label="Delete selected path"
 				disabled={!selected}
-				onclick={deleteSelected}
+				onclick={requestDeleteSelected}
 			>
 				<Trash2 class="size-4" />
 			</Button>
@@ -389,4 +404,32 @@
 			/>
 		</div>
 	</div>
+
+	<AlertDialog.Root bind:open={deleteDialogOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>Delete remote path?</AlertDialog.Title>
+				<AlertDialog.Description>
+					{#if deleteTarget}
+						This permanently deletes {deleteTarget.path} from the remote host.
+					{:else}
+						This permanently deletes the selected remote path.
+					{/if}
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel disabled={loading}>Cancel</AlertDialog.Cancel>
+				<AlertDialog.Action
+					variant="destructive"
+					disabled={!deleteTarget || loading}
+					onclick={(event) => {
+						event.preventDefault();
+						void deleteSelected();
+					}}
+				>
+					{loading ? 'Deleting...' : 'Delete path'}
+				</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 </div>

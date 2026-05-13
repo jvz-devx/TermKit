@@ -33,10 +33,10 @@ export type RdpGatewayBootstrap = {
 		username: string | null;
 		domain: string | null;
 	};
-	credential: {
+	credentialHint: {
 		kind: 'password';
 		username: string | null;
-		password: string;
+		serverHeld: true;
 	} | null;
 };
 
@@ -82,7 +82,7 @@ export class RdpGatewayBootstrapper {
 			sessionId
 		});
 		const expiresAt = new Date(Date.now() + this.config.sessionLifetimeSeconds * 1000);
-		const credential = toRdpCredential(ticket);
+		const credentialHint = toRdpCredentialHint(ticket);
 
 		return {
 			provider: 'devolutions-gateway',
@@ -96,10 +96,10 @@ export class RdpGatewayBootstrapper {
 			expiresAt: expiresAt.toISOString(),
 			desktop: this.config.desktop,
 			identity: {
-				username: ticket.target.username ?? credential?.username ?? null,
+				username: ticket.target.username ?? credentialHint?.username ?? null,
 				domain: readStringMetadata(ticket.metadata, 'domain')
 			},
-			credential
+			credentialHint
 		};
 	}
 
@@ -224,7 +224,7 @@ export function loadRdpGatewayConfig(
 	};
 }
 
-function toRdpCredential(ticket: ConsumedTicket): RdpGatewayBootstrap['credential'] {
+function toRdpCredentialHint(ticket: ConsumedTicket): RdpGatewayBootstrap['credentialHint'] {
 	const credential = ticket.target.credential;
 	if (!credential) return null;
 	if (credential.kind !== 'password') {
@@ -234,7 +234,7 @@ function toRdpCredential(ticket: ConsumedTicket): RdpGatewayBootstrap['credentia
 	return {
 		kind: 'password',
 		username: credential.username ?? ticket.target.username ?? null,
-		password: credential.password
+		serverHeld: true
 	};
 }
 

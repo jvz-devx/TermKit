@@ -120,6 +120,20 @@ export class SessionTicketService {
 		userId?: string,
 		protocol?: HostProtocol
 	): Promise<SessionTicketRecord> {
+		const existing = await this.validateForConsume(ticket, now, userId, protocol);
+		const consumed = await this.repository.consumeTicket(existing.ticketHash, now);
+		if (!consumed) throw new TicketConsumedError();
+		if (consumed.expiresAt.getTime() <= now.getTime()) throw new TicketExpiredError();
+
+		return consumed;
+	}
+
+	async validateForConsume(
+		ticket: string,
+		now = new Date(),
+		userId?: string,
+		protocol?: HostProtocol
+	): Promise<SessionTicketRecord> {
 		if (!ticket) throw new TicketInvalidError();
 
 		const ticketHash = hashToken(ticket);
@@ -131,11 +145,7 @@ export class SessionTicketService {
 		if (existing.expiresAt.getTime() <= now.getTime()) throw new TicketExpiredError();
 		await this.assertTargetUnchanged(existing);
 
-		const consumed = await this.repository.consumeTicket(ticketHash, now);
-		if (!consumed) throw new TicketConsumedError();
-		if (consumed.expiresAt.getTime() <= now.getTime()) throw new TicketExpiredError();
-
-		return consumed;
+		return existing;
 	}
 
 	private async assertTargetUnchanged(record: SessionTicketRecord): Promise<void> {

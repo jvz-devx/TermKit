@@ -72,6 +72,72 @@ describe('websocket upgrade routing', () => {
 		expect(adapterCalled).toBe(false);
 	});
 
+	it('rejects cross-origin websocket upgrades before consuming tickets', async () => {
+		expect.assertions(3);
+
+		let consumeCalled = false;
+		let adapterCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			allowedOrigins: ['https://termix.example'],
+			tickets: {
+				async consume() {
+					consumeCalled = true;
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						adapterCalled = true;
+					}
+				}
+			]
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/ticket-1', {
+			origin: 'https://evil.example'
+		});
+
+		expect(response).toContain('403 WebSocket origin is not allowed');
+		expect(consumeCalled).toBe(false);
+		expect(adapterCalled).toBe(false);
+	});
+
+	it('accepts websocket upgrades from an allowed origin', async () => {
+		expect.assertions(1);
+
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			allowedOrigins: ['https://termix.example'],
+			tickets: {
+				async consume() {
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle(socket) {
+						socket.close(1000, 'ok');
+					}
+				}
+			]
+		});
+
+		await listen(server);
+
+		await expect(
+			webSocketClose(server, '/ws/ssh/ticket-1', { origin: 'https://termix.example' })
+		).resolves.toEqual(1000);
+	});
+
 	it('consumes matching tickets and hands the socket to the protocol adapter', async () => {
 		expect.assertions(3);
 
@@ -172,6 +238,39 @@ describe('websocket upgrade routing', () => {
 		expect(response).toContain('401 Invalid or expired session ticket');
 		expect(adapterCalled).toBe(false);
 		await expect(webSocketClose(server, `/ws/ssh/${created.ticket}`)).resolves.toEqual(1000);
+	});
+
+	it('rejects consumed tickets with invalid session context before recording sessions', async () => {
+		expect.assertions(3);
+
+		let adapterCalled = false;
+		const lifecycle = createLifecycleRecorder();
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			tickets: {
+				async consume() {
+					return { ...testConsumedTicket(), userId: '' };
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						adapterCalled = true;
+					}
+				}
+			],
+			connectionSessions: lifecycle.recorder
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/ticket-1');
+
+		expect(response).toContain('401 Invalid or expired session ticket');
+		expect(adapterCalled).toBe(false);
+		expect(lifecycle.calls).toEqual([]);
 	});
 
 	it('records connection sessions from accepted upgrades through normal close', async () => {
@@ -286,9 +385,19 @@ function serverUrl(server: ReturnType<typeof createServer>, path: string, protoc
 	return `${protocol}://127.0.0.1:${address.port}${path}`;
 }
 
-function rawUpgrade(server: ReturnType<typeof createServer>, path: string): Promise<string> {
+type WebSocketTestOptions = {
+	origin?: string;
+};
+
+function rawUpgrade(
+	server: ReturnType<typeof createServer>,
+	path: string,
+	options: WebSocketTestOptions = {}
+): Promise<string> {
 	return new Promise((resolve, reject) => {
-		const request = new WebSocket(serverUrl(server, path));
+		const request = new WebSocket(serverUrl(server, path), {
+			headers: options.origin ? { Origin: options.origin } : undefined
+		});
 		request.on('unexpected-response', (_request, response) => {
 			let body = '';
 			response.setEncoding('utf8');
@@ -303,9 +412,15 @@ function rawUpgrade(server: ReturnType<typeof createServer>, path: string): Prom
 	});
 }
 
-function webSocketClose(server: ReturnType<typeof createServer>, path: string): Promise<number> {
+function webSocketClose(
+	server: ReturnType<typeof createServer>,
+	path: string,
+	options: WebSocketTestOptions = {}
+): Promise<number> {
 	return new Promise((resolve, reject) => {
-		const socket = new WebSocket(serverUrl(server, path));
+		const socket = new WebSocket(serverUrl(server, path), {
+			headers: options.origin ? { Origin: options.origin } : undefined
+		});
 		socket.on('close', (code) => resolve(code));
 		socket.on('error', reject);
 	});

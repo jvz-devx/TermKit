@@ -22,7 +22,10 @@ describe('SFTP path validation', () => {
 
 	it('does not allow deleting the remote filesystem root', async () => {
 		await expect(
-			deleteSftpPath({ host: 'example.test', port: 22, username: 'ops' }, '/')
+			deleteSftpPath(
+				{ userId: 'user-1', hostId: 'host-1', host: 'example.test', port: 22, username: 'ops' },
+				'/'
+			)
 		).rejects.toMatchObject({
 			issues: ['path cannot be the filesystem root']
 		});
@@ -42,6 +45,8 @@ describe('SFTP target resolution', () => {
 		expect(credential.encryptedSecret).not.toBe('saved-password');
 		expect(credential.encryption.associatedData).toEqual({ version: 1, field: 'secret' });
 		expect(target).toEqual({
+			userId: 'user-1',
+			hostId: 'host-1',
 			host: 'shell.example.test',
 			port: 22,
 			username: 'credential-user',
@@ -71,6 +76,8 @@ describe('SFTP target resolution', () => {
 			})
 		});
 		expect(target).toEqual({
+			userId: 'user-1',
+			hostId: 'host-1',
 			host: 'shell.example.test',
 			port: 22,
 			username: 'credential-user',

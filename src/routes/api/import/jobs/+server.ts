@@ -1,7 +1,11 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { ServiceValidationError } from '$lib/server/services/errors';
 import { importService } from '$lib/server/import/service';
-import { requireUser, serviceJson } from '../../_helpers';
+import {
+	IMPORT_UPLOAD_MAX_BYTES,
+	readRequiredFormFile,
+	requireUser,
+	serviceJson
+} from '../../_helpers';
 
 export const GET: RequestHandler = async (event) => {
 	try {
@@ -24,11 +28,7 @@ export const POST: RequestHandler = async (event) => {
 };
 
 async function readImportUpload(request: Request) {
-	const form = await request.formData().catch(() => null);
-	const file = form?.get('file');
-	if (!(file instanceof File)) {
-		throw new ServiceValidationError(['file is required']);
-	}
+	const file = await readRequiredFormFile(request, 'file', IMPORT_UPLOAD_MAX_BYTES);
 
 	return {
 		fileName: file.name,

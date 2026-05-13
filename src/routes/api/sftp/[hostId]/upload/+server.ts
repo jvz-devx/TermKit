@@ -1,18 +1,19 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { resolveSftpTarget, validateSftpPath, writeSftpFile } from '$lib/server/protocols/sftp';
-import { ServiceValidationError } from '$lib/server/services/errors';
-import { requireParam, requireUser, serviceJson } from '../../../_helpers';
+import {
+	readRequiredFormFile,
+	requireParam,
+	requireUser,
+	serviceJson,
+	SFTP_UPLOAD_MAX_BYTES
+} from '../../../_helpers';
 
 export const POST: RequestHandler = async (event) => {
 	try {
 		const userId = requireUser(event);
 		const hostId = requireParam(event.params.hostId, 'hostId');
 		const path = validateSftpPath(event.url.searchParams.get('path'));
-		const file = (await event.request.formData()).get('file');
-
-		if (!(file instanceof File)) {
-			throw new ServiceValidationError(['file is required']);
-		}
+		const file = await readRequiredFormFile(event.request, 'file', SFTP_UPLOAD_MAX_BYTES);
 
 		const target = await resolveSftpTarget(userId, hostId);
 		const data = Buffer.from(await file.arrayBuffer());

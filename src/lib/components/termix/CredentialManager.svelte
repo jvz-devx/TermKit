@@ -2,6 +2,7 @@
 	import { KeyRound, Pencil, Plus, ShieldCheck, Trash2 } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -23,6 +24,8 @@
 	let deletingId = $state<string | null>(null);
 	let error = $state<string | null>(null);
 	let editingCredential = $state<CredentialSummary | null>(null);
+	let deleteTarget = $state<CredentialSummary | null>(null);
+	let deleteDialogOpen = $state(false);
 	let form = $state(emptyForm());
 
 	type CredentialForm = {
@@ -99,12 +102,20 @@
 		}
 	}
 
-	async function remove(id: string, name: string) {
-		if (!confirm(`Delete ${name}?`)) return;
-		deletingId = id;
+	function requestRemove(credential: CredentialSummary) {
+		deleteTarget = credential;
+		deleteDialogOpen = true;
+	}
+
+	async function removeTarget() {
+		if (!deleteTarget) return;
+		const credential = deleteTarget;
+		deletingId = credential.id;
 		error = null;
 		try {
-			await deleteCredential(id).updates(listCredentials);
+			await deleteCredential(credential.id).updates(listCredentials);
+			deleteDialogOpen = false;
+			deleteTarget = null;
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not delete credential';
 		} finally {
@@ -271,7 +282,7 @@
 												size="icon"
 												aria-label={`Delete ${credential.name}`}
 												disabled={deletingId === credential.id}
-												onclick={() => remove(credential.id, credential.name)}
+												onclick={() => requestRemove(credential)}
 											>
 												<Trash2 class="size-4" />
 											</Button>
@@ -313,4 +324,33 @@
 			</div>
 		</div>
 	</div>
+
+	<AlertDialog.Root bind:open={deleteDialogOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>Delete credential?</AlertDialog.Title>
+				<AlertDialog.Description>
+					{#if deleteTarget}
+						This deletes {deleteTarget.name}. Hosts using it will no longer have a saved secret for
+						launches.
+					{:else}
+						This credential will be deleted.
+					{/if}
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel disabled={Boolean(deletingId)}>Cancel</AlertDialog.Cancel>
+				<AlertDialog.Action
+					variant="destructive"
+					disabled={!deleteTarget || Boolean(deletingId)}
+					onclick={(event) => {
+						event.preventDefault();
+						void removeTarget();
+					}}
+				>
+					{deletingId ? 'Deleting...' : 'Delete credential'}
+				</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 </section>

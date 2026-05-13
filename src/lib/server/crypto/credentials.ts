@@ -4,6 +4,7 @@ import { env } from '$env/dynamic/private';
 const algorithm = 'aes-256-gcm';
 const info = 'termixkit:credential-encryption:v1';
 const associatedDataInfo = 'termixkit:credential-encryption:aad:v1';
+const minimumProductionMasterKeyBytes = 32;
 
 export type CredentialEncryptionContext = {
 	userId: string;
@@ -35,6 +36,23 @@ export class CredentialEncryptionError extends Error {
 	}
 }
 
+export function validateCredentialMasterKey(
+	masterKey: string | undefined,
+	options: { production?: boolean } = {}
+): string {
+	if (!masterKey) {
+		throw new CredentialEncryptionError('CREDENTIAL_MASTER_KEY is not set');
+	}
+
+	if (options.production && !isStrongProductionMasterKey(masterKey)) {
+		throw new CredentialEncryptionError(
+			'CREDENTIAL_MASTER_KEY must be at least 32 bytes and high-entropy in production'
+		);
+	}
+
+	return masterKey;
+}
+
 export function getCredentialKeyVersion(): number {
 	const raw = env.CREDENTIAL_MASTER_KEY_VERSION ?? '1';
 	const keyVersion = Number.parseInt(raw, 10);
@@ -47,11 +65,10 @@ export function getCredentialKeyVersion(): number {
 }
 
 function getMasterKey(masterKey = env.CREDENTIAL_MASTER_KEY): Buffer {
-	if (!masterKey) {
-		throw new CredentialEncryptionError('CREDENTIAL_MASTER_KEY is not set');
-	}
-
-	return Buffer.from(masterKey, 'utf8');
+	return Buffer.from(
+		validateCredentialMasterKey(masterKey, { production: process.env.NODE_ENV === 'production' }),
+		'utf8'
+	);
 }
 
 function deriveKey(masterKey: Buffer, salt: Buffer): Buffer {
@@ -123,10 +140,50 @@ export function decryptCredentialSecret(
 
 	decipher.setAuthTag(authTag);
 
-	return Buffer.concat([
-		decipher.update(Buffer.from(encrypted.ciphertext, 'base64url')),
-		decipher.final()
-	]).toString('utf8');
+	try {
+		return Buffer.concat([
+			decipher.update(Buffer.from(encrypted.ciphertext, 'base64url')),
+			decipher.final()
+		]).toString('utf8');
+	} catch {
+		throw new CredentialEncryptionError(
+			'Credential secret could not be decrypted; verify CREDENTIAL_MASTER_KEY, encryption context, and stored metadata'
+		);
+	}
+}
+
+function isStrongProductionMasterKey(masterKey: string): boolean {
+	if (Buffer.byteLength(masterKey, 'utf8') < minimumProductionMasterKeyBytes) return false;
+	if (masterKey.trim() !== masterKey) return false;
+
+	const lower = masterKey.toLowerCase();
+	if (
+		[
+			'change-me',
+			'changeme',
+			'credential-master-key',
+			'development',
+			'password',
+			'secret',
+			'test-master-key',
+			'termixkit'
+		].some((placeholder) => lower.includes(placeholder))
+	) {
+		return false;
+	}
+
+	if (new Set(masterKey).size < 8) return false;
+	return !isRepeatedPattern(masterKey);
+}
+
+function isRepeatedPattern(value: string): boolean {
+	for (let size = 1; size <= 8 && size <= value.length / 2; size += 1) {
+		if (value.length % size === 0 && value.slice(0, size).repeat(value.length / size) === value) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 function credentialAssociatedData(context: CredentialEncryptionContext): Buffer {

@@ -18,6 +18,7 @@ import type {
 	CredentialRecord,
 	TermixServicesRepository
 } from '$lib/server/services/types';
+import { buildTrustedSshConnectConfig, type SshHostKeyTrustError } from './ssh-host-trust';
 import type { Credential, TicketTarget } from './types';
 
 export type SftpEntry = {
@@ -30,7 +31,10 @@ export type SftpEntry = {
 	longname: string;
 };
 
-export type SftpTarget = TicketTarget;
+export type SftpTarget = TicketTarget & {
+	userId: string;
+	hostId: string;
+};
 
 export function validateSftpPath(value: unknown, field = 'path'): string {
 	const path = typeof value === 'string' ? value.trim() : '';
@@ -71,6 +75,8 @@ export async function resolveSftpTarget(
 		throw new ServiceValidationError(['Host username or credential username is required']);
 
 	return {
+		userId,
+		hostId,
 		host: host.hostname,
 		port: host.port,
 		username,
@@ -159,14 +165,28 @@ async function withSftp<T>(
 
 function connectSsh(target: SftpTarget): Promise<Client> {
 	const connection = new Client();
-	const config: ConnectConfig = {
-		host: target.host,
-		port: target.port,
-		username: target.credential?.username ?? target.username,
-		password: target.credential?.kind === 'password' ? target.credential.password : undefined,
-		privateKey: target.credential?.kind === 'ssh_key' ? target.credential.privateKey : undefined,
-		passphrase: target.credential?.kind === 'ssh_key' ? target.credential.passphrase : undefined
-	};
+	let hostKeyTrustError: SshHostKeyTrustError | undefined;
+	const config: ConnectConfig = buildTrustedSshConnectConfig(
+		{
+			host: target.host,
+			port: target.port,
+			username: target.credential?.username ?? target.username,
+			password: target.credential?.kind === 'password' ? target.credential.password : undefined,
+			privateKey: target.credential?.kind === 'ssh_key' ? target.credential.privateKey : undefined,
+			passphrase: target.credential?.kind === 'ssh_key' ? target.credential.passphrase : undefined
+		},
+		{
+			userId: target.userId,
+			hostId: target.hostId,
+			hostname: target.host,
+			port: target.port
+		},
+		{
+			onFailure(error) {
+				hostKeyTrustError = error;
+			}
+		}
+	);
 
 	return new Promise((resolve, reject) => {
 		const cleanup = () => {
@@ -179,7 +199,7 @@ function connectSsh(target: SftpTarget): Promise<Client> {
 		};
 		const onError = (error: Error) => {
 			cleanup();
-			reject(error);
+			reject(hostKeyTrustError ?? error);
 		};
 
 		connection.once('ready', onReady);

@@ -1,5 +1,12 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
-import { ServiceUnauthorizedError } from '$lib/server/services/errors';
+import {
+	ServicePayloadTooLargeError,
+	ServiceUnauthorizedError,
+	ServiceValidationError
+} from '$lib/server/services/errors';
+
+export const IMPORT_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+export const SFTP_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 
 export function requireUser(event: RequestEvent): string {
 	const userId = event.locals.user?.id;
@@ -15,6 +22,36 @@ export function requireParam(value: string | undefined, name: string): string {
 export async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
 	const body = await request.json().catch(() => ({}));
 	return isRecord(body) ? body : {};
+}
+
+export async function readRequiredFormFile(
+	request: Request,
+	field: string,
+	maxBytes: number
+): Promise<File> {
+	assertContentLength(request, maxBytes);
+	const form = await request.formData().catch(() => null);
+	const file = form?.get(field);
+	if (!(file instanceof File)) {
+		throw new ServiceValidationError([`${field} is required`]);
+	}
+	if (file.size > maxBytes) {
+		throw new ServicePayloadTooLargeError(
+			`${field} exceeds the ${formatBytes(maxBytes)} upload limit`
+		);
+	}
+	return file;
+}
+
+export function assertContentLength(request: Request, maxBytes: number): void {
+	const raw = request.headers.get('content-length');
+	if (!raw) return;
+	const contentLength = Number(raw);
+	if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+		throw new ServicePayloadTooLargeError(
+			`request exceeds the ${formatBytes(maxBytes)} upload limit`
+		);
+	}
 }
 
 export function serviceJson(error: unknown): Response {
@@ -40,4 +77,9 @@ function isIssueError(error: unknown): error is { issues: string[] } {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
+}
+
+function formatBytes(bytes: number): string {
+	const mib = bytes / 1024 / 1024;
+	return Number.isInteger(mib) ? `${mib} MiB` : `${bytes} bytes`;
 }

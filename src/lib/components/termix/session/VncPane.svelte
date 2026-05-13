@@ -1,19 +1,26 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { ShieldCheck } from '@lucide/svelte';
+	import * as Alert from '$lib/components/ui/alert';
+	import { Badge } from '$lib/components/ui/badge';
 	import StatePanel from '../StatePanel.svelte';
 	import RFB, { type RfbClient } from './novnc-rfb';
 
 	type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected';
-	type CredentialStrategy = 'none' | 'saved';
+	type CredentialStrategy = 'none' | 'saved-password';
+	type VncCredentials = {
+		username: string | null;
+		password: string | null;
+	};
 
 	let {
 		websocketUrl,
-		username,
+		credentials,
 		credentialStrategy = 'none',
 		viewOnly = false
 	}: {
 		websocketUrl?: string;
-		username?: string;
+		credentials?: VncCredentials;
 		credentialStrategy?: CredentialStrategy;
 		viewOnly?: boolean;
 	} = $props();
@@ -22,6 +29,14 @@
 	let connectionState = $state<ConnectionState>('idle');
 	let detail = $state('Waiting for VNC session ticket.');
 	let desktopName = $state('VNC');
+	let suppliedCredentials = $derived(toNoVncCredentials(credentials));
+	let authSummary = $derived(
+		credentialStrategy === 'saved-password'
+			? 'saved password staged in browser memory'
+			: credentials?.username
+				? 'username staged'
+				: 'credentials requested by target'
+	);
 
 	onMount(() => {
 		let rfb: RfbClient | undefined;
@@ -37,7 +52,7 @@
 		detail = 'Opening VNC websocket.';
 		rfb = new RFB(mountElement, websocketUrl, {
 			shared: true,
-			credentials: username ? { username } : undefined
+			credentials: suppliedCredentials
 		});
 		rfb.viewOnly = viewOnly;
 		rfb.focusOnClick = true;
@@ -63,8 +78,8 @@
 		rfb.addEventListener('credentialsrequired', () => {
 			connectionState = 'error';
 			detail =
-				credentialStrategy === 'saved'
-					? 'Saved VNC credentials are kept server-side and are not exposed to this browser session.'
+				credentialStrategy === 'saved-password'
+					? 'Saved VNC password was supplied, but the target requested more credentials.'
 					: 'VNC password is required by the target.';
 		});
 		rfb.addEventListener('desktopname', (event) => {
@@ -85,6 +100,15 @@
 			rfb?.disconnect();
 		};
 	});
+
+	function toNoVncCredentials(value: VncCredentials | undefined) {
+		if (!value?.username && !value?.password) return undefined;
+
+		return {
+			username: value.username ?? undefined,
+			password: value.password ?? undefined
+		};
+	}
 </script>
 
 <div class="relative h-full min-h-[480px] overflow-hidden rounded-md border bg-black">
@@ -92,9 +116,28 @@
 		class="flex h-10 items-center justify-between border-b border-neutral-800 bg-neutral-950 px-3 text-xs text-neutral-400"
 	>
 		<span class="font-medium text-neutral-100">{desktopName}</span>
-		<span>{viewOnly ? 'view only' : 'interactive'}</span>
+		<div class="flex items-center gap-2">
+			<Badge variant="outline" class="border-neutral-700 bg-neutral-900 text-neutral-300">
+				{authSummary}
+			</Badge>
+			<span>{viewOnly ? 'view only' : 'interactive'}</span>
+		</div>
 	</div>
 	<div bind:this={mountElement} class="h-[calc(100%-2.5rem)] w-full overflow-hidden"></div>
+
+	{#if credentialStrategy === 'saved-password' && connectionState !== 'connected'}
+		<Alert.Root
+			class="absolute top-[3.25rem] right-3 left-3 border-neutral-800 bg-neutral-950 text-neutral-100"
+		>
+			<ShieldCheck class="size-4" />
+			<Alert.Title>Saved VNC password supplied</Alert.Title>
+			<Alert.Description class="text-neutral-400">
+				noVNC handles VNC authentication in the browser, so this launch keeps the saved password out
+				of tickets, URLs, and session storage, but it is present in this tab until the VNC client
+				disconnects.
+			</Alert.Description>
+		</Alert.Root>
+	{/if}
 
 	{#if connectionState !== 'connected'}
 		<StatePanel

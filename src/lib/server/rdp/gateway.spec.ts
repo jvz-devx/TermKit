@@ -16,7 +16,7 @@ describe('RDP Gateway bootstrap', () => {
 	});
 
 	it('provisions a Devolutions Gateway app token and RDP association token', async () => {
-		expect.assertions(8);
+		expect.assertions(9);
 		const calls: Array<{ url: string; init?: RequestInit }> = [];
 		const bootstrapper = new RdpGatewayBootstrapper(
 			loadRdpGatewayConfig({
@@ -46,11 +46,12 @@ describe('RDP Gateway bootstrap', () => {
 				domain: null
 			}
 		});
-		expect(bootstrap.credential).toEqual({
+		expect(bootstrap.credentialHint).toEqual({
 			kind: 'password',
 			username: 'rdp-user',
-			password: 'secret'
+			serverHeld: true
 		});
+		expect(JSON.stringify(bootstrap)).not.toContain('secret');
 		expect(calls).toHaveLength(2);
 		expect(calls[0].url).toBe('http://gateway:7171/jet/webapp/app-token');
 		expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe(

@@ -5,6 +5,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Table from '$lib/components/ui/table';
 	import {
 		createSessionLaunch,
@@ -22,6 +23,8 @@
 	let launchingId = $state<string | null>(null);
 	let deletingId = $state<string | null>(null);
 	let error = $state<string | null>(null);
+	let deleteTarget = $state<HostSummary | null>(null);
+	let deleteDialogOpen = $state(false);
 	let hosts = $derived(hostsQuery.current ?? []);
 	let credentials = $derived(credentialsQuery.current ?? []);
 	let filteredHosts = $derived.by(() => {
@@ -49,12 +52,17 @@
 		launchingId = host.id;
 		error = null;
 		try {
+			if (host.protocol === 'vnc') {
+				await goto(resolve(`/sessions?host=${encodeURIComponent(host.id)}&tab=vnc` as '/'));
+				return;
+			}
+
 			const launch = await createSessionLaunch({ hostId: host.id, protocol: host.protocol });
-			if (launch.websocketPath) {
-				sessionStorage.setItem(launchStorageKey(host.id, host.protocol), JSON.stringify(launch));
+			if (launch.expiresAt) {
+				sessionStorage.setItem(launchStorageKey(host.id, launch.protocol), JSON.stringify(launch));
 			}
 			await goto(
-				resolve(`/sessions?host=${encodeURIComponent(host.id)}&tab=${host.protocol}` as '/')
+				resolve(`/sessions?host=${encodeURIComponent(host.id)}&tab=${launch.protocol}` as '/')
 			);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not launch host';
@@ -63,12 +71,20 @@
 		}
 	}
 
-	async function remove(host: HostSummary) {
-		if (!confirm(`Delete ${host.name}?`)) return;
+	function requestRemove(host: HostSummary) {
+		deleteTarget = host;
+		deleteDialogOpen = true;
+	}
+
+	async function removeTarget() {
+		if (!deleteTarget) return;
+		const host = deleteTarget;
 		deletingId = host.id;
 		error = null;
 		try {
 			await deleteHost(host.id).updates(listHosts, listCredentials);
+			deleteDialogOpen = false;
+			deleteTarget = null;
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not delete host';
 		} finally {
@@ -164,7 +180,7 @@
 										variant="ghost"
 										aria-label={`Delete ${host.name}`}
 										disabled={deletingId === host.id}
-										onclick={() => remove(host)}
+										onclick={() => requestRemove(host)}
 									>
 										<Trash2 class="size-4" />
 									</Button>
@@ -182,4 +198,33 @@
 			</Table.Body>
 		</Table.Root>
 	</div>
+
+	<AlertDialog.Root bind:open={deleteDialogOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>Delete host?</AlertDialog.Title>
+				<AlertDialog.Description>
+					{#if deleteTarget}
+						This removes {deleteTarget.name} from the connection inventory. Existing sessions are not
+						recovered from this action.
+					{:else}
+						This host will be removed from the connection inventory.
+					{/if}
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel disabled={Boolean(deletingId)}>Cancel</AlertDialog.Cancel>
+				<AlertDialog.Action
+					variant="destructive"
+					disabled={!deleteTarget || Boolean(deletingId)}
+					onclick={(event) => {
+						event.preventDefault();
+						void removeTarget();
+					}}
+				>
+					{deletingId ? 'Deleting...' : 'Delete host'}
+				</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 </section>

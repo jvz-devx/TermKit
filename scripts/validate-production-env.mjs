@@ -10,6 +10,8 @@ export function validateProductionEnv(env = process.env) {
 	const origin = parseOrigin(env.ORIGIN);
 	const allowInsecureLocalHttp = isEnabled(env.TERMIXKIT_INSECURE_LOCAL_HTTP);
 
+	validateCredentialMasterKey(env.CREDENTIAL_MASTER_KEY);
+
 	if (origin.protocol === 'https:') return;
 
 	if (!allowInsecureLocalHttp) {
@@ -53,6 +55,61 @@ function isEnabled(value) {
  */
 function isLocalHostname(hostname) {
 	return hostname === 'localhost' || hostname === '::1' || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+}
+
+/**
+ * @param {string | undefined} masterKey
+ */
+function validateCredentialMasterKey(masterKey) {
+	if (!masterKey) {
+		throw new Error('CREDENTIAL_MASTER_KEY is required in production.');
+	}
+
+	if (!isStrongCredentialMasterKey(masterKey)) {
+		throw new Error(
+			'CREDENTIAL_MASTER_KEY must be at least 32 bytes and high-entropy in production.'
+		);
+	}
+}
+
+/**
+ * @param {string} masterKey
+ */
+function isStrongCredentialMasterKey(masterKey) {
+	if (Buffer.byteLength(masterKey, 'utf8') < 32) return false;
+	if (masterKey.trim() !== masterKey) return false;
+
+	const lower = masterKey.toLowerCase();
+	if (
+		[
+			'change-me',
+			'changeme',
+			'credential-master-key',
+			'development',
+			'password',
+			'secret',
+			'test-master-key',
+			'termixkit'
+		].some((placeholder) => lower.includes(placeholder))
+	) {
+		return false;
+	}
+
+	if (new Set(masterKey).size < 8) return false;
+	return !isRepeatedPattern(masterKey);
+}
+
+/**
+ * @param {string} value
+ */
+function isRepeatedPattern(value) {
+	for (let size = 1; size <= 8 && size <= value.length / 2; size += 1) {
+		if (value.length % size === 0 && value.slice(0, size).repeat(value.length / size) === value) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;

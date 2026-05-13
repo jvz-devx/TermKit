@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
 	CredentialEncryptionError,
 	decryptCredentialSecret,
-	encryptCredentialSecret
+	encryptCredentialSecret,
+	validateCredentialMasterKey
 } from './credentials';
 
 describe('credential encryption', () => {
@@ -60,7 +61,7 @@ describe('credential encryption', () => {
 				{ ...encrypted, ciphertext: tampered.toString('base64url') },
 				{ masterKey: 'test-master-key' }
 			)
-		).toThrow();
+		).toThrow('Credential secret could not be decrypted');
 	});
 
 	it('requires a master key', () => {
@@ -69,5 +70,18 @@ describe('credential encryption', () => {
 		expect(() => encryptCredentialSecret('secret-password', { masterKey: '' })).toThrow(
 			CredentialEncryptionError
 		);
+	});
+
+	it('rejects weak master keys when production quality is required', () => {
+		expect.assertions(2);
+
+		expect(() =>
+			validateCredentialMasterKey('test-master-key-test-master-key-test', { production: true })
+		).toThrow('CREDENTIAL_MASTER_KEY must be at least 32 bytes and high-entropy');
+		expect(() =>
+			validateCredentialMasterKey('v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL', {
+				production: true
+			})
+		).not.toThrow();
 	});
 });

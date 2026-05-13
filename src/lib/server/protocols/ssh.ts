@@ -1,4 +1,5 @@
 import { Client, type ClientChannel } from 'ssh2';
+import { buildTrustedSshConnectConfig, type SshHostKeyTrustError } from './ssh-host-trust';
 import type { ProtocolAdapter } from './types';
 import { parseTerminalControlFrame, rawDataToBuffer, type TerminalSize } from './tcp';
 
@@ -11,6 +12,7 @@ export function createSshAdapter(): ProtocolAdapter {
 			const username = credential?.username ?? ticket.target.username;
 			let terminalSize: TerminalSize = { cols: 80, rows: 24 };
 			let shellStream: ClientChannel | undefined;
+			let hostKeyTrustError: SshHostKeyTrustError | undefined;
 
 			socket.on('message', (data, isBinary) => {
 				if (!isBinary) {
@@ -59,16 +61,36 @@ export function createSshAdapter(): ProtocolAdapter {
 						}
 					);
 				})
-				.on('error', () => socket.close(1011, 'ssh connection failed'));
+				.on('error', () =>
+					socket.close(
+						1011,
+						hostKeyTrustError ? 'ssh host key not trusted' : 'ssh connection failed'
+					)
+				);
 
-			connection.connect({
-				host: ticket.target.host,
-				port: ticket.target.port,
-				username,
-				password: credential?.kind === 'password' ? credential.password : undefined,
-				privateKey: credential?.kind === 'ssh_key' ? credential.privateKey : undefined,
-				passphrase: credential?.kind === 'ssh_key' ? credential.passphrase : undefined
-			});
+			connection.connect(
+				buildTrustedSshConnectConfig(
+					{
+						host: ticket.target.host,
+						port: ticket.target.port,
+						username,
+						password: credential?.kind === 'password' ? credential.password : undefined,
+						privateKey: credential?.kind === 'ssh_key' ? credential.privateKey : undefined,
+						passphrase: credential?.kind === 'ssh_key' ? credential.passphrase : undefined
+					},
+					{
+						userId: ticket.userId,
+						hostId: ticket.hostId,
+						hostname: ticket.target.host,
+						port: ticket.target.port
+					},
+					{
+						onFailure(error) {
+							hostKeyTrustError = error;
+						}
+					}
+				)
+			);
 		}
 	};
 }

@@ -1,4 +1,5 @@
 import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
+import { CredentialEncryptionError } from '$lib/server/crypto/credentials';
 import {
 	credentialPassphraseContext,
 	credentialSecretContext
@@ -34,7 +35,7 @@ export class SessionTicketConsumer implements TicketConsumer {
 
 	async consume(ticket: string, protocol: Protocol): Promise<ConsumedTicket | null> {
 		try {
-			const record = await this.tickets.consume(
+			const record = await this.tickets.validateForConsume(
 				ticket,
 				new Date(),
 				undefined,
@@ -43,12 +44,18 @@ export class SessionTicketConsumer implements TicketConsumer {
 			const snapshot = parseSessionTicketTargetSnapshot(record);
 			await this.hosts.get(record.userId, record.hostId);
 			const credential = await this.resolveCredential(record.userId, snapshot.host.credentialId);
+			const consumed = await this.tickets.consume(
+				ticket,
+				new Date(),
+				undefined,
+				protocol as HostProtocol
+			);
 
 			return {
-				ticketId: record.id,
-				userId: record.userId,
-				hostId: record.hostId,
-				protocol: record.protocol,
+				ticketId: consumed.id,
+				userId: consumed.userId,
+				hostId: consumed.hostId,
+				protocol: consumed.protocol,
 				target: {
 					host: snapshot.host.hostname,
 					port: snapshot.host.port,
@@ -69,7 +76,11 @@ export class SessionTicketConsumer implements TicketConsumer {
 				return null;
 			}
 
-			return null;
+			if (error instanceof CredentialEncryptionError) {
+				throw error;
+			}
+
+			throw error;
 		}
 	}
 

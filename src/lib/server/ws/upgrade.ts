@@ -21,6 +21,8 @@ export type WebSocketUpgradeOptions = {
 	tickets?: TicketConsumer;
 	adapters?: ProtocolAdapter[];
 	connectionSessions?: ConnectionSessionLifecycleRecorder;
+	allowedOrigins?: string[];
+	requireOrigin?: boolean;
 };
 
 const WS_PATH = /^\/ws\/(ssh|vnc|telnet|rdp)\/([^/]+)$/;
@@ -30,11 +32,14 @@ export function installWebSocketUpgrades(
 	{
 		tickets = rejectingTicketConsumer,
 		adapters = defaultProtocolAdapters(),
-		connectionSessions = connectionSessionService
+		connectionSessions = connectionSessionService,
+		allowedOrigins,
+		requireOrigin = false
 	}: WebSocketUpgradeOptions = {}
 ): void {
 	const webSockets = new WebSocketServer({ noServer: true });
 	const adapterByProtocol = new Map(adapters.map((adapter) => [adapter.protocol, adapter]));
+	const originPolicy = createOriginPolicy({ allowedOrigins, requireOrigin });
 
 	server.on('upgrade', async (request, socket, head) => {
 		const route = parseWebSocketRoute(request);
@@ -44,15 +49,25 @@ export function installWebSocketUpgrades(
 			return;
 		}
 
+		if (!isAllowedWebSocketOrigin(request, originPolicy)) {
+			rejectUpgrade(socket, 403, 'WebSocket origin is not allowed');
+			return;
+		}
+
 		const adapter = adapterByProtocol.get(route.protocol);
 		if (!adapter) {
 			rejectUpgrade(socket, 501, 'Protocol adapter unavailable');
 			return;
 		}
 
-		const consumedTicket = await tickets.consume(route.ticket, route.protocol).catch(() => null);
+		const consumedTicket = await tickets
+			.consume(route.ticket, route.protocol)
+			.catch((error: unknown) => {
+				logTicketUpgradeFailure(route.protocol, error);
+				return null;
+			});
 
-		if (!consumedTicket || consumedTicket.protocol !== route.protocol) {
+		if (!isValidConsumedTicketContext(consumedTicket, route.protocol)) {
 			rejectUpgrade(socket, 401, 'Invalid or expired session ticket');
 			return;
 		}
@@ -100,6 +115,122 @@ export function parseWebSocketRoute(
 	return {
 		protocol: match[1] as Protocol,
 		ticket: decodeURIComponent(match[2])
+	};
+}
+
+type OriginPolicy = {
+	allowedOrigins: Set<string>;
+	requireOrigin: boolean;
+};
+
+function createOriginPolicy({
+	allowedOrigins,
+	requireOrigin
+}: {
+	allowedOrigins?: string[];
+	requireOrigin: boolean;
+}): OriginPolicy {
+	const configuredOrigins = allowedOrigins ?? configuredAllowedOrigins();
+
+	return {
+		allowedOrigins: new Set(configuredOrigins.map(normalizeOrigin).filter(isString)),
+		requireOrigin
+	};
+}
+
+function configuredAllowedOrigins(): string[] {
+	return process.env.ORIGIN ? [process.env.ORIGIN] : [];
+}
+
+function isAllowedWebSocketOrigin(
+	request: Pick<IncomingMessage, 'headers' | 'socket'>,
+	policy: OriginPolicy
+): boolean {
+	const originHeader = request.headers.origin;
+	const origin = Array.isArray(originHeader) ? null : normalizeOrigin(originHeader);
+
+	if (!origin) {
+		return !policy.requireOrigin;
+	}
+
+	if (policy.allowedOrigins.size > 0) {
+		return policy.allowedOrigins.has(origin);
+	}
+
+	return origin === requestOrigin(request);
+}
+
+function requestOrigin(request: Pick<IncomingMessage, 'headers' | 'socket'>): string | null {
+	const host = request.headers.host;
+	if (!host || Array.isArray(host)) return null;
+
+	const forwardedProto = request.headers['x-forwarded-proto'];
+	const protocol =
+		(Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto)
+			?.split(',')[0]
+			?.trim()
+			?.toLowerCase() ?? ((request.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http');
+
+	return normalizeOrigin(`${protocol}://${host}`);
+}
+
+function normalizeOrigin(value: string | undefined): string | null {
+	if (!value) return null;
+
+	try {
+		const url = new URL(value);
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+		return url.origin;
+	} catch {
+		return null;
+	}
+}
+
+function isValidConsumedTicketContext(
+	ticket: ConsumedTicket | null,
+	expectedProtocol: Protocol
+): ticket is ConsumedTicket {
+	return (
+		ticket !== null &&
+		ticket.protocol === expectedProtocol &&
+		ticket.ticketId.length > 0 &&
+		ticket.userId.length > 0 &&
+		ticket.hostId.length > 0 &&
+		typeof ticket.target === 'object' &&
+		ticket.target !== null &&
+		typeof ticket.target.host === 'string' &&
+		ticket.target.host.length > 0 &&
+		Number.isSafeInteger(ticket.target.port) &&
+		ticket.target.port > 0 &&
+		ticket.target.port <= 65_535
+	);
+}
+
+function isString(value: string | null): value is string {
+	return typeof value === 'string';
+}
+
+function logTicketUpgradeFailure(protocol: Protocol, error: unknown): void {
+	console.warn('WebSocket session ticket upgrade failed', {
+		protocol,
+		error: diagnosticError(error)
+	});
+}
+
+function diagnosticError(error: unknown): { name: string; message: string } {
+	if (error instanceof Error) {
+		const isCredentialEncryptionError = error.name === 'CredentialEncryptionError';
+		return {
+			name: error.name,
+			message: isCredentialEncryptionError
+				? error.message
+				: 'Session ticket upgrade failed before websocket acceptance'
+		};
+	}
+
+	return {
+		name: 'UnknownError',
+		message: 'Session ticket upgrade failed'
 	};
 }
 

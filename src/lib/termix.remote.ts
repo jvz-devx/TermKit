@@ -1,10 +1,14 @@
 import { command, getRequestEvent, query } from '$app/server';
 import { hostService } from '$lib/server/services/hosts';
 import { credentialService } from '$lib/server/services/credentials';
-import { sessionTicketService } from '$lib/server/services/session-tickets';
+import {
+	parseSessionTicketTargetSnapshot,
+	sessionTicketService
+} from '$lib/server/services/session-tickets';
 import { ServiceUnauthorizedError, ServiceValidationError } from '$lib/server/services/errors';
 import { RdpGatewayBootstrapper, type RdpGatewayBootstrap } from '$lib/server/rdp/gateway';
 import { SessionTicketConsumer } from '$lib/server/ws/ticket-consumer';
+import { resolveVncLaunchCredentials, type VncLaunchCredentials } from '$lib/server/protocols/vnc';
 import type { CredentialKind, HostProtocol } from '$lib/server/services/types';
 
 export type HostSummary = {
@@ -63,6 +67,7 @@ export type SessionLaunch = {
 	websocketPath: string | null;
 	expiresAt: string | null;
 	rdp: RdpGatewayBootstrap | null;
+	vncCredentials: VncLaunchCredentials | null;
 };
 
 export const listHosts = query(async () => {
@@ -212,7 +217,8 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 				ticket: null,
 				websocketPath: null,
 				expiresAt: null,
-				rdp: null
+				rdp: null,
+				vncCredentials: null
 			};
 		}
 
@@ -236,9 +242,18 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 				ticket: null,
 				websocketPath: null,
 				expiresAt: created.record.expiresAt.toISOString(),
-				rdp
+				rdp,
+				vncCredentials: null
 			};
 		}
+
+		const vncCredentials =
+			launchProtocol === 'vnc'
+				? await resolveVncLaunchCredentials(
+						userId,
+						parseSessionTicketTargetSnapshot(created.record)
+					)
+				: null;
 
 		return {
 			hostId,
@@ -246,7 +261,8 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 			ticket,
 			websocketPath: `/ws/${launchProtocol}/${encodeURIComponent(ticket)}`,
 			expiresAt: created.record.expiresAt.toISOString(),
-			rdp: null
+			rdp: null,
+			vncCredentials
 		};
 	}
 );

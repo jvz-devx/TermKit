@@ -27,6 +27,17 @@ export class ServiceUnauthorizedError extends Error {
 	}
 }
 
+export class ServicePayloadTooLargeError extends Error {
+	readonly status = 413;
+	readonly issues: string[];
+
+	constructor(message = 'Request payload is too large') {
+		super(message);
+		this.name = 'ServicePayloadTooLargeError';
+		this.issues = [message];
+	}
+}
+
 export class TicketConsumedError extends Error {
 	readonly status = 410;
 

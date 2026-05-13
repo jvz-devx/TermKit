@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import {
 		Database,
 		Maximize2,
@@ -35,9 +38,8 @@
 		telnet: Terminal
 	};
 
-	let chosenProtocol = $state<WorkspaceProtocol | null>(null);
 	let reconnectNonce = $state(0);
-	let sessionPaused = $state(false);
+	let pausedSessionKey = $state<string | null>(null);
 	let hosts = $derived(hostsQuery.current ?? []);
 	let selectedHost = $derived.by(() => {
 		const requestedHostId = page.url.searchParams.get('host');
@@ -49,17 +51,22 @@
 		return requestedTab && isWorkspaceProtocol(requestedTab) ? requestedTab : null;
 	});
 	let activeProtocol = $derived.by(() => {
-		const candidate = chosenProtocol ?? requestedProtocol ?? 'ssh';
+		const candidate = requestedProtocol ?? 'ssh';
 		if (availableTabs.includes(candidate)) return candidate;
 		return availableTabs[0] ?? candidate;
 	});
+	let activeSessionKey = $derived(
+		selectedHost ? launchStorageKey(selectedHost.id, activeProtocol) : null
+	);
+	let sessionPaused = $derived(Boolean(activeSessionKey && pausedSessionKey === activeSessionKey));
 
 	async function getSessionLaunch(hostId: string, protocol: WorkspaceProtocol) {
+		if (protocol === 'vnc') sessionStorage.removeItem(launchStorageKey(hostId, protocol));
 		const cached = readStoredLaunch(hostId, protocol);
 		if (cached) return cached;
 
 		const created = await createSessionLaunch({ hostId, protocol });
-		if (created.expiresAt) {
+		if (created.expiresAt && protocol !== 'vnc') {
 			sessionStorage.setItem(launchStorageKey(hostId, protocol), JSON.stringify(created));
 		}
 		return created;
@@ -68,15 +75,25 @@
 	function reconnect() {
 		if (!selectedHost || activeProtocol === 'sftp') return;
 		sessionStorage.removeItem(launchStorageKey(selectedHost.id, activeProtocol));
-		sessionPaused = false;
+		pausedSessionKey = null;
 		reconnectNonce += 1;
 	}
 
 	function disconnect() {
 		if (!selectedHost || activeProtocol === 'sftp') return;
-		sessionStorage.removeItem(launchStorageKey(selectedHost.id, activeProtocol));
-		sessionPaused = true;
+		const key = launchStorageKey(selectedHost.id, activeProtocol);
+		sessionStorage.removeItem(key);
+		pausedSessionKey = key;
 		reconnectNonce += 1;
+	}
+
+	function selectProtocol(protocol: WorkspaceProtocol) {
+		if (!selectedHost) return;
+		const params = new SvelteURLSearchParams(page.url.searchParams);
+		params.set('host', selectedHost.id);
+		params.set('tab', protocol);
+		pausedSessionKey = null;
+		void goto(resolve(`/sessions?${params.toString()}` as '/'));
 	}
 
 	function protocolsForHost(host: HostSummary): WorkspaceProtocol[] {
@@ -165,14 +182,7 @@
 		<Tabs.Root value={activeProtocol} class="flex min-h-0 flex-1 flex-col">
 			<Tabs.List class="h-10 justify-start rounded-none border-b bg-muted/20 px-2">
 				{#each availableTabs as tab (tab)}
-					<Tabs.Trigger
-						value={tab}
-						class="h-8 gap-2"
-						onclick={() => {
-							chosenProtocol = tab;
-							sessionPaused = false;
-						}}
-					>
+					<Tabs.Trigger value={tab} class="h-8 gap-2" onclick={() => selectProtocol(tab)}>
 						{@const Icon = tabIcons[tab]}
 						<Icon class="size-4" />
 						{tab.toUpperCase()}
@@ -212,7 +222,9 @@
 			</Tabs.Content>
 
 			<Tabs.Content value="sftp" class="m-0 min-h-0 flex-1 p-3">
-				<SftpBrowser hostId={selectedHost.id} initialPath="/" />
+				{#key selectedHost.id}
+					<SftpBrowser hostId={selectedHost.id} initialPath="/" />
+				{/key}
 			</Tabs.Content>
 
 			<Tabs.Content value="rdp" class="m-0 min-h-0 flex-1 p-3">
@@ -251,8 +263,11 @@
 								websocketUrl={currentLaunch.websocketPath
 									? toWebSocketUrl(currentLaunch.websocketPath)
 									: undefined}
-								username={selectedHost.username ?? undefined}
-								credentialStrategy={selectedHost.credentialId ? 'saved' : 'none'}
+								credentials={{
+									username: currentLaunch.vncCredentials?.username ?? selectedHost.username,
+									password: currentLaunch.vncCredentials?.password ?? null
+								}}
+								credentialStrategy={currentLaunch.vncCredentials?.source ?? 'none'}
 							/>
 						{:catch caught}
 							<StatePanel
