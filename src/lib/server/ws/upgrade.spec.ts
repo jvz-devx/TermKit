@@ -3,7 +3,12 @@ import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 import { installWebSocketUpgrades, parseWebSocketRoute } from './upgrade';
-import type { ConsumedTicket, ProtocolAdapter, TicketConsumer } from '$lib/server/protocols';
+import { SessionTicketConsumer } from './ticket-consumer';
+import type { ProtocolAdapter } from '$lib/server/protocols';
+import { HostService } from '$lib/server/services/hosts';
+import { InMemoryTermixServicesRepository } from '$lib/server/services/repository';
+import { SessionTicketService } from '$lib/server/services/session-tickets';
+import type { CredentialCrypto, EncryptionMetadata } from '$lib/server/services/types';
 
 const servers: ReturnType<typeof createServer>[] = [];
 
@@ -62,24 +67,45 @@ describe('websocket upgrade routing', () => {
 	it('consumes matching tickets and hands the socket to the protocol adapter', async () => {
 		expect.assertions(3);
 
-		const consumed: ConsumedTicket = {
-			ticketId: 'ticket-1',
+		const { hosts, tickets, consumer, repository } = createTicketTestServices();
+		await repository.createCredential({
+			id: 'credential-1',
 			userId: 'user-1',
-			hostId: 'host-1',
-			protocol: 'rdp',
-			target: { host: '127.0.0.1', port: 3389 }
-		};
-		const tickets: TicketConsumer = {
-			async consume(ticket, protocol) {
-				expect({ ticket, protocol }).toEqual({ ticket: 'good-ticket', protocol: 'rdp' });
-				return consumed;
-			}
-		};
+			name: 'Shell password',
+			kind: 'password',
+			username: 'credential-user',
+			encryptedSecret: 'encrypted-password',
+			encryption: testEncryptionMetadata(),
+			metadata: {},
+			createdAt: new Date(),
+			updatedAt: new Date()
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22,
+			username: 'host-user',
+			credentialId: 'credential-1'
+		});
+		const created = await tickets.create('user-1', {
+			hostId: host.id,
+			protocol: 'ssh'
+		});
 		const adapters: ProtocolAdapter[] = [
 			{
-				protocol: 'rdp',
+				protocol: 'ssh',
 				handle(socket, ticket) {
-					expect(ticket).toBe(consumed);
+					expect(ticket.target).toEqual({
+						host: 'shell.example.test',
+						port: 22,
+						username: 'host-user',
+						credential: {
+							kind: 'password',
+							username: 'credential-user',
+							password: 'decrypted:encrypted-password'
+						}
+					});
 					socket.close(1000, 'ok');
 				}
 			}
@@ -87,12 +113,95 @@ describe('websocket upgrade routing', () => {
 		const server = createServer((_request, response) => response.end('ok'));
 		servers.push(server);
 
-		installWebSocketUpgrades(server, { tickets, adapters });
+		installWebSocketUpgrades(server, { tickets: consumer, adapters });
 		await listen(server);
 
-		await expect(webSocketClose(server, '/ws/rdp/good-ticket')).resolves.toEqual(1000);
+		await expect(webSocketClose(server, `/ws/ssh/${created.ticket}`)).resolves.toEqual(1000);
+		await expect(tickets.consume(created.ticket)).rejects.toMatchObject({
+			name: 'TicketConsumedError'
+		});
+	});
+
+	it('rejects protocol mismatches without consuming the ticket', async () => {
+		expect.assertions(3);
+
+		let adapterCalled = false;
+		const { hosts, tickets, consumer } = createTicketTestServices();
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const created = await tickets.create('user-1', {
+			hostId: host.id,
+			protocol: 'ssh'
+		});
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			tickets: consumer,
+			adapters: [
+				{
+					protocol: 'vnc',
+					handle() {
+						adapterCalled = true;
+					}
+				},
+				{
+					protocol: 'ssh',
+					handle(socket) {
+						socket.close(1000, 'ok');
+					}
+				}
+			]
+		});
+		await listen(server);
+
+		const response = await rawUpgrade(server, `/ws/vnc/${created.ticket}`);
+
+		expect(response).toContain('401 Invalid or expired session ticket');
+		expect(adapterCalled).toBe(false);
+		await expect(webSocketClose(server, `/ws/ssh/${created.ticket}`)).resolves.toEqual(1000);
 	});
 });
+
+function createTicketTestServices(): {
+	repository: InMemoryTermixServicesRepository;
+	hosts: HostService;
+	tickets: SessionTicketService;
+	consumer: SessionTicketConsumer;
+} {
+	const repository = new InMemoryTermixServicesRepository();
+	const hosts = new HostService(repository);
+	const tickets = new SessionTicketService(repository, hosts, repository);
+	const crypto: CredentialCrypto = {
+		encrypt() {
+			throw new Error('encrypt is not used in websocket upgrade tests');
+		},
+		decrypt(secret) {
+			return `decrypted:${secret.ciphertext}`;
+		}
+	};
+
+	return {
+		repository,
+		hosts,
+		tickets,
+		consumer: new SessionTicketConsumer(tickets, hosts, repository, crypto)
+	};
+}
+
+function testEncryptionMetadata(): EncryptionMetadata {
+	return {
+		algorithm: 'aes-256-gcm',
+		keyVersion: 1,
+		iv: 'iv',
+		authTag: 'auth-tag',
+		salt: 'salt'
+	};
+}
 
 function listen(server: ReturnType<typeof createServer>): Promise<void> {
 	return new Promise((resolve) => {

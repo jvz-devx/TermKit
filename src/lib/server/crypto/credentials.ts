@@ -7,7 +7,7 @@ const info = 'termixkit:credential-encryption:v1';
 export type CredentialEncryptionMetadata = {
 	algorithm: typeof algorithm;
 	keyVersion: number;
-	nonce: string;
+	iv: string;
 	authTag: string;
 	salt: string;
 };
@@ -52,9 +52,9 @@ export function encryptCredentialSecret(
 	options: { masterKey?: string; keyVersion?: number } = {}
 ): EncryptedCredential {
 	const salt = randomBytes(16);
-	const nonce = randomBytes(12);
+	const iv = randomBytes(12);
 	const key = deriveKey(getMasterKey(options.masterKey), salt);
-	const cipher = createCipheriv(algorithm, key, nonce);
+	const cipher = createCipheriv(algorithm, key, iv);
 	const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
 
 	return {
@@ -62,7 +62,7 @@ export function encryptCredentialSecret(
 		metadata: {
 			algorithm,
 			keyVersion: options.keyVersion ?? getCredentialKeyVersion(),
-			nonce: nonce.toString('base64url'),
+			iv: iv.toString('base64url'),
 			authTag: cipher.getAuthTag().toString('base64url'),
 			salt: salt.toString('base64url')
 		}
@@ -78,10 +78,10 @@ export function decryptCredentialSecret(
 	}
 
 	const salt = Buffer.from(encrypted.metadata.salt, 'base64url');
-	const nonce = Buffer.from(encrypted.metadata.nonce, 'base64url');
+	const iv = Buffer.from(encrypted.metadata.iv, 'base64url');
 	const authTag = Buffer.from(encrypted.metadata.authTag, 'base64url');
 	const key = deriveKey(getMasterKey(options.masterKey), salt);
-	const decipher = createDecipheriv(algorithm, key, nonce);
+	const decipher = createDecipheriv(algorithm, key, iv);
 
 	decipher.setAuthTag(authTag);
 

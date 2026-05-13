@@ -13,7 +13,6 @@ export const POST: RequestHandler = async (event) => {
 				userId: record.userId,
 				hostId: record.hostId,
 				protocol: record.protocol,
-				target: record.target,
 				expiresAt: record.expiresAt,
 				usedAt: record.usedAt
 			}

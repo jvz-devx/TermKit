@@ -17,7 +17,7 @@ describe('credential encryption', () => {
 		expect(encrypted.ciphertext).not.toBe('secret-password');
 		expect(encrypted.metadata.algorithm).toBe('aes-256-gcm');
 		expect(encrypted.metadata.keyVersion).toBe(7);
-		expect(encrypted.metadata.nonce).toBeTruthy();
+		expect(encrypted.metadata.iv).toBeTruthy();
 		expect(decryptCredentialSecret(encrypted, { masterKey: 'test-master-key' })).toBe(
 			'secret-password'
 		);
@@ -27,10 +27,12 @@ describe('credential encryption', () => {
 		expect.assertions(1);
 
 		const encrypted = encryptCredentialSecret('secret-password', { masterKey: 'test-master-key' });
+		const tampered = Buffer.from(encrypted.ciphertext, 'base64url');
+		tampered[0] ^= 1;
 
 		expect(() =>
 			decryptCredentialSecret(
-				{ ...encrypted, ciphertext: `${encrypted.ciphertext.slice(0, -1)}A` },
+				{ ...encrypted, ciphertext: tampered.toString('base64url') },
 				{ masterKey: 'test-master-key' }
 			)
 		).toThrow();

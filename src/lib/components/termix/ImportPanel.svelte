@@ -1,16 +1,128 @@
 <script lang="ts">
-	import { FileUp, Play } from '@lucide/svelte';
+	import { AlertTriangle, CheckCircle2, FileUp, Play } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import StatePanel from './StatePanel.svelte';
+
+	type ImportSummary = {
+		totalRecords: number;
+		validHosts: number;
+		validCredentials: number;
+		importedHosts: number;
+		importedCredentials: number;
+		skippedRecords: number;
+		warnings: number;
+		failures: number;
+	};
+
+	type ImportWarning = {
+		sourceId: string;
+		code: string;
+		message: string;
+	};
+
+	type ImportResult = {
+		job: {
+			id: string;
+			mode: 'validate' | 'import';
+			status: string;
+			sourceName: string;
+			sourceKind: string;
+			summary: ImportSummary;
+			warnings: ImportWarning[];
+			failures: string[];
+		};
+		preview: {
+			hosts: Array<{
+				sourceId: string;
+				name: string;
+				protocol: string;
+				hostname: string;
+				port: number;
+			}>;
+			credentials: Array<{ sourceId: string; name: string; kind: string }>;
+		};
+	};
+
+	let selectedFile = $state<File | null>(null);
+	let sourceSecret = $state('');
+	let result = $state<ImportResult | null>(null);
+	let errorMessage = $state<string | null>(null);
+	let activeAction = $state<'validate' | 'import' | null>(null);
+
+	let statusTitle = $derived.by(() => {
+		if (activeAction === 'validate') return 'Validating import';
+		if (activeAction === 'import') return 'Import running';
+		if (errorMessage) return 'Importer failed';
+		if (result?.job.status === 'completed') return 'Import completed';
+		if (result?.job.status === 'validated') return 'Validation completed';
+		if (result?.job.status === 'completed_with_errors') return 'Import completed with errors';
+		return 'Importer idle';
+	});
+
+	let statusDetail = $derived.by(() => {
+		if (activeAction) return selectedFile ? selectedFile.name : 'Processing upload';
+		if (errorMessage) return errorMessage;
+		if (result) return `${result.job.sourceName} (${result.job.sourceKind})`;
+		return 'No import job is currently running.';
+	});
+
+	let statusState = $derived<'loading' | 'error' | 'ready'>(
+		activeAction ? 'loading' : errorMessage ? 'error' : 'ready'
+	);
+	let summary = $derived(result?.job.summary);
+	let canSubmit = $derived(Boolean(selectedFile) && !activeAction);
+
+	function handleFileChange(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		selectedFile = input.files?.[0] ?? null;
+		result = null;
+		errorMessage = null;
+	}
+
+	async function submitImport(action: 'validate' | 'import') {
+		if (!selectedFile) {
+			errorMessage = 'Choose a Termix export file first.';
+			return;
+		}
+
+		activeAction = action;
+		errorMessage = null;
+
+		const form = new FormData();
+		form.set('file', selectedFile);
+		if (sourceSecret.trim()) form.set('sourceSecret', sourceSecret.trim());
+
+		try {
+			const response = await fetch(
+				action === 'validate' ? '/api/import/validate' : '/api/import/jobs',
+				{
+					method: 'POST',
+					body: form
+				}
+			);
+			const body = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				const issues = Array.isArray(body.issues) ? body.issues.join('; ') : undefined;
+				throw new Error(issues || body.error || 'Import request failed');
+			}
+
+			result = body as ImportResult;
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Import request failed';
+		} finally {
+			activeAction = null;
+		}
+	}
 </script>
 
 <section class="space-y-4 p-4">
 	<div>
 		<h1 class="text-lg font-semibold">Termix import</h1>
 		<p class="text-sm text-muted-foreground">
-			One-way import shell for SQLite database or export files.
+			Upload a Termix JSON export, validate the mapped records, then import hosts and credentials.
 		</p>
 	</div>
 	<div class="grid gap-4 lg:grid-cols-[1fr_360px]">
@@ -18,45 +130,97 @@
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div class="space-y-2 sm:col-span-2">
 					<Label for="import-file">Source file</Label>
-					<Input id="import-file" type="file" />
+					<Input
+						id="import-file"
+						type="file"
+						accept=".json,.sqlite,.db,application/json"
+						onchange={handleFileChange}
+					/>
 				</div>
 				<div class="space-y-2">
 					<Label for="secret">Source decrypt secret</Label>
-					<Input id="secret" type="password" />
+					<Input id="secret" type="password" bind:value={sourceSecret} autocomplete="off" />
 				</div>
 				<div class="space-y-2">
 					<Label for="owner">Destination owner</Label>
-					<Input id="owner" value="admin" />
+					<Input id="owner" value="Current signed-in user" disabled />
 				</div>
 			</div>
 			<div class="mt-4 flex gap-2">
-				<Button><Play class="size-4" />Start import</Button>
-				<Button variant="outline"><FileUp class="size-4" />Validate only</Button>
+				<Button disabled={!canSubmit} onclick={() => submitImport('import')}>
+					<Play class="size-4" />Start import
+				</Button>
+				<Button variant="outline" disabled={!canSubmit} onclick={() => submitImport('validate')}>
+					<FileUp class="size-4" />Validate only
+				</Button>
 			</div>
 		</div>
 		<div class="space-y-3">
-			<StatePanel
-				state="ready"
-				title="Importer idle"
-				detail="No import job is currently running."
-			/>
-			<div class="rounded-md border p-3 text-sm">
-				<div class="font-medium">Last summary</div>
-				<div class="mt-2 grid grid-cols-3 gap-2 text-center">
-					<div class="rounded bg-muted/40 p-2">
-						<div class="font-semibold">18</div>
-						<div class="text-xs text-muted-foreground">created</div>
+			<StatePanel state={statusState} title={statusTitle} detail={statusDetail} />
+			{#if summary}
+				<div class="rounded-md border p-3 text-sm">
+					<div class="font-medium">Last summary</div>
+					<div class="mt-2 grid grid-cols-3 gap-2 text-center">
+						<div class="rounded bg-muted/40 p-2">
+							<div class="font-semibold">{summary.validHosts}</div>
+							<div class="text-xs text-muted-foreground">hosts</div>
+						</div>
+						<div class="rounded bg-muted/40 p-2">
+							<div class="font-semibold">{summary.validCredentials}</div>
+							<div class="text-xs text-muted-foreground">credentials</div>
+						</div>
+						<div class="rounded bg-muted/40 p-2">
+							<div class="font-semibold">{summary.skippedRecords}</div>
+							<div class="text-xs text-muted-foreground">skipped</div>
+						</div>
 					</div>
-					<div class="rounded bg-muted/40 p-2">
-						<div class="font-semibold">4</div>
-						<div class="text-xs text-muted-foreground">skipped</div>
-					</div>
-					<div class="rounded bg-muted/40 p-2">
-						<div class="font-semibold">2</div>
-						<div class="text-xs text-muted-foreground">warnings</div>
+					<div class="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+						<div class="flex items-center gap-2">
+							<CheckCircle2 class="size-4 text-emerald-600" />
+							<span>{summary.importedHosts} hosts imported</span>
+						</div>
+						<div class="flex items-center gap-2">
+							<AlertTriangle class="size-4 text-amber-600" />
+							<span>{summary.warnings} warnings</span>
+						</div>
 					</div>
 				</div>
-			</div>
+			{/if}
+			{#if result?.job.warnings.length}
+				<div class="rounded-md border p-3 text-sm">
+					<div class="font-medium">Warnings</div>
+					<ul class="mt-2 space-y-1 text-xs text-muted-foreground">
+						{#each result.job.warnings.slice(0, 4) as warning (warning.sourceId + warning.code)}
+							<li>{warning.sourceId}: {warning.message}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+			{#if result?.job.failures.length}
+				<div class="rounded-md border border-destructive/40 p-3 text-sm">
+					<div class="font-medium text-destructive">Failures</div>
+					<ul class="mt-2 space-y-1 text-xs text-muted-foreground">
+						{#each result.job.failures.slice(0, 4) as failure (failure)}
+							<li>{failure}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+			{#if result?.preview.hosts.length}
+				<div class="rounded-md border p-3 text-sm">
+					<div class="font-medium">Preview</div>
+					<div class="mt-2 space-y-2">
+						{#each result.preview.hosts.slice(0, 3) as host (host.sourceId)}
+							<div class="rounded bg-muted/40 p-2">
+								<div class="font-medium">{host.name}</div>
+								<div class="font-mono text-xs text-muted-foreground">
+									{host.protocol}://{host.hostname}:{host.port}
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 </section>

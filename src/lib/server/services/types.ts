@@ -39,7 +39,7 @@ export interface SessionTicketRecord {
 	userId: string;
 	hostId: string;
 	protocol: HostProtocol;
-	target: string;
+	target?: string;
 	expiresAt: Date;
 	usedAt: Date | null;
 	createdAt: Date;

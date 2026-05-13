@@ -10,10 +10,7 @@ export const POST: RequestHandler = async (event) => {
 		return json(
 			{
 				ticket: created.ticket,
-				expiresAt: created.record.expiresAt,
-				protocol: created.record.protocol,
-				hostId: created.record.hostId,
-				target: created.record.target
+				expiresAt: created.record.expiresAt
 			},
 			{ status: 201 }
 		);

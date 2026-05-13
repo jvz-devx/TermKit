@@ -1,19 +1,25 @@
 import { error, redirect, type Handle } from '@sveltejs/kit';
 import { getSessionFromEvent, hasAnyUser } from '$lib/server/auth';
 
-const publicPagePaths = new Set(['/login', '/setup']);
+const firstRunPath = '/first-run';
+const publicPagePaths = new Set(['/login', firstRunPath]);
 
 function isPublicPath(pathname: string): boolean {
 	return (
-		publicPagePaths.has(pathname) ||
-		pathname.startsWith('/demo') ||
-		pathname.startsWith('/favicon') ||
-		pathname.startsWith('/_app')
+		publicPagePaths.has(pathname) || pathname.startsWith('/favicon') || isSvelteKitPath(pathname)
 	);
 }
 
 function isApiPath(pathname: string): boolean {
 	return pathname.startsWith('/api/') || pathname.startsWith('/ws/');
+}
+
+function isSvelteKitPath(pathname: string): boolean {
+	return pathname.startsWith('/_app');
+}
+
+function isBetterAuthDemoPath(pathname: string): boolean {
+	return pathname === '/demo/better-auth' || pathname.startsWith('/demo/better-auth/');
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -26,8 +32,18 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	const hasUsers = await hasAnyUser();
 
-	if (!hasUsers && event.url.pathname !== '/setup' && !isApiPath(event.url.pathname)) {
-		throw redirect(302, '/setup');
+	if (
+		!hasUsers &&
+		event.url.pathname !== firstRunPath &&
+		!isApiPath(event.url.pathname) &&
+		!isSvelteKitPath(event.url.pathname) &&
+		!event.url.pathname.startsWith('/favicon')
+	) {
+		throw redirect(302, firstRunPath);
+	}
+
+	if (isBetterAuthDemoPath(event.url.pathname)) {
+		throw redirect(302, event.locals.user ? '/hosts' : '/login');
 	}
 
 	if (!event.locals.user && !isPublicPath(event.url.pathname)) {

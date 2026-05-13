@@ -3,6 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { firstRunForm, loginForm } from '$lib/auth.remote';
 
 	let { mode = 'login' }: { mode?: 'login' | 'first-run' } = $props();
 </script>
@@ -25,29 +26,72 @@
 			</div>
 		</div>
 
-		<form class="space-y-4">
-			<div class="space-y-2">
-				<Label for="username">Username</Label>
-				<Input id="username" autocomplete="username" value={mode === 'first-run' ? 'admin' : ''} />
-			</div>
-			<div class="space-y-2">
-				<Label for="password">Password</Label>
-				<Input
-					id="password"
-					type="password"
-					autocomplete={mode === 'login' ? 'current-password' : 'new-password'}
-				/>
-			</div>
-			{#if mode === 'first-run'}
+		{#if mode === 'first-run'}
+			<form class="space-y-4" {...firstRunForm}>
 				<div class="space-y-2">
-					<Label for="confirm">Confirm password</Label>
-					<Input id="confirm" type="password" autocomplete="new-password" />
+					<Label for="username">Username</Label>
+					<Input
+						id="username"
+						autocomplete="username"
+						{...firstRunForm.fields.username.as('text', 'admin')}
+					/>
 				</div>
-			{/if}
-			<Button class="w-full">
-				{#if mode === 'login'}<Lock class="size-4" />Sign in{:else}<UserPlus class="size-4" />Create
-					admin{/if}
-			</Button>
-		</form>
+				<div class="space-y-2">
+					<Label for="password">Password</Label>
+					<Input
+						id="password"
+						autocomplete="new-password"
+						{...firstRunForm.fields.password.as('password')}
+					/>
+				</div>
+				<div class="space-y-2">
+					<Label for="confirmPassword">Confirm password</Label>
+					<Input
+						id="confirmPassword"
+						autocomplete="new-password"
+						{...firstRunForm.fields.confirmPassword.as('password')}
+					/>
+				</div>
+				{#if firstRunForm.fields.allIssues()?.length}
+					<div
+						class="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
+					>
+						{#each firstRunForm.fields.allIssues() ?? [] as issue, index (index)}
+							<p>{issue.message}</p>
+						{/each}
+					</div>
+				{/if}
+				<Button class="w-full" type="submit" disabled={firstRunForm.pending > 0}>
+					<UserPlus class="size-4" />Create admin
+				</Button>
+			</form>
+		{:else}
+			<form class="space-y-4" {...loginForm}>
+				<div class="space-y-2">
+					<Label for="username">Username</Label>
+					<Input id="username" autocomplete="username" {...loginForm.fields.username.as('text')} />
+				</div>
+				<div class="space-y-2">
+					<Label for="password">Password</Label>
+					<Input
+						id="password"
+						autocomplete="current-password"
+						{...loginForm.fields.password.as('password')}
+					/>
+				</div>
+				{#if loginForm.fields.allIssues()?.length}
+					<div
+						class="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
+					>
+						{#each loginForm.fields.allIssues() ?? [] as issue, index (index)}
+							<p>{issue.message}</p>
+						{/each}
+					</div>
+				{/if}
+				<Button class="w-full" type="submit" disabled={loginForm.pending > 0}>
+					<Lock class="size-4" />Sign in
+				</Button>
+			</form>
+		{/if}
 	</section>
 </main>

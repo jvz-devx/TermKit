@@ -72,9 +72,9 @@ export const credentials = pgTable(
 		encryptedSecret: text('encrypted_secret').notNull(),
 		encryptionMetadata: jsonb('encryption_metadata')
 			.$type<{
-				algorithm: string;
+				algorithm: 'aes-256-gcm';
 				keyVersion: number;
-				nonce: string;
+				iv: string;
 				authTag: string;
 				salt: string;
 			}>()

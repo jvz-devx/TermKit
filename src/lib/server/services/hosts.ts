@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ServiceNotFoundError, ServiceValidationError } from './errors';
 import { termixRepository } from './repository';
-import type { HostProtocol, HostRecord, HostRepository } from './types';
+import type { CredentialRepository, HostProtocol, HostRecord, HostRepository } from './types';
 import { protocols } from './types';
 
 export interface HostInput {
@@ -17,7 +17,10 @@ export interface HostInput {
 }
 
 export class HostService {
-	constructor(private readonly repository: HostRepository = termixRepository) {}
+	constructor(
+		private readonly repository: HostRepository &
+			Pick<CredentialRepository, 'getCredential'> = termixRepository
+	) {}
 
 	list(userId: string): Promise<HostRecord[]> {
 		return this.repository.listHosts(userId);
@@ -32,6 +35,7 @@ export class HostService {
 	async create(userId: string, input: HostInput): Promise<HostRecord> {
 		const now = new Date();
 		const validated = validateHostInput(input);
+		await this.assertCredentialBelongsToUser(userId, validated.credentialId);
 
 		return this.repository.createHost({
 			id: randomUUID(),
@@ -45,6 +49,7 @@ export class HostService {
 	async update(userId: string, id: string, input: HostInput): Promise<HostRecord> {
 		const current = await this.get(userId, id);
 		const validated = validateHostInput({ ...current, ...input });
+		await this.assertCredentialBelongsToUser(userId, validated.credentialId);
 		const updated = await this.repository.updateHost(userId, id, {
 			...validated,
 			updatedAt: new Date()
@@ -57,6 +62,20 @@ export class HostService {
 	async delete(userId: string, id: string): Promise<void> {
 		const deleted = await this.repository.deleteHost(userId, id);
 		if (!deleted) throw new ServiceNotFoundError('Host not found');
+	}
+
+	private async assertCredentialBelongsToUser(
+		userId: string,
+		credentialId: string | null
+	): Promise<void> {
+		if (!credentialId) return;
+
+		const credential = await this.repository.getCredential(userId, credentialId);
+		if (!credential) {
+			throw new ServiceValidationError([
+				'credentialId must reference an existing credential owned by the user'
+			]);
+		}
 	}
 }
 
