@@ -213,6 +213,16 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 		return toConnectionSessionRecord(row);
 	}
 
+	async getConnectionSession(id: string): Promise<ConnectionSessionRecord | null> {
+		const [row] = await this.database
+			.select()
+			.from(connectionSessions)
+			.where(eq(connectionSessions.id, id))
+			.limit(1);
+
+		return row ? toConnectionSessionRecord(row) : null;
+	}
+
 	async updateConnectionSession(
 		id: string,
 		patch: ConnectionSessionPatch

@@ -19,6 +19,7 @@ export type RdpGatewayBootstrap = {
 	provider: 'devolutions-gateway';
 	protocol: 'rdp';
 	sessionId: string;
+	connectionSessionId: string | null;
 	destination: string;
 	gatewayUrl: string;
 	gatewayPublicUrl: string;
@@ -88,6 +89,7 @@ export class RdpGatewayBootstrapper {
 			provider: 'devolutions-gateway',
 			protocol: 'rdp',
 			sessionId,
+			connectionSessionId: null,
 			destination,
 			gatewayUrl: this.config.gatewayUrl,
 			gatewayPublicUrl: this.config.gatewayPublicUrl,
@@ -194,7 +196,7 @@ export function loadRdpGatewayConfig(
 	env: Partial<Record<string, string | undefined>> = privateEnv
 ): RdpGatewayConfig {
 	const gatewayUrl = normalizeUrl(env.GATEWAY_URL);
-	const gatewayPublicUrl = normalizeUrl(env.GATEWAY_PUBLIC_URL) ?? gatewayUrl;
+	const gatewayPublicUrl = normalizeUrl(env.GATEWAY_PUBLIC_URL);
 	const provisionerKey = env.GATEWAY_PROVISIONER_KEY?.trim();
 	const provisionerSubject = env.GATEWAY_PROVISIONER_SUBJECT?.trim() || 'TermixKit';
 	const sessionLifetimeSeconds = readPositiveInteger(
@@ -208,6 +210,15 @@ export function loadRdpGatewayConfig(
 	const issues: string[] = [];
 
 	if (!gatewayUrl) issues.push('GATEWAY_URL is required for RDP launches');
+	if (!gatewayPublicUrl) {
+		issues.push('GATEWAY_PUBLIC_URL is required for browser RDP launches');
+	} else {
+		const publicUrlIssue = validateGatewayPublicUrl(
+			gatewayPublicUrl,
+			env.NODE_ENV === 'production'
+		);
+		if (publicUrlIssue) issues.push(publicUrlIssue);
+	}
 	if (!provisionerKey) issues.push('GATEWAY_PROVISIONER_KEY is required for RDP launches');
 	if (issues.length > 0) throw new RdpGatewayConfigurationError(issues.join('; '));
 
@@ -261,6 +272,36 @@ function normalizeUrl(value: string | undefined): string | null {
 	} catch {
 		throw new RdpGatewayConfigurationError(`${trimmed} is not a valid Gateway URL`);
 	}
+}
+
+function validateGatewayPublicUrl(value: string, production: boolean): string | null {
+	const url = new URL(value);
+	if (url.username || url.password || url.hash) {
+		return 'GATEWAY_PUBLIC_URL must not include credentials or fragments';
+	}
+
+	if (!production) return null;
+	if (url.protocol !== 'https:') {
+		return 'GATEWAY_PUBLIC_URL must use https:// in production';
+	}
+
+	if (isInternalGatewayHostname(url.hostname)) {
+		return 'GATEWAY_PUBLIC_URL must be browser-reachable in production, not localhost, loopback, wildcard, or the internal Compose gateway hostname';
+	}
+
+	return null;
+}
+
+function isInternalGatewayHostname(hostname: string): boolean {
+	const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+	return (
+		normalized === 'gateway' ||
+		normalized === 'localhost' ||
+		normalized === '0.0.0.0' ||
+		normalized === '::' ||
+		normalized === '::1' ||
+		/^127(?:\.\d{1,3}){3}$/.test(normalized)
+	);
 }
 
 function readPositiveInteger(

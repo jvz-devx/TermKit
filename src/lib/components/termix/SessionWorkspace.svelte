@@ -15,12 +15,7 @@
 	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tabs from '$lib/components/ui/tabs';
-	import {
-		createSessionLaunch,
-		listHosts,
-		type HostSummary,
-		type SessionLaunch
-	} from '$lib/termix.remote';
+	import { createSessionLaunch, listHosts, type HostSummary } from '$lib/termix.remote';
 	import StatePanel from './StatePanel.svelte';
 	import RdpPane from './session/RdpPane.svelte';
 	import SftpBrowser from './session/SftpBrowser.svelte';
@@ -41,50 +36,73 @@
 	let reconnectNonce = $state(0);
 	let pausedSessionKey = $state<string | null>(null);
 	let hosts = $derived(hostsQuery.current ?? []);
+	let requestedHostId = $derived(page.url.searchParams.get('host'));
 	let selectedHost = $derived.by(() => {
-		const requestedHostId = page.url.searchParams.get('host');
-		return hosts.find((host) => host.id === requestedHostId) ?? hosts[0] ?? null;
+		if (!requestedHostId) return null;
+		return hosts.find((host) => host.id === requestedHostId) ?? null;
 	});
 	let availableTabs = $derived(selectedHost ? protocolsForHost(selectedHost) : []);
 	let requestedProtocol = $derived.by(() => {
 		const requestedTab = page.url.searchParams.get('tab') as WorkspaceProtocol | null;
 		return requestedTab && isWorkspaceProtocol(requestedTab) ? requestedTab : null;
 	});
+	let hostSelectionProtocol = $derived(requestedProtocol ?? null);
+	let hostSelectionHosts = $derived.by(() =>
+		hostSelectionProtocol
+			? hosts.filter((host) => protocolsForHost(host).includes(hostSelectionProtocol))
+			: hosts
+	);
+	let hostSelectionTitle = $derived.by(() => {
+		if (requestedHostId) return 'Host not found';
+		if (hostSelectionProtocol) return `Select a ${hostSelectionProtocol.toUpperCase()} host`;
+		return 'Select a host';
+	});
+	let hostSelectionDetail = $derived.by(() => {
+		if (requestedHostId) return 'The requested host does not exist or is no longer available.';
+		if (hostSelectionProtocol) {
+			return hostSelectionHosts.length
+				? `Choose a host that supports ${hostSelectionProtocol.toUpperCase()} before launching.`
+				: `No hosts support ${hostSelectionProtocol.toUpperCase()} yet.`;
+		}
+		return 'Choose a host from the inventory before launching a session.';
+	});
 	let activeProtocol = $derived.by(() => {
 		const candidate = requestedProtocol ?? 'ssh';
 		if (availableTabs.includes(candidate)) return candidate;
 		return availableTabs[0] ?? candidate;
 	});
-	let activeSessionKey = $derived(
-		selectedHost ? launchStorageKey(selectedHost.id, activeProtocol) : null
+	let activePauseKey = $derived(
+		selectedHost ? sessionPauseKey(selectedHost.id, activeProtocol) : null
 	);
-	let sessionPaused = $derived(Boolean(activeSessionKey && pausedSessionKey === activeSessionKey));
+	let sessionPaused = $derived(Boolean(activePauseKey && pausedSessionKey === activePauseKey));
 
 	async function getSessionLaunch(hostId: string, protocol: WorkspaceProtocol) {
-		if (protocol === 'vnc') sessionStorage.removeItem(launchStorageKey(hostId, protocol));
-		const cached = readStoredLaunch(hostId, protocol);
-		if (cached) return cached;
-
-		const created = await createSessionLaunch({ hostId, protocol });
-		if (created.expiresAt && protocol !== 'vnc') {
-			sessionStorage.setItem(launchStorageKey(hostId, protocol), JSON.stringify(created));
-		}
-		return created;
+		return createSessionLaunch({ hostId, protocol });
 	}
 
 	function reconnect() {
 		if (!selectedHost || activeProtocol === 'sftp') return;
-		sessionStorage.removeItem(launchStorageKey(selectedHost.id, activeProtocol));
 		pausedSessionKey = null;
 		reconnectNonce += 1;
 	}
 
 	function disconnect() {
 		if (!selectedHost || activeProtocol === 'sftp') return;
-		const key = launchStorageKey(selectedHost.id, activeProtocol);
-		sessionStorage.removeItem(key);
+		const key = sessionPauseKey(selectedHost.id, activeProtocol);
 		pausedSessionKey = key;
 		reconnectNonce += 1;
+	}
+
+	function selectHost(host: HostSummary) {
+		const params = new SvelteURLSearchParams(page.url.searchParams);
+		const protocol =
+			hostSelectionProtocol && protocolsForHost(host).includes(hostSelectionProtocol)
+				? hostSelectionProtocol
+				: host.protocol;
+		params.set('host', host.id);
+		params.set('tab', protocol);
+		pausedSessionKey = null;
+		void goto(resolve(`/sessions?${params.toString()}` as '/'));
 	}
 
 	function selectProtocol(protocol: WorkspaceProtocol) {
@@ -109,22 +127,8 @@
 		return `${protocol}//${window.location.host}${path}`;
 	}
 
-	function readStoredLaunch(hostId: string, protocol: WorkspaceProtocol): SessionLaunch | null {
-		if (!browser) return null;
-		const raw = sessionStorage.getItem(launchStorageKey(hostId, protocol));
-		if (!raw) return null;
-		try {
-			const parsed = JSON.parse(raw) as SessionLaunch;
-			if (parsed.expiresAt && new Date(parsed.expiresAt).getTime() > Date.now()) return parsed;
-		} catch {
-			// Ignore malformed browser cache and create a fresh ticket.
-		}
-		sessionStorage.removeItem(launchStorageKey(hostId, protocol));
-		return null;
-	}
-
-	function launchStorageKey(hostId: string, protocol: string) {
-		return `termix-launch:${hostId}:${protocol}`;
+	function sessionPauseKey(hostId: string, protocol: string) {
+		return `termix-session:${hostId}:${protocol}`;
 	}
 
 	function errorMessage(caught: unknown) {
@@ -148,13 +152,25 @@
 			</p>
 		</div>
 		<div class="flex gap-1">
-			<Button size="icon" variant="ghost" aria-label="Reconnect" onclick={reconnect}>
+			<Button
+				size="icon"
+				variant="ghost"
+				aria-label="Reconnect"
+				disabled={!selectedHost || activeProtocol === 'sftp'}
+				onclick={reconnect}
+			>
 				<RotateCcw class="size-4" />
 			</Button>
 			<Button size="icon" variant="ghost" aria-label="Fullscreen">
 				<Maximize2 class="size-4" />
 			</Button>
-			<Button size="icon" variant="ghost" aria-label="Disconnect" onclick={disconnect}>
+			<Button
+				size="icon"
+				variant="ghost"
+				aria-label="Disconnect"
+				disabled={!selectedHost || activeProtocol === 'sftp'}
+				onclick={disconnect}
+			>
 				<Power class="size-4" />
 			</Button>
 		</div>
@@ -169,7 +185,7 @@
 				class="absolute right-3 bottom-3 left-3 bg-background"
 			/>
 		</div>
-	{:else if !selectedHost}
+	{:else if !hosts.length}
 		<div class="relative min-h-0 flex-1">
 			<StatePanel
 				state="error"
@@ -177,6 +193,39 @@
 				detail="Create a host before launching sessions."
 				class="absolute right-3 bottom-3 left-3 bg-background"
 			/>
+		</div>
+	{:else if !selectedHost}
+		<div class="min-h-0 flex-1 overflow-auto p-4">
+			<div class="mx-auto flex max-w-3xl flex-col gap-3">
+				<StatePanel
+					state={hostSelectionHosts.length ? 'disconnected' : 'error'}
+					title={hostSelectionTitle}
+					detail={hostSelectionDetail}
+				/>
+				{#if hostSelectionHosts.length}
+					<div class="overflow-hidden rounded-md border">
+						{#each hostSelectionHosts as host (host.id)}
+							<Button
+								variant="ghost"
+								class="h-auto w-full justify-start rounded-none border-b p-3 text-left last:border-b-0"
+								onclick={() => selectHost(host)}
+							>
+								<div class="min-w-0">
+									<div class="flex items-center gap-2">
+										<span class="truncate font-medium">{host.name}</span>
+										<span class="text-xs text-muted-foreground">
+											{(hostSelectionProtocol ?? host.protocol).toUpperCase()}
+										</span>
+									</div>
+									<div class="truncate font-mono text-xs text-muted-foreground">
+										{host.username ? `${host.username}@` : ''}{host.hostname}:{host.port}
+									</div>
+								</div>
+							</Button>
+						{/each}
+					</div>
+				{/if}
+			</div>
 		</div>
 	{:else}
 		<Tabs.Root value={activeProtocol} class="flex min-h-0 flex-1 flex-col">

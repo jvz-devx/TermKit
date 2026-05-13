@@ -5,8 +5,8 @@ import {
 	ServiceValidationError
 } from '$lib/server/services/errors';
 
-export const IMPORT_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
-export const SFTP_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+export const IMPORT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+export const SFTP_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 
 export function requireUser(event: RequestEvent): string {
 	const userId = event.locals.user?.id;
@@ -46,8 +46,11 @@ export async function readRequiredFormFile(
 export function assertContentLength(request: Request, maxBytes: number): void {
 	const raw = request.headers.get('content-length');
 	if (!raw) return;
-	const contentLength = Number(raw);
-	if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+	const contentLength = raw.trim();
+	if (!/^\d+$/.test(contentLength)) {
+		throw new ServiceValidationError(['content-length must be a non-negative integer']);
+	}
+	if (BigInt(contentLength) > BigInt(maxBytes)) {
 		throw new ServicePayloadTooLargeError(
 			`request exceeds the ${formatBytes(maxBytes)} upload limit`
 		);

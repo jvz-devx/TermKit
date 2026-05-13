@@ -31,7 +31,7 @@ try {
 	await waitForPort(port, child, logs);
 	const response = await rawWebSocketUpgrade(port, '/ws/ssh/bad-ticket');
 
-	if (!response.startsWith('HTTP/1.1 401 Invalid or expired session ticket')) {
+	if (!response.startsWith('HTTP/1.1 401 Authentication required')) {
 		throw new Error(`Expected websocket auth rejection, got:\n${response}`);
 	}
 
@@ -113,6 +113,7 @@ function rawWebSocketUpgrade(port, path) {
 				[
 					`GET ${path} HTTP/1.1`,
 					`Host: 127.0.0.1:${port}`,
+					`Origin: ${process.env.ORIGIN ?? `http://127.0.0.1:${port}`}`,
 					'Connection: Upgrade',
 					'Upgrade: websocket',
 					'Sec-WebSocket-Version: 13',

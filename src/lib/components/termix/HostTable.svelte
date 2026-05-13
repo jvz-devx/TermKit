@@ -7,13 +7,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Table from '$lib/components/ui/table';
-	import {
-		createSessionLaunch,
-		deleteHost,
-		listCredentials,
-		listHosts,
-		type HostSummary
-	} from '$lib/termix.remote';
+	import { deleteHost, listCredentials, listHosts, type HostSummary } from '$lib/termix.remote';
 	import HostDialog from './HostDialog.svelte';
 
 	const hostsQuery = listHosts();
@@ -52,17 +46,8 @@
 		launchingId = host.id;
 		error = null;
 		try {
-			if (host.protocol === 'vnc') {
-				await goto(resolve(`/sessions?host=${encodeURIComponent(host.id)}&tab=vnc` as '/'));
-				return;
-			}
-
-			const launch = await createSessionLaunch({ hostId: host.id, protocol: host.protocol });
-			if (launch.expiresAt) {
-				sessionStorage.setItem(launchStorageKey(host.id, launch.protocol), JSON.stringify(launch));
-			}
 			await goto(
-				resolve(`/sessions?host=${encodeURIComponent(host.id)}&tab=${launch.protocol}` as '/')
+				resolve(`/sessions?host=${encodeURIComponent(host.id)}&tab=${host.protocol}` as '/')
 			);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not launch host';
@@ -90,10 +75,6 @@
 		} finally {
 			deletingId = null;
 		}
-	}
-
-	function launchStorageKey(hostId: string, protocol: string) {
-		return `termix-launch:${hostId}:${protocol}`;
 	}
 </script>
 

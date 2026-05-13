@@ -9,6 +9,7 @@ import { ServiceUnauthorizedError, ServiceValidationError } from '$lib/server/se
 import { RdpGatewayBootstrapper, type RdpGatewayBootstrap } from '$lib/server/rdp/gateway';
 import { SessionTicketConsumer } from '$lib/server/ws/ticket-consumer';
 import { resolveVncLaunchCredentials, type VncLaunchCredentials } from '$lib/server/protocols/vnc';
+import { connectionSessionService } from '$lib/server/services/connection-sessions';
 import type { CredentialKind, HostProtocol } from '$lib/server/services/types';
 
 export type HostSummary = {
@@ -234,7 +235,24 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 			const bootstrapper = new RdpGatewayBootstrapper();
 			const consumed = await new SessionTicketConsumer().consume(ticket, 'rdp');
 			if (!consumed) throw new ServiceValidationError(['Could not authorize RDP launch']);
-			const rdp = await bootstrapper.bootstrap(consumed);
+			const connectionSession = await connectionSessionService.start({
+				userId: consumed.userId,
+				hostId: consumed.hostId,
+				protocol: 'rdp'
+			});
+			let rdp: RdpGatewayBootstrap;
+
+			try {
+				rdp = {
+					...(await bootstrapper.bootstrap(consumed)),
+					connectionSessionId: connectionSession.id
+				};
+			} catch (error) {
+				await connectionSessionService
+					.fail(connectionSession.id, rdpLaunchErrorCode(error))
+					.catch(() => null);
+				throw error;
+			}
 
 			return {
 				hostId,
@@ -267,8 +285,48 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 	}
 );
 
+export const recordRdpSessionLifecycle = command<
+	{ connectionSessionId?: unknown; event?: unknown; errorCode?: unknown },
+	void
+>('unchecked', async (input) => {
+	const userId = requireRemoteUser();
+	const connectionSessionId =
+		typeof input.connectionSessionId === 'string' ? input.connectionSessionId : '';
+	const event = typeof input.event === 'string' ? input.event : '';
+
+	if (!connectionSessionId) throw new ServiceValidationError(['connectionSessionId is required']);
+
+	const updated =
+		event === 'connected'
+			? await connectionSessionService.markActiveForUser(userId, connectionSessionId)
+			: event === 'ended'
+				? await connectionSessionService.endForUser(userId, connectionSessionId)
+				: event === 'failed'
+					? await connectionSessionService.failForUser(
+							userId,
+							connectionSessionId,
+							sanitizeRdpErrorCode(input.errorCode)
+						)
+					: null;
+
+	if (!updated) {
+		throw new ServiceValidationError(['connectionSessionId is invalid or event is unsupported']);
+	}
+});
+
 function requireRemoteUser(): string {
 	const userId = getRequestEvent().locals.user?.id;
 	if (!userId) throw new ServiceUnauthorizedError();
 	return userId;
+}
+
+function rdpLaunchErrorCode(error: unknown): string {
+	if (error instanceof Error && error.name) return sanitizeRdpErrorCode(`rdp_${error.name}`);
+	return 'rdp_launch_failed';
+}
+
+function sanitizeRdpErrorCode(value: unknown): string {
+	const raw = typeof value === 'string' && value.trim() ? value.trim() : 'rdp_client_failed';
+	const sanitized = raw.toLowerCase().replace(/[^a-z0-9_:-]+/g, '_');
+	return sanitized.slice(0, 120) || 'rdp_client_failed';
 }

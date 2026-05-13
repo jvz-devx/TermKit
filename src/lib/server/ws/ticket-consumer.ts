@@ -33,23 +33,23 @@ export class SessionTicketConsumer implements TicketConsumer {
 		private readonly crypto: CredentialCrypto = new AesGcmCredentialCrypto()
 	) {}
 
-	async consume(ticket: string, protocol: Protocol): Promise<ConsumedTicket | null> {
+	async consume(
+		ticket: string,
+		protocol: Protocol,
+		userId?: string
+	): Promise<ConsumedTicket | null> {
 		try {
+			const now = new Date();
 			const record = await this.tickets.validateForConsume(
 				ticket,
-				new Date(),
-				undefined,
+				now,
+				userId,
 				protocol as HostProtocol
 			);
 			const snapshot = parseSessionTicketTargetSnapshot(record);
 			await this.hosts.get(record.userId, record.hostId);
 			const credential = await this.resolveCredential(record.userId, snapshot.host.credentialId);
-			const consumed = await this.tickets.consume(
-				ticket,
-				new Date(),
-				undefined,
-				protocol as HostProtocol
-			);
+			const consumed = await this.tickets.consume(ticket, now, userId, protocol as HostProtocol);
 
 			return {
 				ticketId: consumed.id,

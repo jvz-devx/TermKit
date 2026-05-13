@@ -1,6 +1,7 @@
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer } from 'ws';
+import { getSessionFromToken, sessionCookieName } from '$lib/server/auth';
 import {
 	createRdpGatewayPlaceholderAdapter,
 	createSshAdapter,
@@ -23,7 +24,17 @@ export type WebSocketUpgradeOptions = {
 	connectionSessions?: ConnectionSessionLifecycleRecorder;
 	allowedOrigins?: string[];
 	requireOrigin?: boolean;
+	authenticateSession?: WebSocketSessionAuthenticator;
 };
+
+export type AuthenticatedWebSocketSession = {
+	sessionId: string;
+	userId: string;
+};
+
+export type WebSocketSessionAuthenticator = (
+	request: Pick<IncomingMessage, 'headers'>
+) => Promise<AuthenticatedWebSocketSession | null>;
 
 const WS_PATH = /^\/ws\/(ssh|vnc|telnet|rdp)\/([^/]+)$/;
 
@@ -34,7 +45,8 @@ export function installWebSocketUpgrades(
 		adapters = defaultProtocolAdapters(),
 		connectionSessions = connectionSessionService,
 		allowedOrigins,
-		requireOrigin = false
+		requireOrigin = false,
+		authenticateSession = authenticateWebSocketSession
 	}: WebSocketUpgradeOptions = {}
 ): void {
 	const webSockets = new WebSocketServer({ noServer: true });
@@ -54,6 +66,16 @@ export function installWebSocketUpgrades(
 			return;
 		}
 
+		const authenticatedSession = await authenticateSession(request).catch((error: unknown) => {
+			logSessionUpgradeFailure(error);
+			return null;
+		});
+
+		if (!isValidAuthenticatedSession(authenticatedSession)) {
+			rejectUpgrade(socket, 401, 'Authentication required');
+			return;
+		}
+
 		const adapter = adapterByProtocol.get(route.protocol);
 		if (!adapter) {
 			rejectUpgrade(socket, 501, 'Protocol adapter unavailable');
@@ -61,13 +83,16 @@ export function installWebSocketUpgrades(
 		}
 
 		const consumedTicket = await tickets
-			.consume(route.ticket, route.protocol)
+			.consume(route.ticket, route.protocol, authenticatedSession.userId)
 			.catch((error: unknown) => {
 				logTicketUpgradeFailure(route.protocol, error);
 				return null;
 			});
 
-		if (!isValidConsumedTicketContext(consumedTicket, route.protocol)) {
+		if (
+			!isValidConsumedTicketContext(consumedTicket, route.protocol) ||
+			consumedTicket.userId !== authenticatedSession.userId
+		) {
 			rejectUpgrade(socket, 401, 'Invalid or expired session ticket');
 			return;
 		}
@@ -186,6 +211,47 @@ function normalizeOrigin(value: string | undefined): string | null {
 	}
 }
 
+async function authenticateWebSocketSession(
+	request: Pick<IncomingMessage, 'headers'>
+): Promise<AuthenticatedWebSocketSession | null> {
+	const token = sessionTokenFromCookieHeader(request.headers.cookie);
+	if (!token) return null;
+
+	const authenticated = await getSessionFromToken(token);
+	if (!authenticated) return null;
+
+	return {
+		sessionId: authenticated.session.id,
+		userId: authenticated.user.id
+	};
+}
+
+function sessionTokenFromCookieHeader(header: string | string[] | undefined): string | null {
+	const headers = Array.isArray(header) ? header : header ? [header] : [];
+
+	for (const entry of headers) {
+		for (const cookie of entry.split(';')) {
+			const [rawName, ...rawValue] = cookie.trim().split('=');
+			if (rawName !== sessionCookieName || rawValue.length === 0) continue;
+
+			const value = rawValue.join('=');
+			try {
+				return decodeURIComponent(value);
+			} catch {
+				return value;
+			}
+		}
+	}
+
+	return null;
+}
+
+function isValidAuthenticatedSession(
+	session: AuthenticatedWebSocketSession | null
+): session is AuthenticatedWebSocketSession {
+	return session !== null && session.sessionId.length > 0 && session.userId.length > 0;
+}
+
 function isValidConsumedTicketContext(
 	ticket: ConsumedTicket | null,
 	expectedProtocol: Protocol
@@ -213,6 +279,12 @@ function isString(value: string | null): value is string {
 function logTicketUpgradeFailure(protocol: Protocol, error: unknown): void {
 	console.warn('WebSocket session ticket upgrade failed', {
 		protocol,
+		error: diagnosticError(error)
+	});
+}
+
+function logSessionUpgradeFailure(error: unknown): void {
+	console.warn('WebSocket session authentication failed', {
 		error: diagnosticError(error)
 	});
 }

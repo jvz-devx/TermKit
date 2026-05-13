@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ServicePayloadTooLargeError, ServiceValidationError } from '$lib/server/services/errors';
-import { readRequiredFormFile } from './_helpers';
+import { assertContentLength, readRequiredFormFile, serviceJson } from './_helpers';
 
 describe('API request helpers', () => {
 	it('rejects oversized requests before parsing multipart bodies', async () => {
@@ -13,6 +13,27 @@ describe('API request helpers', () => {
 		await expect(readRequiredFormFile(request, 'file', 100)).rejects.toBeInstanceOf(
 			ServicePayloadTooLargeError
 		);
+	});
+
+	it('rejects malformed content-length values before parsing multipart bodies', () => {
+		expect.assertions(1);
+		const request = new Request('https://termix.test/upload', {
+			method: 'POST',
+			headers: { 'content-length': '10, 11' }
+		});
+
+		expect(() => assertContentLength(request, 100)).toThrow(ServiceValidationError);
+	});
+
+	it('serializes upload limit failures as 413 responses', async () => {
+		expect.assertions(2);
+		const response = serviceJson(
+			new ServicePayloadTooLargeError('request exceeds the 50 MiB upload limit')
+		);
+		const body = (await response.json()) as { error: string };
+
+		expect(response.status).toBe(413);
+		expect(body.error).toContain('50 MiB');
 	});
 
 	it('rejects files larger than the route limit', async () => {

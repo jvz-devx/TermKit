@@ -52,12 +52,42 @@ describe('production environment validation', () => {
 			)
 		).toThrow('CREDENTIAL_MASTER_KEY must be at least 32 bytes and high-entropy');
 	});
+
+	it('requires a secure browser-reachable Gateway public URL in production', () => {
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					ORIGIN: 'https://termix.example',
+					GATEWAY_PUBLIC_URL: ''
+				})
+			)
+		).toThrow('GATEWAY_PUBLIC_URL is required in production');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					ORIGIN: 'https://termix.example',
+					GATEWAY_PUBLIC_URL: 'http://rdp.example'
+				})
+			)
+		).toThrow('GATEWAY_PUBLIC_URL must use https:// in production');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					ORIGIN: 'https://termix.example',
+					GATEWAY_PUBLIC_URL: 'https://gateway'
+				})
+			)
+		).toThrow('GATEWAY_PUBLIC_URL must be browser-reachable in production');
+	});
 });
 
 function productionEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
 	return {
 		NODE_ENV: 'production',
 		CREDENTIAL_MASTER_KEY: 'v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL',
+		GATEWAY_PUBLIC_URL: 'https://rdp.example',
 		...overrides
 	};
 }

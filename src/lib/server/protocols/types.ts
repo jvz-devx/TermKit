@@ -32,7 +32,7 @@ export type ConsumedTicket = {
 };
 
 export type TicketConsumer = {
-	consume(ticket: string, protocol: Protocol): Promise<ConsumedTicket | null>;
+	consume(ticket: string, protocol: Protocol, userId?: string): Promise<ConsumedTicket | null>;
 };
 
 export type ProtocolAdapter = {

@@ -13,11 +13,18 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-termixkit}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-termixkit}
       ORIGIN: ${ORIGIN:-https://localhost:3000}
       TERMIXKIT_INSECURE_LOCAL_HTTP: ${TERMIXKIT_INSECURE_LOCAL_HTTP:-0}
+      BODY_SIZE_LIMIT: ${BODY_SIZE_LIMIT:-55M}
       CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:?set CREDENTIAL_MASTER_KEY in .env}
+      TERMIXKIT_SSH_KNOWN_HOSTS_PATH: ${TERMIXKIT_SSH_KNOWN_HOSTS_PATH:-/var/lib/termixkit/ssh-known-hosts.json}
+      TERMIXKIT_SSH_TRUST_ON_FIRST_USE: ${TERMIXKIT_SSH_TRUST_ON_FIRST_USE:-0}
+      TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: ${TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU:-0}
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:7171}
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:?set browser-reachable GATEWAY_PUBLIC_URL in .env}
       GATEWAY_PROVISIONER_KEY: ${GATEWAY_PROVISIONER_KEY:?set GATEWAY_PROVISIONER_KEY in .env}
     ports:
       - '${APP_PORT:-3000}:3000'
+    volumes:
+      - app-data:/var/lib/termixkit
     restart: unless-stopped
 
   migrate:
@@ -56,10 +63,13 @@ services:
       DGW_SUBJECT: ${DGW_SUBJECT:-localhost}
     expose:
       - '7171'
+    ports:
+      - '127.0.0.1:${GATEWAY_PORT:-7171}:7171'
     volumes:
       - gateway-data:/var/lib/devolutions-gateway
     restart: unless-stopped
 
 volumes:
+  app-data:
   postgres-data:
   gateway-data:

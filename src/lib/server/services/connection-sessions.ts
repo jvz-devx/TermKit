@@ -43,6 +43,15 @@ export class ConnectionSessionService implements ConnectionSessionLifecycleRecor
 		});
 	}
 
+	async markActiveForUser(
+		userId: string,
+		id: string,
+		now = new Date()
+	): Promise<ConnectionSessionRecord | null> {
+		if (!(await this.isOwnedByUser(userId, id))) return null;
+		return this.markActive(id, now);
+	}
+
 	end(id: string, now = new Date()): Promise<ConnectionSessionRecord | null> {
 		return this.repository.updateConnectionSession(id, {
 			status: 'ended',
@@ -52,6 +61,15 @@ export class ConnectionSessionService implements ConnectionSessionLifecycleRecor
 		});
 	}
 
+	async endForUser(
+		userId: string,
+		id: string,
+		now = new Date()
+	): Promise<ConnectionSessionRecord | null> {
+		if (!(await this.isOwnedByUser(userId, id))) return null;
+		return this.end(id, now);
+	}
+
 	fail(id: string, errorCode: string, now = new Date()): Promise<ConnectionSessionRecord | null> {
 		return this.repository.updateConnectionSession(id, {
 			status: 'failed',
@@ -59,6 +77,21 @@ export class ConnectionSessionService implements ConnectionSessionLifecycleRecor
 			errorCode,
 			updatedAt: now
 		});
+	}
+
+	async failForUser(
+		userId: string,
+		id: string,
+		errorCode: string,
+		now = new Date()
+	): Promise<ConnectionSessionRecord | null> {
+		if (!(await this.isOwnedByUser(userId, id))) return null;
+		return this.fail(id, errorCode, now);
+	}
+
+	private async isOwnedByUser(userId: string, id: string): Promise<boolean> {
+		const session = await this.repository.getConnectionSession(id);
+		return session?.userId === userId;
 	}
 }
 

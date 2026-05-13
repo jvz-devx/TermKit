@@ -7,7 +7,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import StatePanel from '../StatePanel.svelte';
-	import type { SessionLaunch } from '$lib/termix.remote';
+	import { recordRdpSessionLifecycle, type SessionLaunch } from '$lib/termix.remote';
 
 	type RdpBackendModule = typeof import('@devolutions/iron-remote-desktop-rdp');
 	type ConnectionState =
@@ -18,6 +18,12 @@
 		| 'error'
 		| 'disconnected';
 	type IronReadyDetail = { irgUserInteraction?: UserInteraction };
+	type RdpDesktopSize = { width: number; height: number };
+
+	const minDesktopWidth = 640;
+	const minDesktopHeight = 480;
+	const maxDesktopWidth = 7680;
+	const maxDesktopHeight = 4320;
 
 	let {
 		launch,
@@ -37,6 +43,11 @@
 	let detail = $state('Loading IronRDP client.');
 	let sessionUsername = $state('');
 	let sessionPassword = $state('');
+	let viewportElement = $state<HTMLDivElement | null>(null);
+	let resizeObserver: ResizeObserver | null = null;
+	let resizeFrame: number | null = null;
+	let lastDesktopSize: RdpDesktopSize | null = null;
+	let lifecycleFinalized = false;
 	let disposed = false;
 
 	let statusLabel = $derived(
@@ -91,6 +102,10 @@
 
 		return () => {
 			disposed = true;
+			stopResizeObserver();
+			if (connectionState === 'connecting' || connectionState === 'connected') {
+				void recordRdpLifecycle('ended');
+			}
 			api?.shutdown();
 		};
 	});
@@ -126,6 +141,7 @@
 		api.setVisibility(true);
 		connectionState = 'ready';
 		detail = targetCredentialState;
+		startResizeObserver();
 	}
 
 	async function connect() {
@@ -136,13 +152,14 @@
 			detail = 'Opening RDP session through Devolutions Gateway.';
 
 			const username = sessionUsername.trim();
+			const desktopSize = preferredDesktopSize();
 			const builder = api
 				.configBuilder()
 				.withDestination(bootstrap.destination)
 				.withProxyAddress(bootstrap.gatewayPublicUrl)
 				.withAuthToken(bootstrap.associationToken)
 				.withPassword(sessionPassword)
-				.withDesktopSize(bootstrap.desktop)
+				.withDesktopSize(desktopSize)
 				.withExtension(rdpModule.preConnectionBlob(bootstrap.preconnectionBlob))
 				.withExtension(rdpModule.enableCredssp(true))
 				.withExtension(rdpModule.displayControl(true));
@@ -153,7 +170,10 @@
 			const session = await api.connect(builder.build());
 			sessionPassword = '';
 			connectionState = 'connected';
+			lastDesktopSize = desktopSize;
 			detail = 'RDP canvas is connected.';
+			void recordRdpLifecycle('connected');
+			scheduleRemoteResize(true);
 
 			void session
 				.run()
@@ -161,15 +181,18 @@
 					if (disposed) return;
 					connectionState = 'disconnected';
 					detail = `RDP session ended: ${termination.reason()}`;
+					void recordRdpLifecycle('ended');
 				})
 				.catch((caught: unknown) => {
 					if (disposed) return;
 					connectionState = 'error';
 					detail = `RDP session failed: ${errorMessage(caught)}`;
+					void recordRdpLifecycle('failed', rdpClientErrorCode(caught));
 				});
 		} catch (caught) {
 			connectionState = 'error';
 			detail = `Could not connect RDP session: ${errorMessage(caught)}`;
+			void recordRdpLifecycle('failed', rdpClientErrorCode(caught));
 		}
 	}
 
@@ -180,6 +203,107 @@
 
 	function errorMessage(value: unknown): string {
 		return value instanceof Error ? value.message : String(value);
+	}
+
+	function startResizeObserver() {
+		if (!viewportElement || resizeObserver) return;
+
+		resizeObserver = new ResizeObserver(() => {
+			scheduleRemoteResize();
+		});
+		resizeObserver.observe(viewportElement);
+	}
+
+	function stopResizeObserver() {
+		if (resizeFrame !== null) {
+			cancelAnimationFrame(resizeFrame);
+			resizeFrame = null;
+		}
+
+		resizeObserver?.disconnect();
+		resizeObserver = null;
+	}
+
+	function scheduleRemoteResize(force = false) {
+		if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+
+		resizeFrame = requestAnimationFrame(() => {
+			resizeFrame = null;
+			resizeRemoteDesktop(force);
+		});
+	}
+
+	function resizeRemoteDesktop(force = false) {
+		if (!api || connectionState !== 'connected') return;
+
+		const nextSize = preferredDesktopSize();
+		if (
+			!force &&
+			lastDesktopSize?.width === nextSize.width &&
+			lastDesktopSize.height === nextSize.height
+		) {
+			return;
+		}
+
+		lastDesktopSize = nextSize;
+		try {
+			api.resize(nextSize.width, nextSize.height, 100);
+		} catch (caught) {
+			console.warn('Could not resize RDP desktop', caught);
+		}
+	}
+
+	function preferredDesktopSize(): RdpDesktopSize {
+		const rect = viewportElement?.getBoundingClientRect();
+		const fallback = bootstrap?.desktop ?? { width: 1440, height: 900 };
+
+		return {
+			width: normalizeDesktopDimension(
+				rect?.width ?? fallback.width,
+				minDesktopWidth,
+				maxDesktopWidth,
+				true
+			),
+			height: normalizeDesktopDimension(
+				rect?.height ?? fallback.height,
+				minDesktopHeight,
+				maxDesktopHeight,
+				false
+			)
+		};
+	}
+
+	function normalizeDesktopDimension(
+		value: number,
+		minimum: number,
+		maximum: number,
+		requireEven: boolean
+	): number {
+		const clamped = Math.min(maximum, Math.max(minimum, Math.round(value)));
+		return requireEven && clamped % 2 === 1 ? clamped - 1 : clamped;
+	}
+
+	async function recordRdpLifecycle(
+		event: 'connected' | 'ended' | 'failed',
+		errorCode?: string
+	): Promise<void> {
+		const connectionSessionId = bootstrap?.connectionSessionId;
+		if (!connectionSessionId) return;
+		if (event !== 'connected') {
+			if (lifecycleFinalized) return;
+			lifecycleFinalized = true;
+		}
+
+		await recordRdpSessionLifecycle({ connectionSessionId, event, errorCode }).catch((caught) => {
+			console.warn('Could not record RDP lifecycle event', caught);
+		});
+	}
+
+	function rdpClientErrorCode(value: unknown): string {
+		const message = errorMessage(value)
+			.toLowerCase()
+			.replace(/[^a-z0-9_:-]+/g, '_');
+		return `rdp_client_${message}`.slice(0, 120);
 	}
 </script>
 
@@ -216,7 +340,7 @@
 		</div>
 	{:else}
 		<div class="grid min-h-0 flex-1 grid-rows-[1fr_auto] bg-neutral-950">
-			<div class="relative min-h-0">
+			<div class="relative min-h-0" bind:this={viewportElement}>
 				<div class="h-full w-full overflow-hidden">
 					{#if webComponentReady && rdpModule}
 						<svelte:element

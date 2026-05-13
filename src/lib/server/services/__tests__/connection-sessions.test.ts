@@ -62,4 +62,25 @@ describe('ConnectionSessionService', () => {
 		});
 		await expect(service.end('missing-session')).resolves.toBeNull();
 	});
+
+	it('only updates browser-reported lifecycle events for the owning user', async () => {
+		const repository = new InMemoryTermixServicesRepository();
+		const service = new ConnectionSessionService(repository);
+		const session = await service.start({
+			userId: 'user-1',
+			hostId: 'host-1',
+			protocol: 'rdp'
+		});
+
+		await expect(service.markActiveForUser('user-2', session.id)).resolves.toBeNull();
+		await expect(repository.getConnectionSession(session.id)).resolves.toMatchObject({
+			status: 'starting'
+		});
+		await expect(service.markActiveForUser('user-1', session.id)).resolves.toMatchObject({
+			status: 'active'
+		});
+		await expect(service.endForUser('user-1', session.id)).resolves.toMatchObject({
+			status: 'ended'
+		});
+	});
 });

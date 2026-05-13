@@ -116,6 +116,7 @@ export interface SessionTicketRepository {
 
 export interface ConnectionSessionRepository {
 	createConnectionSession(session: ConnectionSessionRecord): Promise<ConnectionSessionRecord>;
+	getConnectionSession(id: string): Promise<ConnectionSessionRecord | null>;
 	updateConnectionSession(
 		id: string,
 		patch: ConnectionSessionPatch

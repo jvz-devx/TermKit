@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ShieldCheck } from '@lucide/svelte';
+	import { KeyRound, ShieldCheck } from '@lucide/svelte';
 	import * as Alert from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
 	import StatePanel from '../StatePanel.svelte';
 	import RFB, { type RfbClient } from './novnc-rfb';
 
@@ -29,6 +32,12 @@
 	let connectionState = $state<ConnectionState>('idle');
 	let detail = $state('Waiting for VNC session ticket.');
 	let desktopName = $state('VNC');
+	let rfbClient = $state<RfbClient | null>(null);
+	let authPromptVisible = $state(false);
+	let authRequiredTypes = $state<string[]>([]);
+	let defaultUsername = $derived(credentials?.username ?? '');
+	let sessionUsername = $state('');
+	let sessionPassword = $state('');
 	let suppliedCredentials = $derived(toNoVncCredentials(credentials));
 	let authSummary = $derived(
 		credentialStrategy === 'saved-password'
@@ -37,6 +46,12 @@
 				? 'username staged'
 				: 'credentials requested by target'
 	);
+	let authPromptDetail = $derived(
+		credentialStrategy === 'saved-password'
+			? 'The saved password was not enough for this VNC target. Enter credentials for this tab only; they are sent directly to noVNC and are not stored in the URL or session storage.'
+			: 'Enter VNC credentials for this tab only. Passwords are sent directly to noVNC and are not stored in the URL or session storage.'
+	);
+	let canSubmitCredentials = $derived(Boolean(rfbClient && sessionPassword));
 
 	onMount(() => {
 		let rfb: RfbClient | undefined;
@@ -54,6 +69,7 @@
 			shared: true,
 			credentials: suppliedCredentials
 		});
+		rfbClient = rfb;
 		rfb.viewOnly = viewOnly;
 		rfb.focusOnClick = true;
 		rfb.clipViewport = true;
@@ -64,19 +80,27 @@
 
 		rfb.addEventListener('connect', () => {
 			connectionState = 'connected';
+			authPromptVisible = false;
 			detail = 'VNC framebuffer is connected.';
 			rfb?.focus();
 		});
 		rfb.addEventListener('disconnect', () => {
 			connectionState = 'disconnected';
+			authPromptVisible = false;
 			detail = 'VNC session closed.';
 		});
 		rfb.addEventListener('securityfailure', () => {
 			connectionState = 'error';
-			detail = 'VNC security negotiation failed.';
+			authPromptVisible = false;
+			detail =
+				'VNC security negotiation failed. Reconnect the session if the target rejected the credentials.';
 		});
-		rfb.addEventListener('credentialsrequired', () => {
+		rfb.addEventListener('credentialsrequired', (event) => {
 			connectionState = 'error';
+			authPromptVisible = true;
+			authRequiredTypes = event.detail?.types ?? [];
+			sessionPassword = '';
+			sessionUsername = sessionUsername || defaultUsername;
 			detail =
 				credentialStrategy === 'saved-password'
 					? 'Saved VNC password was supplied, but the target requested more credentials.'
@@ -98,8 +122,24 @@
 		return () => {
 			resizeObserver?.disconnect();
 			rfb?.disconnect();
+			rfbClient = null;
 		};
 	});
+
+	function submitCredentials(event: SubmitEvent) {
+		event.preventDefault();
+		if (!rfbClient || !sessionPassword) return;
+
+		const username = sessionUsername.trim();
+		rfbClient.sendCredentials({
+			username: username || undefined,
+			password: sessionPassword
+		});
+		sessionPassword = '';
+		authPromptVisible = false;
+		connectionState = 'connecting';
+		detail = 'Submitting VNC credentials.';
+	}
 
 	function toNoVncCredentials(value: VncCredentials | undefined) {
 		if (!value?.username && !value?.password) return undefined;
@@ -125,7 +165,7 @@
 	</div>
 	<div bind:this={mountElement} class="h-[calc(100%-2.5rem)] w-full overflow-hidden"></div>
 
-	{#if credentialStrategy === 'saved-password' && connectionState !== 'connected'}
+	{#if credentialStrategy === 'saved-password' && connectionState !== 'connected' && !authPromptVisible}
 		<Alert.Root
 			class="absolute top-[3.25rem] right-3 left-3 border-neutral-800 bg-neutral-950 text-neutral-100"
 		>
@@ -139,7 +179,50 @@
 		</Alert.Root>
 	{/if}
 
-	{#if connectionState !== 'connected'}
+	{#if authPromptVisible}
+		<form
+			class="absolute right-3 bottom-3 left-3 grid gap-3 rounded-md border bg-background p-3 shadow-lg lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+			onsubmit={submitCredentials}
+		>
+			<div class="lg:col-span-3">
+				<div class="flex items-center gap-2 text-sm font-medium">
+					<KeyRound class="size-4" />
+					VNC credentials required
+				</div>
+				<p class="mt-1 text-xs text-muted-foreground">{authPromptDetail}</p>
+				{#if authRequiredTypes.length > 0}
+					<p class="mt-1 text-xs text-muted-foreground">
+						Requested by noVNC: {authRequiredTypes.join(', ')}
+					</p>
+				{/if}
+			</div>
+			<div class="grid gap-1.5">
+				<Label for="vnc-username">Username</Label>
+				<Input
+					id="vnc-username"
+					bind:value={sessionUsername}
+					autocomplete="username"
+					placeholder="Target username"
+				/>
+			</div>
+			<div class="grid gap-1.5">
+				<Label for="vnc-password">Password</Label>
+				<Input
+					id="vnc-password"
+					type="password"
+					bind:value={sessionPassword}
+					autocomplete="current-password"
+					placeholder="Required by the VNC target"
+				/>
+			</div>
+			<div class="flex items-end">
+				<Button type="submit" disabled={!canSubmitCredentials} class="w-full lg:w-auto">
+					<KeyRound class="size-4" />
+					Send
+				</Button>
+			</div>
+		</form>
+	{:else if connectionState !== 'connected'}
 		<StatePanel
 			state={connectionState === 'error'
 				? 'error'

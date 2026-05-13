@@ -2,7 +2,11 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
-import { installWebSocketUpgrades, parseWebSocketRoute } from './upgrade';
+import {
+	installWebSocketUpgrades,
+	parseWebSocketRoute,
+	type AuthenticatedWebSocketSession
+} from './upgrade';
 import { SessionTicketConsumer } from './ticket-consumer';
 import type { ProtocolAdapter } from '$lib/server/protocols';
 import { HostService } from '$lib/server/services/hosts';
@@ -50,6 +54,7 @@ describe('websocket upgrade routing', () => {
 		servers.push(server);
 
 		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
 			tickets: {
 				async consume() {
 					return null;
@@ -108,6 +113,75 @@ describe('websocket upgrade routing', () => {
 		expect(adapterCalled).toBe(false);
 	});
 
+	it('rejects missing origins when origin is required before consuming tickets', async () => {
+		expect.assertions(3);
+
+		let consumeCalled = false;
+		let adapterCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			allowedOrigins: ['https://termix.example'],
+			requireOrigin: true,
+			authenticateSession: testSessionAuthenticator(),
+			tickets: {
+				async consume() {
+					consumeCalled = true;
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						adapterCalled = true;
+					}
+				}
+			]
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/ticket-1');
+
+		expect(response).toContain('403 WebSocket origin is not allowed');
+		expect(consumeCalled).toBe(false);
+		expect(adapterCalled).toBe(false);
+	});
+
+	it('rejects upgrades without an authenticated session before consuming tickets', async () => {
+		expect.assertions(3);
+
+		let consumeCalled = false;
+		let adapterCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			tickets: {
+				async consume() {
+					consumeCalled = true;
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						adapterCalled = true;
+					}
+				}
+			]
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/ticket-1');
+
+		expect(response).toContain('401 Authentication required');
+		expect(consumeCalled).toBe(false);
+		expect(adapterCalled).toBe(false);
+	});
+
 	it('accepts websocket upgrades from an allowed origin', async () => {
 		expect.assertions(1);
 
@@ -116,6 +190,7 @@ describe('websocket upgrade routing', () => {
 
 		installWebSocketUpgrades(server, {
 			allowedOrigins: ['https://termix.example'],
+			authenticateSession: testSessionAuthenticator(),
 			tickets: {
 				async consume() {
 					return testConsumedTicket();
@@ -136,6 +211,40 @@ describe('websocket upgrade routing', () => {
 		await expect(
 			webSocketClose(server, '/ws/ssh/ticket-1', { origin: 'https://termix.example' })
 		).resolves.toEqual(1000);
+	});
+
+	it('rejects tickets whose user does not match the authenticated session', async () => {
+		expect.assertions(3);
+
+		let consumedForUserId: string | undefined;
+		let adapterCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator({ userId: 'user-2' }),
+			tickets: {
+				async consume(_ticket, _protocol, userId) {
+					consumedForUserId = userId;
+					return testConsumedTicket({ userId: 'user-1' });
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						adapterCalled = true;
+					}
+				}
+			]
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/ticket-1');
+
+		expect(response).toContain('401 Invalid or expired session ticket');
+		expect(consumedForUserId).toBe('user-2');
+		expect(adapterCalled).toBe(false);
 	});
 
 	it('consumes matching tickets and hands the socket to the protocol adapter', async () => {
@@ -187,7 +296,11 @@ describe('websocket upgrade routing', () => {
 		const server = createServer((_request, response) => response.end('ok'));
 		servers.push(server);
 
-		installWebSocketUpgrades(server, { tickets: consumer, adapters });
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			tickets: consumer,
+			adapters
+		});
 		await listen(server);
 
 		await expect(webSocketClose(server, `/ws/ssh/${created.ticket}`)).resolves.toEqual(1000);
@@ -215,6 +328,7 @@ describe('websocket upgrade routing', () => {
 		servers.push(server);
 
 		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
 			tickets: consumer,
 			adapters: [
 				{
@@ -249,6 +363,7 @@ describe('websocket upgrade routing', () => {
 		servers.push(server);
 
 		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
 			tickets: {
 				async consume() {
 					return { ...testConsumedTicket(), userId: '' };
@@ -281,6 +396,7 @@ describe('websocket upgrade routing', () => {
 		servers.push(server);
 
 		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
 			tickets: {
 				async consume() {
 					return testConsumedTicket();
@@ -311,6 +427,7 @@ describe('websocket upgrade routing', () => {
 		servers.push(server);
 
 		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
 			tickets: {
 				async consume() {
 					return testConsumedTicket();
@@ -462,7 +579,24 @@ function createLifecycleRecorder(): {
 	};
 }
 
-function testConsumedTicket() {
+function testSessionAuthenticator(
+	overrides: Partial<AuthenticatedWebSocketSession> = {}
+): () => Promise<AuthenticatedWebSocketSession> {
+	return async () => ({
+		sessionId: 'session-1',
+		userId: 'user-1',
+		...overrides
+	});
+}
+
+function testConsumedTicket(overrides: Partial<ReturnType<typeof baseConsumedTicket>> = {}) {
+	return {
+		...baseConsumedTicket(),
+		...overrides
+	};
+}
+
+function baseConsumedTicket() {
 	return {
 		ticketId: 'ticket-1',
 		userId: 'user-1',

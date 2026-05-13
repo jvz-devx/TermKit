@@ -26,6 +26,8 @@
 		mtime: string;
 	};
 
+	const sftpUploadMaxBytes = 50 * 1024 * 1024;
+
 	let { hostId, initialPath = '/' }: { hostId: string; initialPath?: string } = $props();
 
 	let path = $state('/');
@@ -65,6 +67,11 @@
 	async function uploadFile() {
 		const file = fileInput.files?.[0];
 		if (!file) return;
+		if (file.size > sftpUploadMaxBytes) {
+			error = `File exceeds the ${formatSize(sftpUploadMaxBytes)} upload limit`;
+			fileInput.value = '';
+			return;
+		}
 
 		const form = new FormData();
 		form.append('file', file);
@@ -331,13 +338,14 @@
 										<Folder class="size-4 text-amber-500" />{entry.name}
 									</Button>
 								{:else}
-									<button
-										type="button"
-										class="flex items-center gap-2 text-sm"
+									<Button
+										variant="ghost"
+										size="sm"
+										class="justify-start px-1 font-normal"
 										ondblclick={() => openText(entry)}
 									>
 										<File class="size-4 text-muted-foreground" />{entry.name}
-									</button>
+									</Button>
 								{/if}
 							</Table.Cell>
 							<Table.Cell class="font-mono text-xs text-muted-foreground">

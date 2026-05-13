@@ -11,6 +11,7 @@ export function validateProductionEnv(env = process.env) {
 	const allowInsecureLocalHttp = isEnabled(env.TERMIXKIT_INSECURE_LOCAL_HTTP);
 
 	validateCredentialMasterKey(env.CREDENTIAL_MASTER_KEY);
+	validateGatewayPublicUrl(env.GATEWAY_PUBLIC_URL);
 
 	if (origin.protocol === 'https:') return;
 
@@ -73,6 +74,36 @@ function validateCredentialMasterKey(masterKey) {
 }
 
 /**
+ * @param {string | undefined} value
+ */
+function validateGatewayPublicUrl(value) {
+	if (!value) {
+		throw new Error('GATEWAY_PUBLIC_URL is required in production for browser RDP launches.');
+	}
+
+	let url;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error(`GATEWAY_PUBLIC_URL must be an absolute URL, received: ${value}`);
+	}
+
+	if (url.username || url.password || url.hash) {
+		throw new Error('GATEWAY_PUBLIC_URL must not include credentials or fragments.');
+	}
+
+	if (url.protocol !== 'https:') {
+		throw new Error('GATEWAY_PUBLIC_URL must use https:// in production.');
+	}
+
+	if (isInternalGatewayHostname(url.hostname)) {
+		throw new Error(
+			'GATEWAY_PUBLIC_URL must be browser-reachable in production, not localhost, loopback, wildcard, or the internal Compose gateway hostname.'
+		);
+	}
+}
+
+/**
  * @param {string} masterKey
  */
 function isStrongCredentialMasterKey(masterKey) {
@@ -110,6 +141,21 @@ function isRepeatedPattern(value) {
 	}
 
 	return false;
+}
+
+/**
+ * @param {string} hostname
+ */
+function isInternalGatewayHostname(hostname) {
+	const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+	return (
+		normalized === 'gateway' ||
+		normalized === 'localhost' ||
+		normalized === '0.0.0.0' ||
+		normalized === '::' ||
+		normalized === '::1' ||
+		/^127(?:\.\d{1,3}){3}$/.test(normalized)
+	);
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;

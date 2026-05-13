@@ -11,8 +11,28 @@ describe('RDP Gateway bootstrap', () => {
 	it('surfaces missing Gateway configuration', () => {
 		expect(() => loadRdpGatewayConfig({})).toThrow(RdpGatewayConfigurationError);
 		expect(() => loadRdpGatewayConfig({})).toThrow(
-			'GATEWAY_URL is required for RDP launches; GATEWAY_PROVISIONER_KEY is required for RDP launches'
+			'GATEWAY_URL is required for RDP launches; GATEWAY_PUBLIC_URL is required for browser RDP launches; GATEWAY_PROVISIONER_KEY is required for RDP launches'
 		);
+	});
+
+	it('requires a secure browser-reachable Gateway public URL in production', () => {
+		expect(() =>
+			loadRdpGatewayConfig({
+				NODE_ENV: 'production',
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'http://rdp.example.test',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			})
+		).toThrow('GATEWAY_PUBLIC_URL must use https:// in production');
+
+		expect(() =>
+			loadRdpGatewayConfig({
+				NODE_ENV: 'production',
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'https://gateway',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			})
+		).toThrow('GATEWAY_PUBLIC_URL must be browser-reachable in production');
 	});
 
 	it('provisions a Devolutions Gateway app token and RDP association token', async () => {
@@ -75,6 +95,7 @@ describe('RDP Gateway bootstrap', () => {
 		const bootstrapper = new RdpGatewayBootstrapper(
 			loadRdpGatewayConfig({
 				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'http://localhost:7171',
 				GATEWAY_PROVISIONER_KEY: 'shared-key'
 			}),
 			async () => textResponse('gateway unavailable', false, 502, 'Bad Gateway')

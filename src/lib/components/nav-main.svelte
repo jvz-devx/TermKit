@@ -4,6 +4,7 @@
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import type { Component } from 'svelte';
 
 	let {
 		items
@@ -11,9 +12,7 @@
 		items: {
 			title: string;
 			url: string;
-			// this should be `Component` after @lucide/svelte updates types
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			icon?: any;
+			icon?: Component;
 			isActive?: boolean;
 			items?: {
 				title: string;
@@ -22,9 +21,33 @@
 		}[];
 	} = $props();
 
-	function isActive(url: string) {
+	function isPathActive(url: string) {
 		const [pathname] = url.split('?');
 		return page.url.pathname === pathname || page.url.pathname.startsWith(`${pathname}/`);
+	}
+
+	function isSubItemActive(url: string) {
+		const [pathname, query = ''] = url.split('?');
+		if (page.url.pathname !== pathname) return false;
+		if (!query) return page.url.search === '';
+
+		const targetParams = new URLSearchParams(query);
+		for (const [key, value] of targetParams) {
+			if (page.url.searchParams.get(key) !== value) return false;
+		}
+		return true;
+	}
+
+	function isItemActive(item: {
+		url: string;
+		items?: {
+			title: string;
+			url: string;
+		}[];
+	}) {
+		return (
+			isPathActive(item.url) || Boolean(item.items?.some((subItem) => isSubItemActive(subItem.url)))
+		);
 	}
 
 	function resolved(url: string) {
@@ -36,7 +59,7 @@
 	<Sidebar.GroupLabel>Platform</Sidebar.GroupLabel>
 	<Sidebar.Menu>
 		{#each items as item (item.title)}
-			<Collapsible.Root open={item.isActive ?? isActive(item.url)} class="group/collapsible">
+			<Collapsible.Root open={item.isActive ?? isItemActive(item)} class="group/collapsible">
 				{#snippet child({ props })}
 					<Sidebar.MenuItem {...props}>
 						<Collapsible.Trigger>
@@ -60,7 +83,7 @@
 											{#snippet child({ props })}
 												<a
 													href={resolved(subItem.url)}
-													data-active={isActive(subItem.url)}
+													data-active={isSubItemActive(subItem.url)}
 													{...props}
 												>
 													<span>{subItem.title}</span>

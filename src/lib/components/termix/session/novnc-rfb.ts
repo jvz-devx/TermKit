@@ -10,6 +10,10 @@ export type RfbClient = {
 	resizeSession: boolean;
 	showDotCursor: boolean;
 	addEventListener(type: string, listener: EventListener): void;
+	addEventListener(
+		type: 'credentialsrequired',
+		listener: (event: CustomEvent<{ types?: string[] }>) => void
+	): void;
 	disconnect(): void;
 	focus(): void;
 	sendCredentials(credentials: { username?: string; password?: string }): void;
