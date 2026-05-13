@@ -20,6 +20,8 @@ const expectedTables = [
 	'session_tickets',
 	'sessions',
 	'settings',
+	'ssh_attach_tickets',
+	'ssh_live_sessions',
 	'users'
 ];
 
@@ -190,6 +192,48 @@ async function verifyMigratedSchema(url) {
 
 		if (authIdentityForeignKey?.confdeltype !== 'c') {
 			throw new Error('Migration did not create cascading auth identity user foreign key.');
+		}
+
+		const [sshLiveSessionStatus] = await sql`
+			select exists (
+				select 1
+				from pg_type
+				where typname = 'ssh_live_session_status'
+			) as exists
+		`;
+
+		if (!sshLiveSessionStatus?.exists) {
+			throw new Error('Migration did not create ssh_live_session_status enum.');
+		}
+
+		const [sshAttachTicketUniqueIndex] = await sql`
+			select to_regclass('public.ssh_attach_tickets_ticket_hash_unique') as index_name
+		`;
+
+		if (!sshAttachTicketUniqueIndex?.index_name) {
+			throw new Error('Migration did not create SSH attach ticket hash unique index.');
+		}
+
+		const [sshLiveSessionUserForeignKey] = await sql`
+			select confdeltype
+			from pg_constraint
+			where conname = 'ssh_live_sessions_user_id_users_id_fk'
+		`;
+
+		if (sshLiveSessionUserForeignKey?.confdeltype !== 'c') {
+			throw new Error('Migration did not create cascading SSH live session user foreign key.');
+		}
+
+		const [sshAttachTicketSessionForeignKey] = await sql`
+			select confdeltype
+			from pg_constraint
+			where conname = 'ssh_attach_tickets_ssh_live_session_id_ssh_live_sessions_id_fk'
+		`;
+
+		if (sshAttachTicketSessionForeignKey?.confdeltype !== 'c') {
+			throw new Error(
+				'Migration did not create cascading SSH attach ticket live-session foreign key.'
+			);
 		}
 	} finally {
 		await sql.end();

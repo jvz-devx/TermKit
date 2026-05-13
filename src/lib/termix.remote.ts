@@ -15,7 +15,14 @@ import {
 } from '$lib/server/protocols/rdp-credentials';
 import { connectionSessionService } from '$lib/server/services/connection-sessions';
 import { settingsService } from '$lib/server/services/settings';
-import type { CredentialKind, HostProtocol } from '$lib/server/services/types';
+import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
+import { liveSshManager } from '$lib/server/ssh-live/manager';
+import type {
+	CredentialKind,
+	HostProtocol,
+	HostRecord,
+	SshLiveSessionRecord
+} from '$lib/server/services/types';
 
 export type { RdpLaunchCredentials };
 
@@ -79,6 +86,33 @@ export type SessionLaunch = {
 	vncCredentials: VncLaunchCredentials | null;
 };
 
+export type LiveSshSessionSummary = {
+	id: string;
+	hostId: string;
+	hostName: string;
+	hostname: string;
+	username: string | null;
+	title: string;
+	status: 'starting' | 'attached' | 'detached' | 'ended' | 'failed' | 'stale';
+	startedAt: string;
+	lastAttachedAt: string | null;
+	detachedAt: string | null;
+	expiresAt: string | null;
+	endedAt: string | null;
+	terminalCols: number;
+	terminalRows: number;
+	updatedAt: string;
+};
+
+export type LiveSshAttach = {
+	session: LiveSshSessionSummary;
+	liveTicket: string;
+	liveWebsocketPath: string | null;
+	fallbackTicket: string;
+	fallbackWebsocketPath: string;
+	expiresAt: string;
+};
+
 export const listHosts = query(async () => {
 	const userId = requireRemoteUser();
 	const [hosts, credentials] = await Promise.all([
@@ -130,6 +164,25 @@ export const listCredentials = query(async () => {
 			})
 		)
 		.sort((left, right) => left.name.localeCompare(right.name));
+});
+
+export const listLiveSshSessions = query(async () => {
+	const userId = requireRemoteUser();
+	const [sessions, hosts] = await Promise.all([
+		sshLiveSessionService.list(userId),
+		hostService.list(userId)
+	]);
+	const hostsById = new Map(hosts.map((host) => [host.id, host]));
+
+	return sessions
+		.filter((session) => ['starting', 'attached', 'detached', 'stale'].includes(session.status))
+		.sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
+		.map((session): LiveSshSessionSummary | null => {
+			const host = hostsById.get(session.hostId);
+			if (!host) return null;
+			return toLiveSshSessionSummary(session, host);
+		})
+		.filter((session): session is LiveSshSessionSummary => Boolean(session));
 });
 
 export const saveHost = command<HostMutationInput, HostSummary>('unchecked', async (input) => {
@@ -301,6 +354,64 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 	}
 );
 
+export const createLiveSshSession = command<
+	{ hostId?: unknown; title?: unknown; cols?: unknown; rows?: unknown },
+	LiveSshAttach
+>('unchecked', async (input) => {
+	const userId = requireRemoteUser();
+	const hostId = typeof input.hostId === 'string' ? input.hostId : '';
+	if (!hostId) throw new ServiceValidationError(['hostId is required']);
+
+	const { session } = await sshLiveSessionService.createOrReuse(userId, {
+		hostId,
+		title: input.title,
+		terminalCols: input.cols,
+		terminalRows: input.rows
+	});
+	const host = await hostService.get(userId, session.hostId);
+	void listLiveSshSessions().refresh();
+
+	return createLiveSshAttach(userId, toLiveSshSessionSummary(session, host));
+});
+
+export const attachLiveSshSession = command<
+	{ sessionId?: unknown; cols?: unknown; rows?: unknown },
+	LiveSshAttach
+>('unchecked', async (input) => {
+	const userId = requireRemoteUser();
+	const sessionId = typeof input.sessionId === 'string' ? input.sessionId : '';
+	if (!sessionId) throw new ServiceValidationError(['sessionId is required']);
+
+	const session = await sshLiveSessionService.get(userId, sessionId);
+	const host = await hostService.get(userId, session.hostId);
+	void listLiveSshSessions().refresh();
+
+	return createLiveSshAttach(userId, toLiveSshSessionSummary(session, host));
+});
+
+export const renameLiveSshSession = command<{ sessionId?: unknown; title?: unknown }, void>(
+	'unchecked',
+	async (input) => {
+		const userId = requireRemoteUser();
+		const sessionId = typeof input.sessionId === 'string' ? input.sessionId : '';
+		if (!sessionId) throw new ServiceValidationError(['sessionId is required']);
+
+		await sshLiveSessionService.rename(userId, sessionId, input.title);
+		void listLiveSshSessions().refresh();
+	}
+);
+
+export const closeLiveSshSession = command<string, void>('unchecked', async (sessionId) => {
+	const userId = requireRemoteUser();
+	if (typeof sessionId !== 'string' || !sessionId) {
+		throw new ServiceValidationError(['sessionId is required']);
+	}
+
+	await sshLiveSessionService.close(userId, sessionId);
+	liveSshManager.close(sessionId);
+	void listLiveSshSessions().refresh();
+});
+
 export const recordRdpSessionLifecycle = command<
 	{ connectionSessionId?: unknown; event?: unknown; errorCode?: unknown },
 	void
@@ -345,4 +456,55 @@ function sanitizeRdpErrorCode(value: unknown): string {
 	const raw = typeof value === 'string' && value.trim() ? value.trim() : 'rdp_client_failed';
 	const sanitized = raw.toLowerCase().replace(/[^a-z0-9_:-]+/g, '_');
 	return sanitized.slice(0, 120) || 'rdp_client_failed';
+}
+
+async function createLiveSshAttach(
+	userId: string,
+	session: LiveSshSessionSummary
+): Promise<LiveSshAttach> {
+	const settings = await settingsService.getBasicAppSettings();
+	const ttlMs = settings.ticketTtlSeconds * 1000;
+	const liveTicket = await sshLiveSessionService.createAttachTicket(
+		userId,
+		session.id,
+		new Date(),
+		ttlMs
+	);
+	const fallback = await sessionTicketService.create(userId, {
+		hostId: session.hostId,
+		protocol: 'ssh',
+		ttlMs
+	});
+
+	return {
+		session,
+		liveTicket: liveTicket.ticket,
+		liveWebsocketPath: `/ws/ssh/live/${encodeURIComponent(liveTicket.ticket)}`,
+		fallbackTicket: fallback.ticket,
+		fallbackWebsocketPath: `/ws/ssh/${encodeURIComponent(fallback.ticket)}`,
+		expiresAt: liveTicket.record.expiresAt.toISOString()
+	};
+}
+
+function toLiveSshSessionSummary(
+	session: SshLiveSessionRecord,
+	host: HostRecord
+): LiveSshSessionSummary {
+	return {
+		id: session.id,
+		hostId: session.hostId,
+		hostName: host.name,
+		hostname: host.hostname,
+		username: host.username,
+		title: session.title,
+		status: session.status,
+		startedAt: session.startedAt.toISOString(),
+		lastAttachedAt: session.lastAttachedAt?.toISOString() ?? null,
+		detachedAt: session.detachedAt?.toISOString() ?? null,
+		expiresAt: session.expiresAt?.toISOString() ?? null,
+		endedAt: session.endedAt?.toISOString() ?? null,
+		terminalCols: session.terminalCols,
+		terminalRows: session.terminalRows,
+		updatedAt: session.updatedAt.toISOString()
+	};
 }

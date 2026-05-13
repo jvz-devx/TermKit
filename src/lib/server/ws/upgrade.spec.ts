@@ -46,6 +46,267 @@ describe('websocket upgrade routing', () => {
 		});
 	});
 
+	it('parses live SSH websocket routes', () => {
+		expect.assertions(1);
+
+		expect(parseWebSocketRoute({ url: '/ws/ssh/live/ticket-123?ignored=1' })).toEqual({
+			protocol: 'ssh',
+			ticket: 'ticket-123',
+			live: true
+		});
+	});
+
+	it('preserves normal SSH ticket routes when a ticket starts with live', async () => {
+		expect.assertions(4);
+
+		let attachConsumeCalled = false;
+		let adapterCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			tickets: {
+				async consume(ticket, protocol, userId) {
+					expect({ ticket, protocol, userId }).toEqual({
+						ticket: 'live-ticket',
+						protocol: 'ssh',
+						userId: 'user-1'
+					});
+					return testConsumedTicket();
+				}
+			},
+			sshAttachTickets: {
+				async consume() {
+					attachConsumeCalled = true;
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle() {
+					throw new Error('live SSH manager should not handle normal SSH ticket routes');
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle(socket) {
+						adapterCalled = true;
+						socket.close(1000, 'ok');
+					}
+				}
+			]
+		});
+
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/ssh/live-ticket')).resolves.toEqual(1000);
+		expect(adapterCalled).toBe(true);
+		expect(attachConsumeCalled).toBe(false);
+	});
+
+	it('rejects live SSH upgrades without an authenticated session before consuming attach tickets', async () => {
+		expect.assertions(3);
+
+		let attachConsumeCalled = false;
+		let managerCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			sshAttachTickets: {
+				async consume() {
+					attachConsumeCalled = true;
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle() {
+					managerCalled = true;
+				}
+			}
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/live/ticket-1');
+
+		expect(response).toContain('401 Authentication required');
+		expect(attachConsumeCalled).toBe(false);
+		expect(managerCalled).toBe(false);
+	});
+
+	it('rejects live SSH upgrades before consuming attach tickets when no live manager is installed', async () => {
+		expect.assertions(2);
+
+		let attachConsumeCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					attachConsumeCalled = true;
+					return testSshAttachTicket();
+				}
+			}
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/live/ticket-1');
+
+		expect(response).toContain('501 Live SSH manager unavailable');
+		expect(attachConsumeCalled).toBe(false);
+	});
+
+	it('rejects invalid live SSH attach tickets before the manager is called', async () => {
+		expect.assertions(3);
+
+		let consumedForUserId: string | undefined;
+		let managerCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume(_ticket, userId) {
+					consumedForUserId = userId;
+					return null;
+				}
+			},
+			liveSshManager: {
+				handle() {
+					managerCalled = true;
+				}
+			}
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/live/ticket-1');
+
+		expect(response).toContain('401 Invalid or expired SSH attach ticket');
+		expect(consumedForUserId).toBe('user-1');
+		expect(managerCalled).toBe(false);
+	});
+
+	it('rejects live SSH attach tickets for a different authenticated user', async () => {
+		expect.assertions(3);
+
+		let consumedForUserId: string | undefined;
+		let managerCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator({ userId: 'user-2' }),
+			sshAttachTickets: {
+				async consume(_ticket, userId) {
+					consumedForUserId = userId;
+					return testSshAttachTicket({ userId: 'user-1' });
+				}
+			},
+			liveSshManager: {
+				handle() {
+					managerCalled = true;
+				}
+			}
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/live/ticket-1');
+
+		expect(response).toContain('401 Invalid or expired SSH attach ticket');
+		expect(consumedForUserId).toBe('user-2');
+		expect(managerCalled).toBe(false);
+	});
+
+	it('consumes live SSH attach tickets and hands the socket to the live SSH manager', async () => {
+		expect.assertions(3);
+
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume(ticket, userId) {
+					expect({ ticket, userId }).toEqual({
+						ticket: 'attach-ticket-1',
+						userId: 'user-1'
+					});
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket, attachTicket) {
+					expect(attachTicket).toEqual(testSshAttachTicket());
+					socket.close(1000, 'ok');
+				}
+			}
+		});
+
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toEqual(1000);
+	});
+
+	it('records remote live SSH shell closure as ended instead of detached', async () => {
+		expect.assertions(2);
+
+		const calls: string[] = [];
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket) {
+					setTimeout(() => socket.close(1000, 'ssh shell closed'), 0);
+				}
+			},
+			liveSshSessions: liveSshSessionRecorder(calls)
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1000);
+		await waitFor(() => calls.includes('end:ssh-live-session-1'));
+		expect(calls).toEqual(['attached:ssh-live-session-1', 'end:ssh-live-session-1']);
+	});
+
+	it('does not mark live SSH detached when a newer attachment takes over', async () => {
+		expect.assertions(2);
+
+		const calls: string[] = [];
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket) {
+					setTimeout(() => socket.close(1000, 'ssh session reattached'), 0);
+				}
+			},
+			liveSshSessions: liveSshSessionRecorder(calls)
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1000);
+		await waitFor(() => calls.includes('attached:ssh-live-session-1'));
+		expect(calls).toEqual(['attached:ssh-live-session-1']);
+	});
+
 	it('rejects upgrades with invalid tickets before an adapter is called', async () => {
 		expect.assertions(2);
 
@@ -596,6 +857,34 @@ function testConsumedTicket(overrides: Partial<ReturnType<typeof baseConsumedTic
 	};
 }
 
+function testSshAttachTicket(overrides: Partial<ReturnType<typeof baseSshAttachTicket>> = {}) {
+	return {
+		...baseSshAttachTicket(),
+		...overrides
+	};
+}
+
+function liveSshSessionRecorder(calls: string[]) {
+	return {
+		async markAttached(_userId: string, id: string) {
+			calls.push(`attached:${id}`);
+			return {} as never;
+		},
+		async markDetached(_userId: string, id: string) {
+			calls.push(`detached:${id}`);
+			return {} as never;
+		},
+		async end(_userId: string, id: string) {
+			calls.push(`end:${id}`);
+			return {} as never;
+		},
+		async fail(_userId: string, id: string) {
+			calls.push(`fail:${id}`);
+			return {} as never;
+		}
+	};
+}
+
 function baseConsumedTicket() {
 	return {
 		ticketId: 'ticket-1',
@@ -606,6 +895,20 @@ function baseConsumedTicket() {
 			host: 'shell.example.test',
 			port: 22
 		}
+	};
+}
+
+function baseSshAttachTicket() {
+	return {
+		ticketId: 'attach-ticket-1',
+		userId: 'user-1',
+		sshLiveSessionId: 'ssh-live-session-1',
+		session: {
+			...baseConsumedTicket(),
+			ticketId: 'ssh-live-session-1'
+		},
+		terminalCols: 80,
+		terminalRows: 24
 	};
 }
 

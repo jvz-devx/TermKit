@@ -97,6 +97,9 @@ try {
 	await smokeSshWebSocket(api, app.baseUrl, auth.cookieHeader, sshHost.id);
 	pass('SSH websocket shell', 'saw ssh-ready and ssh-echo:smoke-shell');
 
+	await smokeLiveSshSessionUi(auth.page, sshHost.id);
+	pass('Live SSH workspace tab', 'opened /ws/ssh/live session and saw shell readiness');
+
 	await smokeSftpApi(api, sshHost.id);
 	pass('SFTP API list/download/upload', 'verified smoke.txt and uploaded.txt');
 
@@ -518,6 +521,25 @@ async function smokeSshWebSocket(api, baseUrl, cookieHeader, hostId) {
 		});
 	} finally {
 		socket.close();
+	}
+}
+
+async function smokeLiveSshSessionUi(page, hostId) {
+	const livePage = await page.context().newPage();
+
+	try {
+		await livePage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=ssh`);
+		await livePage.getByRole('button', { name: 'SSH tab' }).click();
+		await waitFor(async () => {
+			const bodyText = (await livePage.locator('body').textContent()) ?? '';
+			return bodyText.includes('Attaching live SSH session...');
+		}, 'Live SSH terminal did not switch to the live websocket path.');
+		await waitFor(async () => {
+			const bodyText = (await livePage.locator('body').textContent()) ?? '';
+			return bodyText.includes('ssh-ready');
+		}, 'Live SSH terminal did not render fixture shell readiness.');
+	} finally {
+		await livePage.close().catch(() => {});
 	}
 }
 
@@ -1137,7 +1159,7 @@ function stopChild(child) {
 async function waitFor(predicate, message) {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
-		if (predicate()) return;
+		if (await predicate()) return;
 		await delay(50);
 	}
 	throw new Error(typeof message === 'function' ? await message() : message);

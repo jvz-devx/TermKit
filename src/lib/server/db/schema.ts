@@ -21,6 +21,14 @@ export const connectionSessionStatus = pgEnum('connection_session_status', [
 	'ended',
 	'failed'
 ]);
+export const sshLiveSessionStatus = pgEnum('ssh_live_session_status', [
+	'starting',
+	'attached',
+	'detached',
+	'ended',
+	'failed',
+	'stale'
+]);
 
 const timestamps = {
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -180,6 +188,58 @@ export const sessionTickets = pgTable(
 	]
 );
 
+export const sshLiveSessions = pgTable(
+	'ssh_live_sessions',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		hostId: uuid('host_id')
+			.notNull()
+			.references(() => hosts.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		status: sshLiveSessionStatus('status').notNull().default('starting'),
+		startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+		lastAttachedAt: timestamp('last_attached_at', { withTimezone: true }),
+		detachedAt: timestamp('detached_at', { withTimezone: true }),
+		expiresAt: timestamp('expires_at', { withTimezone: true }),
+		endedAt: timestamp('ended_at', { withTimezone: true }),
+		terminalCols: integer('terminal_cols').notNull(),
+		terminalRows: integer('terminal_rows').notNull(),
+		...timestamps
+	},
+	(table) => [
+		index('ssh_live_sessions_user_id_idx').on(table.userId),
+		index('ssh_live_sessions_host_id_idx').on(table.hostId),
+		index('ssh_live_sessions_status_idx').on(table.status),
+		index('ssh_live_sessions_expires_at_idx').on(table.expiresAt)
+	]
+);
+
+export const sshAttachTickets = pgTable(
+	'ssh_attach_tickets',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		sshLiveSessionId: uuid('ssh_live_session_id')
+			.notNull()
+			.references(() => sshLiveSessions.id, { onDelete: 'cascade' }),
+		ticketHash: text('ticket_hash').notNull(),
+		expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+		consumedAt: timestamp('consumed_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(table) => [
+		uniqueIndex('ssh_attach_tickets_ticket_hash_unique').on(table.ticketHash),
+		index('ssh_attach_tickets_user_id_idx').on(table.userId),
+		index('ssh_attach_tickets_ssh_live_session_id_idx').on(table.sshLiveSessionId),
+		index('ssh_attach_tickets_expires_at_idx').on(table.expiresAt)
+	]
+);
+
 export const settings = pgTable('settings', {
 	key: text('key').primaryKey(),
 	value: jsonb('value').$type<unknown>().notNull(),
@@ -254,6 +314,8 @@ export const usersRelations = relations(users, ({ many }) => ({
 	sessions: many(sessions),
 	hosts: many(hosts),
 	credentials: many(credentials),
+	sshLiveSessions: many(sshLiveSessions),
+	sshAttachTickets: many(sshAttachTickets),
 	importJobs: many(importJobs)
 }));
 
@@ -269,7 +331,8 @@ export const hostsRelations = relations(hosts, ({ one, many }) => ({
 	user: one(users, { fields: [hosts.userId], references: [users.id] }),
 	credential: one(credentials, { fields: [hosts.credentialId], references: [credentials.id] }),
 	connectionSessions: many(connectionSessions),
-	sessionTickets: many(sessionTickets)
+	sessionTickets: many(sessionTickets),
+	sshLiveSessions: many(sshLiveSessions)
 }));
 
 export const credentialsRelations = relations(credentials, ({ one, many }) => ({
@@ -285,6 +348,20 @@ export const connectionSessionsRelations = relations(connectionSessions, ({ one 
 export const sessionTicketsRelations = relations(sessionTickets, ({ one }) => ({
 	user: one(users, { fields: [sessionTickets.userId], references: [users.id] }),
 	host: one(hosts, { fields: [sessionTickets.hostId], references: [hosts.id] })
+}));
+
+export const sshLiveSessionsRelations = relations(sshLiveSessions, ({ one, many }) => ({
+	user: one(users, { fields: [sshLiveSessions.userId], references: [users.id] }),
+	host: one(hosts, { fields: [sshLiveSessions.hostId], references: [hosts.id] }),
+	attachTickets: many(sshAttachTickets)
+}));
+
+export const sshAttachTicketsRelations = relations(sshAttachTickets, ({ one }) => ({
+	user: one(users, { fields: [sshAttachTickets.userId], references: [users.id] }),
+	sshLiveSession: one(sshLiveSessions, {
+		fields: [sshAttachTickets.sshLiveSessionId],
+		references: [sshLiveSessions.id]
+	})
 }));
 
 export const importJobsRelations = relations(importJobs, ({ one }) => ({

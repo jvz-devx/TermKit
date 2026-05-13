@@ -9,6 +9,9 @@ import {
 	hosts,
 	sessionTickets,
 	sessions,
+	sshAttachTickets,
+	sshLiveSessions,
+	sshLiveSessionStatus,
 	users
 } from './schema';
 
@@ -25,8 +28,21 @@ describe('core schema', () => {
 		expect(authIdentityProvider.enumValues).toEqual(['microsoft']);
 	});
 
+	it('defines the V2 live SSH session status enum values', () => {
+		expect.assertions(1);
+
+		expect(sshLiveSessionStatus.enumValues).toEqual([
+			'starting',
+			'attached',
+			'detached',
+			'ended',
+			'failed',
+			'stale'
+		]);
+	});
+
 	it('uses the expected core table names', () => {
-		expect.assertions(7);
+		expect.assertions(9);
 
 		expect(getTableName(users)).toBe('users');
 		expect(getTableName(authIdentities)).toBe('auth_identities');
@@ -35,5 +51,7 @@ describe('core schema', () => {
 		expect(getTableName(credentials)).toBe('credentials');
 		expect(getTableName(connectionSessions)).toBe('connection_sessions');
 		expect(getTableName(sessionTickets)).toBe('session_tickets');
+		expect(getTableName(sshLiveSessions)).toBe('ssh_live_sessions');
+		expect(getTableName(sshAttachTickets)).toBe('ssh_attach_tickets');
 	});
 });

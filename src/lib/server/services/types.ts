@@ -9,6 +9,16 @@ export type CredentialKind = (typeof credentialKinds)[number];
 export const connectionSessionStatuses = ['starting', 'active', 'ended', 'failed'] as const;
 export type ConnectionSessionStatus = (typeof connectionSessionStatuses)[number];
 
+export const sshLiveSessionStatuses = [
+	'starting',
+	'attached',
+	'detached',
+	'ended',
+	'failed',
+	'stale'
+] as const;
+export type SshLiveSessionStatus = (typeof sshLiveSessionStatuses)[number];
+
 export interface HostRecord {
 	id: string;
 	userId: string;
@@ -63,8 +73,50 @@ export interface ConnectionSessionRecord {
 	updatedAt: Date;
 }
 
+export interface SshLiveSessionRecord {
+	id: string;
+	userId: string;
+	hostId: string;
+	title: string;
+	status: SshLiveSessionStatus;
+	startedAt: Date;
+	lastAttachedAt: Date | null;
+	detachedAt: Date | null;
+	expiresAt: Date | null;
+	endedAt: Date | null;
+	terminalCols: number;
+	terminalRows: number;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface SshAttachTicketRecord {
+	id: string;
+	userId: string;
+	sshLiveSessionId: string;
+	ticketHash: string;
+	expiresAt: Date;
+	consumedAt: Date | null;
+	createdAt: Date;
+}
+
 export type ConnectionSessionPatch = Partial<
 	Pick<ConnectionSessionRecord, 'status' | 'endedAt' | 'errorCode' | 'updatedAt'>
+>;
+
+export type SshLiveSessionPatch = Partial<
+	Pick<
+		SshLiveSessionRecord,
+		| 'title'
+		| 'status'
+		| 'lastAttachedAt'
+		| 'detachedAt'
+		| 'expiresAt'
+		| 'endedAt'
+		| 'terminalCols'
+		| 'terminalRows'
+		| 'updatedAt'
+	>
 >;
 
 export interface EncryptionMetadata {
@@ -124,9 +176,31 @@ export interface ConnectionSessionRepository {
 	): Promise<ConnectionSessionRecord | null>;
 }
 
+export interface SshLiveSessionRepository {
+	listSshLiveSessions(userId: string): Promise<SshLiveSessionRecord[]>;
+	getSshLiveSession(userId: string, id: string): Promise<SshLiveSessionRecord | null>;
+	findReusableSshLiveSession(userId: string, hostId: string): Promise<SshLiveSessionRecord | null>;
+	countOpenSshLiveSessions(userId: string): Promise<number>;
+	createSshLiveSession(session: SshLiveSessionRecord): Promise<SshLiveSessionRecord>;
+	updateSshLiveSession(
+		userId: string,
+		id: string,
+		patch: SshLiveSessionPatch
+	): Promise<SshLiveSessionRecord | null>;
+	markStaleSshLiveSessions(now: Date): Promise<number>;
+	markExpiredDetachedSshLiveSessions(now: Date): Promise<SshLiveSessionRecord[]>;
+	createSshAttachTicket(ticket: SshAttachTicketRecord): Promise<SshAttachTicketRecord>;
+	getSshAttachTicketByHash(ticketHash: string): Promise<SshAttachTicketRecord | null>;
+	consumeSshAttachTicket(
+		ticketHash: string,
+		consumedAt: Date
+	): Promise<SshAttachTicketRecord | null>;
+}
+
 export interface TermixServicesRepository
 	extends
 		HostRepository,
 		CredentialRepository,
 		SessionTicketRepository,
-		ConnectionSessionRepository {}
+		ConnectionSessionRepository,
+		SshLiveSessionRepository {}

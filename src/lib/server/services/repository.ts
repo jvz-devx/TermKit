@@ -1,5 +1,6 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte } from 'drizzle-orm';
 import { db, type TermixDb } from '../db';
+import * as schema from '../db/schema';
 import {
 	connectionSessions,
 	credentials,
@@ -14,14 +15,52 @@ import type {
 	ConnectionSessionRecord,
 	CredentialRecord,
 	HostRecord,
+	SshAttachTicketRecord,
+	SshLiveSessionPatch,
+	SshLiveSessionRecord,
 	SessionTicketRecord,
 	TermixServicesRepository
 } from './types';
+
+type IntendedSshLiveSessionsTable = typeof connectionSessions & {
+	title: typeof connectionSessions.errorCode;
+	status: typeof hosts.name;
+	hostId: typeof hosts.id;
+	lastAttachedAt: typeof connectionSessions.endedAt;
+	detachedAt: typeof connectionSessions.endedAt;
+	expiresAt: typeof connectionSessions.endedAt;
+	terminalCols: typeof connectionSessions.hostId;
+	terminalRows: typeof connectionSessions.hostId;
+	createdAt: typeof connectionSessions.startedAt;
+};
+type IntendedSshAttachTicketsTable = typeof sessionTickets & {
+	sshLiveSessionId: typeof sessionTickets.hostId;
+	consumedAt: typeof sessionTickets.consumedAt;
+};
+type ReturningInsert = {
+	values(values: unknown): {
+		returning(): Promise<unknown[]>;
+	};
+};
+type ReturningUpdate = {
+	set(values: unknown): {
+		where(condition: unknown): {
+			returning(fields?: unknown): Promise<unknown[]>;
+		};
+	};
+};
 
 type HostRow = typeof hostsTable.$inferSelect;
 type CredentialRow = typeof credentialsTable.$inferSelect;
 type SessionTicketRow = typeof sessionTicketsTable.$inferSelect;
 type ConnectionSessionRow = typeof connectionSessions.$inferSelect;
+type SshLiveSessionRow = SshLiveSessionRecord;
+type SshAttachTicketRow = SshAttachTicketRecord;
+
+const intendedSchema = schema as unknown as {
+	sshLiveSessions?: IntendedSshLiveSessionsTable;
+	sshAttachTickets?: IntendedSshAttachTicketsTable;
+};
 
 export class DrizzleTermixServicesRepository implements TermixServicesRepository {
 	constructor(private readonly database: TermixDb = db) {}
@@ -236,6 +275,145 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 
 		return row ? toConnectionSessionRecord(row) : null;
 	}
+
+	async listSshLiveSessions(userId: string): Promise<SshLiveSessionRecord[]> {
+		const { sshLiveSessions } = getSshLiveSchema();
+		const rows = await this.database
+			.select()
+			.from(sshLiveSessions)
+			.where(eq(sshLiveSessions.userId, userId));
+
+		return (rows as unknown as SshLiveSessionRow[]).map(toSshLiveSessionRecord);
+	}
+
+	async getSshLiveSession(userId: string, id: string): Promise<SshLiveSessionRecord | null> {
+		const { sshLiveSessions } = getSshLiveSchema();
+		const [row] = await this.database
+			.select()
+			.from(sshLiveSessions)
+			.where(and(eq(sshLiveSessions.id, id), eq(sshLiveSessions.userId, userId)))
+			.limit(1);
+
+		return row ? toSshLiveSessionRecord(row as unknown as SshLiveSessionRow) : null;
+	}
+
+	async findReusableSshLiveSession(
+		userId: string,
+		hostId: string
+	): Promise<SshLiveSessionRecord | null> {
+		const { sshLiveSessions } = getSshLiveSchema();
+		const [row] = await this.database
+			.select()
+			.from(sshLiveSessions)
+			.where(
+				and(
+					eq(sshLiveSessions.userId, userId),
+					eq(sshLiveSessions.hostId as typeof hosts.id, hostId),
+					inArray(sshLiveSessions.status as typeof hosts.name, ['starting', 'attached', 'detached'])
+				)
+			)
+			.limit(1);
+
+		return row ? toSshLiveSessionRecord(row as unknown as SshLiveSessionRow) : null;
+	}
+
+	async countOpenSshLiveSessions(userId: string): Promise<number> {
+		const sessions = await this.listSshLiveSessions(userId);
+		return sessions.filter((session) => isOpenSshLiveSessionStatus(session.status)).length;
+	}
+
+	async createSshLiveSession(session: SshLiveSessionRecord): Promise<SshLiveSessionRecord> {
+		const { sshLiveSessions } = getSshLiveSchema();
+		const [row] = await (this.database.insert(sshLiveSessions) as unknown as ReturningInsert)
+			.values(toSshLiveSessionInsert(session))
+			.returning();
+
+		if (!row) throw new Error('Could not create SSH live session');
+		return toSshLiveSessionRecord(row as unknown as SshLiveSessionRow);
+	}
+
+	async updateSshLiveSession(
+		userId: string,
+		id: string,
+		patch: SshLiveSessionPatch
+	): Promise<SshLiveSessionRecord | null> {
+		const { sshLiveSessions } = getSshLiveSchema();
+		const [row] = await (this.database.update(sshLiveSessions) as unknown as ReturningUpdate)
+			.set(sshLiveSessionPatchToDb(patch))
+			.where(and(eq(sshLiveSessions.id, id), eq(sshLiveSessions.userId, userId)))
+			.returning();
+
+		return row ? toSshLiveSessionRecord(row as unknown as SshLiveSessionRow) : null;
+	}
+
+	async markStaleSshLiveSessions(now: Date): Promise<number> {
+		const { sshLiveSessions } = getSshLiveSchema();
+		const rows = await (this.database.update(sshLiveSessions) as unknown as ReturningUpdate)
+			.set({ status: 'stale', endedAt: now, updatedAt: now })
+			.where(
+				inArray(sshLiveSessions.status as typeof hosts.name, ['starting', 'attached', 'detached'])
+			)
+			.returning({ id: sshLiveSessions.id });
+
+		return rows.length;
+	}
+
+	async markExpiredDetachedSshLiveSessions(now: Date): Promise<SshLiveSessionRecord[]> {
+		const { sshLiveSessions } = getSshLiveSchema();
+		const rows = await (this.database.update(sshLiveSessions) as unknown as ReturningUpdate)
+			.set({ status: 'ended', endedAt: now, updatedAt: now })
+			.where(
+				and(
+					eq(sshLiveSessions.status as typeof hosts.name, 'detached'),
+					lte(sshLiveSessions.expiresAt, now)
+				)
+			)
+			.returning();
+
+		return (rows as unknown as SshLiveSessionRow[]).map(toSshLiveSessionRecord);
+	}
+
+	async createSshAttachTicket(ticket: SshAttachTicketRecord): Promise<SshAttachTicketRecord> {
+		const { sshAttachTickets } = getSshLiveSchema();
+		const [row] = await (this.database.insert(sshAttachTickets) as unknown as ReturningInsert)
+			.values({
+				id: ticket.id,
+				userId: ticket.userId,
+				sshLiveSessionId: ticket.sshLiveSessionId,
+				ticketHash: ticket.ticketHash,
+				expiresAt: ticket.expiresAt,
+				consumedAt: ticket.consumedAt,
+				createdAt: ticket.createdAt
+			})
+			.returning();
+
+		if (!row) throw new Error('Could not create SSH attach ticket');
+		return toSshAttachTicketRecord(row as unknown as SshAttachTicketRow);
+	}
+
+	async getSshAttachTicketByHash(ticketHash: string): Promise<SshAttachTicketRecord | null> {
+		const { sshAttachTickets } = getSshLiveSchema();
+		const [row] = await this.database
+			.select()
+			.from(sshAttachTickets)
+			.where(eq(sshAttachTickets.ticketHash, ticketHash))
+			.limit(1);
+
+		return row ? toSshAttachTicketRecord(row as unknown as SshAttachTicketRow) : null;
+	}
+
+	async consumeSshAttachTicket(
+		ticketHash: string,
+		consumedAt: Date
+	): Promise<SshAttachTicketRecord | null> {
+		const { sshAttachTickets } = getSshLiveSchema();
+		const [row] = await (this.database.update(sshAttachTickets) as unknown as ReturningUpdate)
+			.set({ consumedAt })
+			.where(and(eq(sshAttachTickets.ticketHash, ticketHash), isNull(sshAttachTickets.consumedAt)))
+			.returning();
+
+		return row ? toSshAttachTicketRecord(row as unknown as SshAttachTicketRow) : null;
+	}
 }
 
 export class InMemoryTermixServicesRepository implements TermixServicesRepository {
@@ -243,6 +421,8 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	private readonly credentials = new Map<string, CredentialRecord>();
 	private readonly tickets = new Map<string, SessionTicketRecord>();
 	private readonly connectionSessions = new Map<string, ConnectionSessionRecord>();
+	private readonly sshLiveSessions = new Map<string, SshLiveSessionRecord>();
+	private readonly sshAttachTickets = new Map<string, SshAttachTicketRecord>();
 
 	async listHosts(userId: string): Promise<HostRecord[]> {
 		return [...this.hosts.values()].filter((host) => host.userId === userId);
@@ -350,6 +530,111 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	async getConnectionSession(id: string): Promise<ConnectionSessionRecord | null> {
 		return this.connectionSessions.get(id) ?? null;
 	}
+
+	async listSshLiveSessions(userId: string): Promise<SshLiveSessionRecord[]> {
+		return [...this.sshLiveSessions.values()].filter((session) => session.userId === userId);
+	}
+
+	async getSshLiveSession(userId: string, id: string): Promise<SshLiveSessionRecord | null> {
+		const session = this.sshLiveSessions.get(id);
+		return session?.userId === userId ? session : null;
+	}
+
+	async findReusableSshLiveSession(
+		userId: string,
+		hostId: string
+	): Promise<SshLiveSessionRecord | null> {
+		return (
+			[...this.sshLiveSessions.values()].find(
+				(session) =>
+					session.userId === userId &&
+					session.hostId === hostId &&
+					isOpenSshLiveSessionStatus(session.status)
+			) ?? null
+		);
+	}
+
+	async countOpenSshLiveSessions(userId: string): Promise<number> {
+		return [...this.sshLiveSessions.values()].filter(
+			(session) => session.userId === userId && isOpenSshLiveSessionStatus(session.status)
+		).length;
+	}
+
+	async createSshLiveSession(session: SshLiveSessionRecord): Promise<SshLiveSessionRecord> {
+		this.sshLiveSessions.set(session.id, session);
+		return session;
+	}
+
+	async updateSshLiveSession(
+		userId: string,
+		id: string,
+		patch: SshLiveSessionPatch
+	): Promise<SshLiveSessionRecord | null> {
+		const session = await this.getSshLiveSession(userId, id);
+		if (!session) return null;
+
+		const updated = { ...session, ...patch, id, userId };
+		this.sshLiveSessions.set(id, updated);
+		return updated;
+	}
+
+	async markStaleSshLiveSessions(now: Date): Promise<number> {
+		let count = 0;
+		for (const session of this.sshLiveSessions.values()) {
+			if (!isOpenSshLiveSessionStatus(session.status)) continue;
+			this.sshLiveSessions.set(session.id, {
+				...session,
+				status: 'stale',
+				endedAt: now,
+				updatedAt: now
+			});
+			count += 1;
+		}
+		return count;
+	}
+
+	async markExpiredDetachedSshLiveSessions(now: Date): Promise<SshLiveSessionRecord[]> {
+		const expired: SshLiveSessionRecord[] = [];
+		for (const session of this.sshLiveSessions.values()) {
+			if (
+				session.status !== 'detached' ||
+				!session.expiresAt ||
+				session.expiresAt.getTime() > now.getTime()
+			) {
+				continue;
+			}
+			const updated: SshLiveSessionRecord = {
+				...session,
+				status: 'ended',
+				endedAt: now,
+				updatedAt: now
+			};
+			this.sshLiveSessions.set(session.id, updated);
+			expired.push(updated);
+		}
+		return expired;
+	}
+
+	async createSshAttachTicket(ticket: SshAttachTicketRecord): Promise<SshAttachTicketRecord> {
+		this.sshAttachTickets.set(ticket.ticketHash, ticket);
+		return ticket;
+	}
+
+	async getSshAttachTicketByHash(ticketHash: string): Promise<SshAttachTicketRecord | null> {
+		return this.sshAttachTickets.get(ticketHash) ?? null;
+	}
+
+	async consumeSshAttachTicket(
+		ticketHash: string,
+		consumedAt: Date
+	): Promise<SshAttachTicketRecord | null> {
+		const ticket = await this.getSshAttachTicketByHash(ticketHash);
+		if (!ticket || ticket.consumedAt) return null;
+
+		const consumed = { ...ticket, consumedAt };
+		this.sshAttachTickets.set(ticketHash, consumed);
+		return consumed;
+	}
 }
 
 function toHostRecord(row: HostRow): HostRecord {
@@ -414,6 +699,37 @@ function toConnectionSessionRecord(row: ConnectionSessionRow): ConnectionSession
 	};
 }
 
+function toSshLiveSessionRecord(row: SshLiveSessionRow): SshLiveSessionRecord {
+	return {
+		id: row.id,
+		userId: row.userId,
+		hostId: row.hostId,
+		title: row.title,
+		status: row.status,
+		startedAt: row.startedAt,
+		lastAttachedAt: row.lastAttachedAt,
+		detachedAt: row.detachedAt,
+		expiresAt: row.expiresAt,
+		endedAt: row.endedAt,
+		terminalCols: row.terminalCols,
+		terminalRows: row.terminalRows,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
+	};
+}
+
+function toSshAttachTicketRecord(row: SshAttachTicketRow): SshAttachTicketRecord {
+	return {
+		id: row.id,
+		userId: row.userId,
+		sshLiveSessionId: row.sshLiveSessionId,
+		ticketHash: row.ticketHash,
+		expiresAt: row.expiresAt,
+		consumedAt: row.consumedAt,
+		createdAt: row.createdAt
+	};
+}
+
 function hostPatchToDb(patch: Partial<HostRecord>): Partial<typeof hosts.$inferInsert> {
 	return {
 		name: patch.name,
@@ -453,6 +769,59 @@ function connectionSessionPatchToDb(
 		errorCode: patch.errorCode,
 		updatedAt: patch.updatedAt
 	};
+}
+
+function toSshLiveSessionInsert(session: SshLiveSessionRecord): Record<string, unknown> {
+	return {
+		id: session.id,
+		userId: session.userId,
+		hostId: session.hostId,
+		title: session.title,
+		status: session.status,
+		startedAt: session.startedAt,
+		lastAttachedAt: session.lastAttachedAt,
+		detachedAt: session.detachedAt,
+		expiresAt: session.expiresAt,
+		endedAt: session.endedAt,
+		terminalCols: session.terminalCols,
+		terminalRows: session.terminalRows,
+		createdAt: session.createdAt,
+		updatedAt: session.updatedAt
+	};
+}
+
+function sshLiveSessionPatchToDb(patch: SshLiveSessionPatch): Record<string, unknown> {
+	return {
+		title: patch.title,
+		status: patch.status,
+		lastAttachedAt: patch.lastAttachedAt,
+		detachedAt: patch.detachedAt,
+		expiresAt: patch.expiresAt,
+		endedAt: patch.endedAt,
+		terminalCols: patch.terminalCols,
+		terminalRows: patch.terminalRows,
+		updatedAt: patch.updatedAt
+	};
+}
+
+function getSshLiveSchema(): {
+	sshLiveSessions: IntendedSshLiveSessionsTable;
+	sshAttachTickets: IntendedSshAttachTicketsTable;
+} {
+	if (!intendedSchema.sshLiveSessions || !intendedSchema.sshAttachTickets) {
+		throw new Error(
+			'SSH live session schema is not available; expected sshLiveSessions and sshAttachTickets exports backed by ssh_live_sessions and ssh_attach_tickets'
+		);
+	}
+
+	return {
+		sshLiveSessions: intendedSchema.sshLiveSessions,
+		sshAttachTickets: intendedSchema.sshAttachTickets
+	};
+}
+
+function isOpenSshLiveSessionStatus(status: SshLiveSessionRecord['status']): boolean {
+	return status === 'starting' || status === 'attached' || status === 'detached';
 }
 
 function ticketTargetToDb(target?: string): Record<string, unknown> {

@@ -18,6 +18,12 @@ TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. V1 t
 
 TermixKit keeps the sidebar at the application-workflow level rather than listing individual hosts. Host records live under **Inventory**, reusable secrets live under **Credentials**, Termix data migration lives under **Import from Termix**, and all protocol launches start from the **Session workspace**. The session workspace has its own host search and protocol filters, so SSH, SFTP, RDP, VNC, and Telnet choices stay close to the actual session UI instead of becoming global sidebar destinations.
 
+## Live SSH Sessions
+
+V2 adds app-owned live SSH sessions behind `/ws/ssh/live/:ticket`. The remote functions create short-lived attach tickets, the production server consumes them after normal app-session authentication, and an in-process live SSH manager keeps the shell alive across browser websocket disconnects. Reattaching to a live session replays bounded scrollback and takes over the active browser attachment for that session.
+
+The session workspace now has a compact SSH tab strip for opening, renaming, reattaching, and closing live SSH sessions. Live session metadata is stored in Postgres through `ssh_live_sessions` and `ssh_attach_tickets`; startup reconciliation and detached idle expiry are implemented in the service layer so stale app-owned sessions can be marked without relying on browser state.
+
 ## Local Development
 
 Enter the Nix dev shell before running project tooling:

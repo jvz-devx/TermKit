@@ -12,8 +12,13 @@ import { env } from 'node:process';
 import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { getSessionFromToken, sessionCookieName } from './src/lib/server/auth.js';
-import { createSessionTicketConsumer } from './src/lib/server/ws/ticket-consumer.js';
+import {
+	createSessionTicketConsumer,
+	createSshAttachTicketConsumer
+} from './src/lib/server/ws/ticket-consumer.js';
 import { installWebSocketUpgrades } from './src/lib/server/ws/upgrade.js';
+import { liveSshManager } from './src/lib/server/ssh-live/manager.js';
+import { sshLiveSessionService } from './src/lib/server/services/ssh-live-sessions.js';
 
 const handlerModulePath = './handler.js';
 const gatewayProxyMountPath = '/gateway/jet';
@@ -81,9 +86,12 @@ export function createTermixServer({
 
 	installWebSocketUpgrades(server, {
 		tickets: createSessionTicketConsumer(),
+		sshAttachTickets: createSshAttachTicketConsumer(),
+		liveSshManager,
 		ignoredPaths: [/^\/gateway\/jet(?:\/|$)/],
 		requireOrigin: serverEnv.NODE_ENV === 'production'
 	});
+	installLiveSshMaintenance(server, serverEnv);
 
 	server.on('upgrade', (request, socket, head) => {
 		if (!isGatewayProxyPath(request)) return;
@@ -91,6 +99,30 @@ export function createTermixServer({
 	});
 
 	return server;
+}
+
+function installLiveSshMaintenance(server: Server, serverEnv: NodeJS.ProcessEnv): void {
+	if (serverEnv.VITEST || serverEnv.TERMIXKIT_LIVE_SSH_MAINTENANCE === '0') return;
+
+	void sshLiveSessionService.markStaleOnStartup().catch(logLiveSshMaintenanceError);
+
+	const intervalMs = Math.max(5_000, Number(serverEnv.TERMIXKIT_LIVE_SSH_IDLE_SWEEP_MS ?? 60_000));
+	const interval = setInterval(() => {
+		void sshLiveSessionService
+			.expireIdleDetachedSessions()
+			.then((expiredSessions) => {
+				for (const session of expiredSessions) liveSshManager.close(session.id);
+			})
+			.catch(logLiveSshMaintenanceError);
+	}, intervalMs);
+	interval.unref();
+	server.once('close', () => clearInterval(interval));
+}
+
+function logLiveSshMaintenanceError(error: unknown): void {
+	console.warn('Live SSH maintenance failed', {
+		error: error instanceof Error ? { name: error.name, message: error.message } : error
+	});
 }
 
 export async function startTermixServer(serverEnv: NodeJS.ProcessEnv = env): Promise<Server> {

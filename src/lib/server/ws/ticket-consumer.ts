@@ -12,11 +12,16 @@ import {
 } from '$lib/server/services/errors';
 import { hostService, type HostService } from '$lib/server/services/hosts';
 import { termixRepository } from '$lib/server/services/repository';
+import type { SshAttachTicket } from '$lib/server/ssh-live/types';
 import {
 	parseSessionTicketTargetSnapshot,
 	sessionTicketService,
 	type SessionTicketService
 } from '$lib/server/services/session-tickets';
+import {
+	sshLiveSessionService,
+	type SshLiveSessionService
+} from '$lib/server/services/ssh-live-sessions';
 import type {
 	CredentialCrypto,
 	CredentialRecord,
@@ -48,7 +53,12 @@ export class SessionTicketConsumer implements TicketConsumer {
 			);
 			const snapshot = parseSessionTicketTargetSnapshot(record);
 			await this.hosts.get(record.userId, record.hostId);
-			const credential = await this.resolveCredential(record.userId, snapshot.host.credentialId);
+			const credential = await resolveCredential(
+				record.userId,
+				snapshot.host.credentialId,
+				this.credentials,
+				this.crypto
+			);
 			const consumed = await this.tickets.consume(ticket, now, userId, protocol as HostProtocol);
 
 			return {
@@ -84,67 +94,143 @@ export class SessionTicketConsumer implements TicketConsumer {
 			throw error;
 		}
 	}
+}
 
-	private async resolveCredential(
-		userId: string,
-		credentialId: string | null
-	): Promise<Credential | null> {
-		if (!credentialId) return null;
+export class LiveSshAttachTicketConsumer {
+	constructor(
+		private readonly liveSessions: SshLiveSessionService = sshLiveSessionService,
+		private readonly hosts: HostService = hostService,
+		private readonly credentials: CredentialRepository = termixRepository,
+		private readonly crypto: CredentialCrypto = new AesGcmCredentialCrypto()
+	) {}
 
-		const credential = await this.credentials.getCredential(userId, credentialId);
-		if (!credential) return null;
-
-		return this.toProtocolCredential(userId, credential);
-	}
-
-	private toProtocolCredential(userId: string, credential: CredentialRecord): Credential {
-		const secret = this.crypto.decrypt(
-			{
-				ciphertext: credential.encryptedSecret,
-				metadata: credential.encryption
-			},
-			credentialSecretContext(userId, credential.id)
-		);
-		const username = credential.username ?? undefined;
-
-		if (credential.kind === 'ssh_key') {
-			const passphrase = this.decryptPassphrase(userId, credential);
+	async consume(ticket: string, userId: string): Promise<SshAttachTicket | null> {
+		try {
+			const consumed = await this.liveSessions.consumeAttachTicket(ticket, new Date(), userId);
+			const session = await this.liveSessions.get(consumed.userId, consumed.sshLiveSessionId);
+			const host = await this.hosts.get(consumed.userId, session.hostId);
+			const credential = await resolveCredential(
+				consumed.userId,
+				host.credentialId,
+				this.credentials,
+				this.crypto
+			);
 
 			return {
-				kind: 'ssh_key',
-				username,
-				privateKey: secret,
-				passphrase
-			};
-		}
-
-		return {
-			kind: 'password',
-			username,
-			password: secret
-		};
-	}
-
-	private decryptPassphrase(userId: string, credential: CredentialRecord): string | undefined {
-		const encrypted = credential.metadata.encryptedPassphrase;
-		if (isEncryptedMetadataSecret(encrypted)) {
-			return this.crypto.decrypt(
-				{
-					ciphertext: encrypted.ciphertext,
-					metadata: encrypted.encryption
+				ticketId: consumed.id,
+				userId: consumed.userId,
+				sshLiveSessionId: consumed.sshLiveSessionId,
+				session: {
+					ticketId: consumed.sshLiveSessionId,
+					userId: consumed.userId,
+					hostId: session.hostId,
+					protocol: 'ssh',
+					target: {
+						host: host.hostname,
+						port: host.port,
+						username: host.username ?? credential?.username,
+						credential: credential ?? undefined
+					},
+					metadata: {
+						...host.metadata,
+						...(host.credentialId ? { credentialId: host.credentialId } : {})
+					}
 				},
-				credentialPassphraseContext(userId, credential.id)
-			);
-		}
+				terminalCols: session.terminalCols,
+				terminalRows: session.terminalRows
+			};
+		} catch (error) {
+			if (
+				error instanceof ServiceNotFoundError ||
+				error instanceof TicketConsumedError ||
+				error instanceof TicketExpiredError ||
+				error instanceof TicketInvalidError
+			) {
+				return null;
+			}
 
-		return typeof credential.metadata.passphrase === 'string'
-			? credential.metadata.passphrase
-			: undefined;
+			if (error instanceof CredentialEncryptionError) {
+				throw error;
+			}
+
+			throw error;
+		}
 	}
 }
 
 export function createSessionTicketConsumer(): TicketConsumer {
 	return new SessionTicketConsumer();
+}
+
+export function createSshAttachTicketConsumer(): LiveSshAttachTicketConsumer {
+	return new LiveSshAttachTicketConsumer();
+}
+
+async function resolveCredential(
+	userId: string,
+	credentialId: string | null,
+	credentials: CredentialRepository,
+	crypto: CredentialCrypto
+): Promise<Credential | null> {
+	if (!credentialId) return null;
+
+	const credential = await credentials.getCredential(userId, credentialId);
+	if (!credential) return null;
+
+	return toProtocolCredential(userId, credential, crypto);
+}
+
+function toProtocolCredential(
+	userId: string,
+	credential: CredentialRecord,
+	crypto: CredentialCrypto
+): Credential {
+	const secret = crypto.decrypt(
+		{
+			ciphertext: credential.encryptedSecret,
+			metadata: credential.encryption
+		},
+		credentialSecretContext(userId, credential.id)
+	);
+	const username = credential.username ?? undefined;
+
+	if (credential.kind === 'ssh_key') {
+		const passphrase = decryptPassphrase(userId, credential, crypto);
+
+		return {
+			kind: 'ssh_key',
+			username,
+			privateKey: secret,
+			passphrase
+		};
+	}
+
+	return {
+		kind: 'password',
+		username,
+		password: secret
+	};
+}
+
+function decryptPassphrase(
+	userId: string,
+	credential: CredentialRecord,
+	crypto: CredentialCrypto
+): string | undefined {
+	const encrypted = credential.metadata.encryptedPassphrase;
+	if (isEncryptedMetadataSecret(encrypted)) {
+		return crypto.decrypt(
+			{
+				ciphertext: encrypted.ciphertext,
+				metadata: encrypted.encryption
+			},
+			credentialPassphraseContext(userId, credential.id)
+		);
+	}
+
+	return typeof credential.metadata.passphrase === 'string'
+		? credential.metadata.passphrase
+		: undefined;
 }
 
 function isEncryptedMetadataSecret(

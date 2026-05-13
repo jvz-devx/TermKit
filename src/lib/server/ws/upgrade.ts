@@ -1,7 +1,8 @@
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { getSessionFromToken, sessionCookieName } from '$lib/server/auth';
+import type { SshAttachTicket } from '$lib/server/ssh-live/types';
 import {
 	createRdpGatewayPlaceholderAdapter,
 	createSshAdapter,
@@ -17,11 +18,18 @@ import {
 	connectionSessionService,
 	type ConnectionSessionLifecycleRecorder
 } from '$lib/server/services/connection-sessions';
+import {
+	sshLiveSessionService,
+	type SshLiveSessionService
+} from '$lib/server/services/ssh-live-sessions';
 
 export type WebSocketUpgradeOptions = {
 	tickets?: TicketConsumer;
+	sshAttachTickets?: SshAttachTicketConsumer;
+	liveSshManager?: LiveSshManager;
 	adapters?: ProtocolAdapter[];
 	connectionSessions?: ConnectionSessionLifecycleRecorder;
+	liveSshSessions?: Pick<SshLiveSessionService, 'markAttached' | 'markDetached' | 'end' | 'fail'>;
 	allowedOrigins?: string[];
 	ignoredPaths?: RegExp[];
 	requireOrigin?: boolean;
@@ -37,14 +45,35 @@ export type WebSocketSessionAuthenticator = (
 	request: Pick<IncomingMessage, 'headers'>
 ) => Promise<AuthenticatedWebSocketSession | null>;
 
+export type SshAttachTicketConsumer = {
+	consume(ticket: string, userId: string): Promise<SshAttachTicket | null>;
+};
+
+export type LiveSshManager = {
+	handle(socket: WebSocket, attachTicket: SshAttachTicket): unknown | Promise<unknown>;
+	hasActiveAttachment?(sessionId: string): boolean;
+};
+
+export type { SshAttachTicket } from '$lib/server/ssh-live/types';
+
 const WS_PATH = /^\/ws\/(ssh|vnc|telnet|rdp)\/([^/]+)$/;
+const SSH_LIVE_PATH = /^\/ws\/ssh\/live\/([^/]+)$/;
+
+const rejectingSshAttachTicketConsumer: SshAttachTicketConsumer = {
+	async consume() {
+		return null;
+	}
+};
 
 export function installWebSocketUpgrades(
 	server: HttpServer,
 	{
 		tickets = rejectingTicketConsumer,
+		sshAttachTickets = rejectingSshAttachTicketConsumer,
+		liveSshManager,
 		adapters = defaultProtocolAdapters(),
 		connectionSessions = connectionSessionService,
+		liveSshSessions = sshLiveSessionService,
 		allowedOrigins,
 		ignoredPaths = [],
 		requireOrigin = false,
@@ -77,6 +106,34 @@ export function installWebSocketUpgrades(
 
 		if (!isValidAuthenticatedSession(authenticatedSession)) {
 			rejectUpgrade(socket, 401, 'Authentication required');
+			return;
+		}
+
+		if (route.live) {
+			if (!liveSshManager) {
+				rejectUpgrade(socket, 501, 'Live SSH manager unavailable');
+				return;
+			}
+
+			const attachTicket = await sshAttachTickets
+				.consume(route.ticket, authenticatedSession.userId)
+				.catch((error: unknown) => {
+					logSshAttachTicketUpgradeFailure(error);
+					return null;
+				});
+
+			if (
+				!isValidSshAttachTicket(attachTicket) ||
+				attachTicket.userId !== authenticatedSession.userId
+			) {
+				rejectUpgrade(socket, 401, 'Invalid or expired SSH attach ticket');
+				return;
+			}
+
+			webSockets.handleUpgrade(request, socket, head, (webSocket) => {
+				webSockets.emit('connection', webSocket, request);
+				void handleLiveSshConnection(webSocket, liveSshManager, attachTicket, liveSshSessions);
+			});
 			return;
 		}
 
@@ -139,8 +196,21 @@ export function defaultProtocolAdapters(): ProtocolAdapter[] {
 
 export function parseWebSocketRoute(
 	request: Pick<IncomingMessage, 'url'>
-): { protocol: Protocol; ticket: string } | null {
+):
+	| { protocol: Protocol; ticket: string; live?: false }
+	| { protocol: 'ssh'; ticket: string; live: true }
+	| null {
 	const url = new URL(request.url ?? '/', 'http://localhost');
+	const liveMatch = SSH_LIVE_PATH.exec(url.pathname);
+
+	if (liveMatch) {
+		return {
+			protocol: 'ssh',
+			ticket: decodeURIComponent(liveMatch[1]),
+			live: true
+		};
+	}
+
 	const match = WS_PATH.exec(url.pathname);
 
 	if (!match) {
@@ -282,6 +352,18 @@ function isValidConsumedTicketContext(
 	);
 }
 
+function isValidSshAttachTicket(ticket: SshAttachTicket | null): ticket is SshAttachTicket {
+	return (
+		ticket !== null &&
+		ticket.ticketId.length > 0 &&
+		ticket.userId.length > 0 &&
+		ticket.sshLiveSessionId.length > 0 &&
+		isValidConsumedTicketContext(ticket.session, 'ssh') &&
+		ticket.session.userId === ticket.userId &&
+		ticket.session.ticketId === ticket.sshLiveSessionId
+	);
+}
+
 function isString(value: string | null): value is string {
 	return typeof value === 'string';
 }
@@ -295,6 +377,12 @@ function logTicketUpgradeFailure(protocol: Protocol, error: unknown): void {
 
 function logSessionUpgradeFailure(error: unknown): void {
 	console.warn('WebSocket session authentication failed', {
+		error: diagnosticError(error)
+	});
+}
+
+function logSshAttachTicketUpgradeFailure(error: unknown): void {
+	console.warn('WebSocket SSH attach ticket upgrade failed', {
 		error: diagnosticError(error)
 	});
 }
@@ -381,6 +469,63 @@ async function handleTrackedConnection({
 			webSocket.close(1011, 'protocol adapter failed');
 		}
 	}
+}
+
+async function handleLiveSshConnection(
+	webSocket: WebSocket,
+	liveSshManager: LiveSshManager,
+	attachTicket: SshAttachTicket,
+	liveSshSessions: Pick<SshLiveSessionService, 'markAttached' | 'markDetached' | 'end' | 'fail'>
+): Promise<void> {
+	try {
+		await liveSshManager.handle(webSocket, attachTicket);
+		await liveSshSessions
+			.markAttached(attachTicket.userId, attachTicket.sshLiveSessionId, {
+				terminalCols: attachTicket.terminalCols,
+				terminalRows: attachTicket.terminalRows
+			})
+			.catch(() => undefined);
+		webSocket.once('close', (_code, reason) => {
+			const closeReason = reason.toString('utf8');
+			if (closeReason === 'ssh session reattached') return;
+			if (liveSshManager.hasActiveAttachment?.(attachTicket.sshLiveSessionId)) return;
+
+			void persistLiveSshSocketClose(liveSshSessions, attachTicket, closeReason);
+		});
+	} catch {
+		if (webSocket.readyState === webSocket.OPEN) {
+			webSocket.close(1011, 'live ssh manager failed');
+		}
+	}
+}
+
+async function persistLiveSshSocketClose(
+	liveSshSessions: Pick<SshLiveSessionService, 'markDetached' | 'end' | 'fail'>,
+	attachTicket: SshAttachTicket,
+	closeReason: string
+): Promise<void> {
+	if (closeReason === 'ssh shell closed') {
+		await liveSshSessions
+			.end(attachTicket.userId, attachTicket.sshLiveSessionId)
+			.catch(() => undefined);
+		return;
+	}
+
+	if (
+		closeReason === 'ssh shell failed' ||
+		closeReason === 'ssh connection failed' ||
+		closeReason === 'ssh host key not trusted' ||
+		closeReason === 'live ssh manager failed'
+	) {
+		await liveSshSessions
+			.fail(attachTicket.userId, attachTicket.sshLiveSessionId)
+			.catch(() => undefined);
+		return;
+	}
+
+	await liveSshSessions
+		.markDetached(attachTicket.userId, attachTicket.sshLiveSessionId)
+		.catch(() => undefined);
 }
 
 function isFailedCloseCode(code: number): boolean {
