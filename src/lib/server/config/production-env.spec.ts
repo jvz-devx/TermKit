@@ -221,6 +221,61 @@ describe('production environment validation', () => {
 				})
 			)
 		).toThrow('MICROSOFT_ADMIN_EMAILS must contain comma-separated email addresses');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_REDIRECT_URI: 'http://termix.example/auth/microsoft/callback'
+				})
+			)
+		).toThrow('MICROSOFT_REDIRECT_URI must use HTTPS outside local development');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_REDIRECT_URI: 'http://localhost/auth/microsoft/callback'
+				})
+			)
+		).toThrow('MICROSOFT_REDIRECT_URI must use HTTPS outside local development');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
+					MICROSOFT_REDIRECT_URI: 'http://localhost/auth/microsoft/callback'
+				})
+			)
+		).not.toThrow();
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_REDIRECT_URI: 'notaurl'
+				})
+			)
+		).toThrow('MICROSOFT_REDIRECT_URI must be an absolute URL');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_REDIRECT_URI: 'https://termix.example/auth/microsoft/callback#token'
+				})
+			)
+		).toThrow('MICROSOFT_REDIRECT_URI must not include a fragment');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_SCOPES: 'profile email'
+				})
+			)
+		).toThrow('MICROSOFT_SCOPES must include openid');
 	});
 });
 

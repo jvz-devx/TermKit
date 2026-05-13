@@ -38,6 +38,30 @@ export type TermixSourceRecord = {
 	snippetId?: string | number | null;
 	guacamoleConfig?: Record<string, unknown> | null;
 	serverStats?: unknown;
+	dashboard?: unknown;
+	dashboards?: unknown;
+	dashboardId?: string | number | null;
+	docker?: unknown;
+	dockerSettings?: unknown;
+	dockerIntegration?: unknown;
+	sshTunnel?: unknown;
+	sshTunnels?: unknown;
+	tunnel?: unknown;
+	tunnels?: unknown;
+	rbac?: unknown;
+	roles?: unknown;
+	permissions?: unknown;
+	sharing?: unknown;
+	sharedWith?: unknown;
+	audit?: unknown;
+	auditLog?: unknown;
+	auditLogs?: unknown;
+	ownerId?: string | number | null;
+	ownerEmail?: string | null;
+	sourceUserId?: string | number | null;
+	sourceUserEmail?: string | null;
+	createdByUserId?: string | number | null;
+	createdByEmail?: string | null;
 	raw?: Record<string, unknown>;
 };
 
@@ -164,6 +188,7 @@ export function mapTermixRecords(
 		}
 
 		collectUnsupportedWarnings(record, sourceId, warnings);
+		const metadata = collectHostMetadata(record);
 
 		hosts.push({
 			sourceId,
@@ -176,7 +201,7 @@ export function mapTermixRecords(
 			folder: record.folder?.trim() || undefined,
 			tags: normalizeTags(record.tags),
 			notes: record.notes?.trim() || undefined,
-			metadata: record.domain?.trim() ? { domain: record.domain.trim() } : {}
+			metadata
 		});
 	}
 
@@ -489,26 +514,122 @@ function collectUnsupportedWarnings(
 	warnings: ImportWarning[]
 ) {
 	if (record.guacamoleConfig && Object.keys(record.guacamoleConfig).length > 0) {
-		warnings.push({
-			sourceId,
-			code: 'unsupported_field',
-			message: 'Guacamole-specific configuration was ignored.'
-		});
+		addUnsupportedWarning(warnings, sourceId, 'Guacamole-specific configuration was ignored.');
 	}
 
 	if (record.snippetId !== null && record.snippetId !== undefined) {
-		warnings.push({
-			sourceId,
-			code: 'unsupported_field',
-			message: 'Snippet reference was ignored.'
-		});
+		addUnsupportedWarning(warnings, sourceId, 'Snippet reference was ignored.');
 	}
 
 	if (record.serverStats !== null && record.serverStats !== undefined) {
-		warnings.push({
-			sourceId,
-			code: 'unsupported_field',
-			message: 'Server statistics were ignored.'
-		});
+		addUnsupportedWarning(warnings, sourceId, 'Server statistics were ignored.');
 	}
+
+	if (hasAnySourceValue(record, ['dashboard', 'dashboards', 'dashboardId', 'dashboard_id'])) {
+		addUnsupportedWarning(warnings, sourceId, 'Dashboard data was ignored.');
+	}
+
+	if (
+		hasAnySourceValue(record, [
+			'docker',
+			'dockerSettings',
+			'docker_settings',
+			'dockerIntegration',
+			'docker_integration'
+		])
+	) {
+		addUnsupportedWarning(warnings, sourceId, 'Docker integration settings were ignored.');
+	}
+
+	if (
+		hasAnySourceValue(record, [
+			'sshTunnel',
+			'ssh_tunnel',
+			'sshTunnels',
+			'ssh_tunnels',
+			'tunnel',
+			'tunnels'
+		])
+	) {
+		addUnsupportedWarning(warnings, sourceId, 'SSH tunnel settings were ignored.');
+	}
+
+	if (hasAnySourceValue(record, ['rbac', 'roles', 'permissions'])) {
+		addUnsupportedWarning(warnings, sourceId, 'RBAC records were ignored.');
+	}
+
+	if (hasAnySourceValue(record, ['sharing', 'sharedWith', 'shared_with'])) {
+		addUnsupportedWarning(warnings, sourceId, 'Sharing records were ignored.');
+	}
+
+	if (hasAnySourceValue(record, ['audit', 'auditLog', 'audit_log', 'auditLogs', 'audit_logs'])) {
+		addUnsupportedWarning(warnings, sourceId, 'Audit records were ignored.');
+	}
+}
+
+function collectHostMetadata(record: TermixSourceRecord): Record<string, string> {
+	const metadata: Record<string, string> = {};
+	const domain = firstPresent(record.domain);
+	if (domain) metadata.domain = domain;
+
+	const sourceUserId = firstPresentUnknown(
+		record.sourceUserId,
+		record.ownerId,
+		record.createdByUserId,
+		record.raw?.source_user_id,
+		record.raw?.sourceUserId,
+		record.raw?.owner_id,
+		record.raw?.ownerId,
+		record.raw?.created_by_user_id,
+		record.raw?.createdByUserId
+	);
+	if (sourceUserId) metadata.sourceUserId = sourceUserId;
+
+	const sourceUserEmail = firstPresent(
+		record.sourceUserEmail,
+		record.ownerEmail,
+		record.createdByEmail,
+		stringFromUnknown(record.raw?.source_user_email),
+		stringFromUnknown(record.raw?.sourceUserEmail),
+		stringFromUnknown(record.raw?.owner_email),
+		stringFromUnknown(record.raw?.ownerEmail),
+		stringFromUnknown(record.raw?.created_by_email),
+		stringFromUnknown(record.raw?.createdByEmail)
+	);
+	if (sourceUserEmail) metadata.sourceUserEmail = sourceUserEmail;
+
+	return metadata;
+}
+
+function addUnsupportedWarning(warnings: ImportWarning[], sourceId: string, message: string) {
+	warnings.push({
+		sourceId,
+		code: 'unsupported_field',
+		message
+	});
+}
+
+function hasAnySourceValue(record: TermixSourceRecord, keys: string[]): boolean {
+	return keys.some((key) =>
+		hasSourceValue(record[key as keyof TermixSourceRecord] ?? record.raw?.[key])
+	);
+}
+
+function hasSourceValue(value: unknown): boolean {
+	if (value === null || value === undefined) return false;
+	if (typeof value === 'string') return value.trim().length > 0;
+	if (typeof value === 'boolean') return value;
+	if (Array.isArray(value)) return value.length > 0;
+	if (isRecord(value)) return Object.keys(value).length > 0;
+	return true;
+}
+
+function firstPresentUnknown(...values: unknown[]) {
+	return values.map(stringFromUnknown).find((value) => value && value.length > 0);
+}
+
+function stringFromUnknown(value: unknown): string | undefined {
+	if (typeof value === 'string') return value.trim() || undefined;
+	if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+	return undefined;
 }

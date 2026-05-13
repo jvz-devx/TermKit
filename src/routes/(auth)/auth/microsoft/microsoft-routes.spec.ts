@@ -131,22 +131,29 @@ function mockProvisionTransaction(
 	return { insertValues, updateValues };
 }
 
-function createSignedIdToken(input: { nonce: string; email?: string; domain?: string }) {
+function createSignedIdToken(input: {
+	nonce: string;
+	email?: string | null;
+	preferredUsername?: string;
+	domain?: string;
+}) {
 	const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 	const kid = 'test-key';
 	const header = { alg: 'RS256', kid, typ: 'JWT' };
-	const email = input.email ?? `admin@${input.domain ?? 'example.com'}`;
-	const payload = {
+	const email = input.email === undefined ? `admin@${input.domain ?? 'example.com'}` : input.email;
+	const preferredUsername =
+		input.preferredUsername ?? email ?? `admin@${input.domain ?? 'example.com'}`;
+	const payload: Record<string, unknown> = {
 		aud: clientId,
-		email,
 		exp: Math.floor(Date.now() / 1000) + 300,
 		iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
 		name: 'Admin User',
 		nonce: input.nonce,
-		preferred_username: email,
+		preferred_username: preferredUsername,
 		sub: 'subject-1',
 		tid: tenantId
 	};
+	if (email) payload.email = email;
 	const encodedHeader = encodeJwtPart(header);
 	const encodedPayload = encodeJwtPart(payload);
 	const signature = createSign('RSA-SHA256')
@@ -342,6 +349,98 @@ describe('Microsoft auth routes', () => {
 				})
 			])
 		);
+	});
+
+	it('uses preferred_username when Microsoft does not return an email claim', async () => {
+		expect.assertions(4);
+		const nonce = 'expected-nonce';
+		const { idToken, jwk } = createSignedIdToken({
+			nonce,
+			email: null,
+			preferredUsername: 'admin@example.com'
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValueOnce({
+					ok: true,
+					json: async () => ({
+						access_token: 'access-token',
+						expires_in: 3600,
+						id_token: idToken,
+						token_type: 'Bearer'
+					})
+				})
+				.mockResolvedValueOnce({
+					ok: true,
+					json: async () => ({ keys: [jwk] })
+				})
+		);
+		mockNoExistingIdentity();
+		const transaction = mockProvisionTransaction();
+		const { GET } = await import('./callback/+server');
+		const event = createEvent(
+			'/auth/microsoft/callback?code=code-1&state=expected-state',
+			createCookies({
+				termixkit_microsoft_oauth_state: 'expected-state',
+				termixkit_microsoft_oauth_nonce: nonce,
+				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			})
+		);
+
+		await expect(GET(event as never)).rejects.toMatchObject({ status: 303, location: '/hosts' });
+		expect(db.transaction).toHaveBeenCalledOnce();
+		expect(transaction.insertValues).toContainEqual(
+			expect.objectContaining({ username: 'admin@example.com', isAdmin: true })
+		);
+		expect(transaction.insertValues).toContainEqual(
+			expect.objectContaining({ email: 'admin@example.com' })
+		);
+	});
+
+	it('rejects preferred_username domain fallback when an email claim uses another domain', async () => {
+		expect.assertions(2);
+		const nonce = 'expected-nonce';
+		const { idToken, jwk } = createSignedIdToken({
+			nonce,
+			email: 'blocked@blocked.test',
+			preferredUsername: 'user@example.com'
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValueOnce({
+					ok: true,
+					json: async () => ({
+						access_token: 'access-token',
+						expires_in: 3600,
+						id_token: idToken,
+						token_type: 'Bearer'
+					})
+				})
+				.mockResolvedValueOnce({
+					ok: true,
+					json: async () => ({ keys: [jwk] })
+				})
+		);
+		mockNoExistingIdentity();
+		const { GET } = await import('./callback/+server');
+		const event = createEvent(
+			'/auth/microsoft/callback?code=code-1&state=expected-state',
+			createCookies({
+				termixkit_microsoft_oauth_state: 'expected-state',
+				termixkit_microsoft_oauth_nonce: nonce,
+				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			})
+		);
+
+		await expect(GET(event as never)).rejects.toMatchObject({
+			status: 403,
+			body: { message: 'Microsoft account domain is not allowed' }
+		});
+		expect(db.transaction).not.toHaveBeenCalled();
 	});
 
 	it('rejects Microsoft users outside the configured allowed domains', async () => {

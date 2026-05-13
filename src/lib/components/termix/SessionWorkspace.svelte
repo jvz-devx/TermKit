@@ -78,6 +78,7 @@
 	let liveSshBusy = $state(false);
 	let liveSshError = $state<string | null>(null);
 	let dismissedLiveSshSessionIds = $state<string[]>([]);
+	let workspaceElement = $state<HTMLElement | null>(null);
 	let hosts = $derived(hostsQuery.current ?? []);
 	let liveSshSessions = $derived.by(() =>
 		(liveSshSessionsQuery.current ?? []).filter(
@@ -166,6 +167,21 @@
 		pausedSessionKey = key;
 		if (activeProtocol === 'ssh') liveSshAttach = null;
 		reconnectNonce += 1;
+	}
+
+	async function toggleFullscreen() {
+		if (!browser || !workspaceElement) return;
+
+		try {
+			if (document.fullscreenElement) {
+				await document.exitFullscreen();
+				return;
+			}
+
+			await workspaceElement.requestFullscreen();
+		} catch {
+			// Fullscreen can be denied by browser policy; keep the workspace usable.
+		}
 	}
 
 	function setLauncherProtocol(protocol: LauncherProtocolFilter) {
@@ -376,7 +392,7 @@
 	}
 </script>
 
-<section class="flex h-[calc(100vh-3rem)] min-h-[640px] flex-col">
+<section bind:this={workspaceElement} class="flex h-[calc(100vh-3rem)] min-h-[640px] flex-col">
 	<div class="flex items-center justify-between border-b px-4 py-2">
 		<div>
 			<h1 class="text-sm font-semibold">{selectedHost?.name ?? 'Sessions'}</h1>
@@ -407,7 +423,13 @@
 			>
 				<RotateCcw class="size-4" />
 			</Button>
-			<Button size="icon" variant="ghost" aria-label="Fullscreen">
+			<Button
+				size="icon"
+				variant="ghost"
+				aria-label="Fullscreen"
+				disabled={!browser}
+				onclick={toggleFullscreen}
+			>
 				<Maximize2 class="size-4" />
 			</Button>
 			<Button

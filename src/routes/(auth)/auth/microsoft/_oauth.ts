@@ -104,13 +104,10 @@ export async function completeMicrosoftCallback(event: RequestEvent): Promise<ne
 
 	const tokenResponse = await exchangeCodeForTokens(config, code, pkceVerifier);
 	const claims = await verifyMicrosoftIdToken(tokenResponse.idToken, config, expectedNonce);
-	const email = identityEmail(claims);
+	const email = identityEmail(claims, config.allowedDomains);
 	if (!email) error(400, 'Microsoft account did not provide an email address');
 
 	const normalizedEmail = email.toLowerCase();
-	const domain = normalizedEmail.split('@')[1] ?? '';
-	if (!config.allowedDomains.includes(domain))
-		error(403, 'Microsoft account domain is not allowed');
 	const isAdmin = config.adminEmails.includes(normalizedEmail);
 	if (!isAdmin && !(await hasAnyUser())) {
 		error(403, 'The first Microsoft sign-in must be a configured admin email');
@@ -332,8 +329,24 @@ function clearOAuthCookie(
 	});
 }
 
-function identityEmail(claims: OidcIdTokenClaims): string | null {
-	return claims.email ?? claims.preferred_username ?? null;
+function identityEmail(claims: OidcIdTokenClaims, allowedDomains: string[]): string | null {
+	const candidates = uniqueStrings([claims.email ? claims.email : claims.preferred_username]).map(
+		(candidate) => candidate.toLowerCase()
+	);
+
+	if (candidates.length === 0) return null;
+
+	const allowedCandidate = candidates.find((candidate) => {
+		const domain = candidate.split('@')[1] ?? '';
+		return allowedDomains.includes(domain);
+	});
+	if (allowedCandidate) return allowedCandidate;
+
+	error(403, 'Microsoft account domain is not allowed');
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+	return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
 }
 
 function requiredClaim(value: string | undefined, name: string): string {

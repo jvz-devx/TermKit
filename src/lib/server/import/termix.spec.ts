@@ -122,6 +122,60 @@ describe('mapTermixRecords', () => {
 		]);
 	});
 
+	it('preserves source user metadata and warns for unsupported V1 source data', () => {
+		const result = mapTermixRecords([
+			{
+				id: 'owned',
+				protocol: 'ssh',
+				hostname: 'owned.example.test',
+				ownerId: 42,
+				ownerEmail: 'owner@example.test',
+				docker: false,
+				rbac: { role: 'admin' },
+				raw: {
+					dashboard_id: 'dashboard-1',
+					docker_settings: { socket: '/var/run/docker.sock' },
+					ssh_tunnels: [{ localPort: 15432 }],
+					shared_with: ['team-1'],
+					audit_logs: [{ action: 'created' }]
+				}
+			}
+		]);
+
+		expect(result.hosts[0]?.metadata).toEqual({
+			sourceUserId: '42',
+			sourceUserEmail: 'owner@example.test'
+		});
+		expect(result.warnings.map((warning) => warning.message)).toEqual([
+			'Dashboard data was ignored.',
+			'Docker integration settings were ignored.',
+			'SSH tunnel settings were ignored.',
+			'RBAC records were ignored.',
+			'Sharing records were ignored.',
+			'Audit records were ignored.'
+		]);
+	});
+
+	it('does not warn for disabled unsupported source data flags', () => {
+		const result = mapTermixRecords([
+			{
+				id: 'disabled-unsupported',
+				protocol: 'ssh',
+				hostname: 'plain.example.test',
+				docker: false,
+				sharing: false,
+				rbac: false,
+				raw: {
+					ssh_tunnel: false,
+					audit_logs: []
+				}
+			}
+		]);
+
+		expect(result.hosts).toHaveLength(1);
+		expect(result.warnings).toHaveLength(0);
+	});
+
 	it('decrypts supported Termix field-crypto password fields with a source secret', () => {
 		const encryptedPassword = encryptTermixField({
 			plaintext: 'decrypted-password',

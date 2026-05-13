@@ -131,7 +131,9 @@ describe('ImportService', () => {
 						protocol: 'rdp',
 						hostname: 'windows.example.test',
 						username: 'admin',
-						domain: 'ACME'
+						domain: 'ACME',
+						sourceUserId: 'source-user-1',
+						sourceUserEmail: 'owner@example.test'
 					}
 				]
 			})
@@ -140,7 +142,11 @@ describe('ImportService', () => {
 		const [host] = await repository.listHosts('user-1');
 
 		expect(result.job.status).toBe('completed');
-		expect(host?.metadata).toEqual({ domain: 'ACME' });
+		expect(host?.metadata).toEqual({
+			domain: 'ACME',
+			sourceUserId: 'source-user-1',
+			sourceUserEmail: 'owner@example.test'
+		});
 	});
 
 	it('uses sourceSecret during import so decryptable source credentials are stored', async () => {

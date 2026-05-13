@@ -187,6 +187,11 @@ function validateMicrosoftAuth(env) {
 	validateMicrosoftClientSecret(env.MICROSOFT_CLIENT_SECRET);
 	validateMicrosoftAllowedDomains(env.MICROSOFT_ALLOWED_DOMAINS);
 	validateMicrosoftAdminEmails(env.MICROSOFT_ADMIN_EMAILS);
+	validateMicrosoftRedirectUri(
+		env.MICROSOFT_REDIRECT_URI,
+		isEnabled(env.TERMIXKIT_INSECURE_LOCAL_HTTP)
+	);
+	validateMicrosoftScopes(env.MICROSOFT_SCOPES);
 }
 
 /**
@@ -263,6 +268,46 @@ function validateMicrosoftAdminEmails(value) {
 		if (!isEmailAddress(email)) {
 			throw new Error('MICROSOFT_ADMIN_EMAILS must contain comma-separated email addresses.');
 		}
+	}
+}
+
+/**
+ * @param {string | undefined} value
+ * @param {boolean} allowInsecureLocalHttp
+ */
+function validateMicrosoftRedirectUri(value, allowInsecureLocalHttp) {
+	if (!value?.trim()) return;
+
+	let url;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error('MICROSOFT_REDIRECT_URI must be an absolute URL.');
+	}
+
+	const isLocalHttp =
+		url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+	if (url.protocol !== 'https:' && (!isLocalHttp || !allowInsecureLocalHttp)) {
+		throw new Error('MICROSOFT_REDIRECT_URI must use HTTPS outside local development.');
+	}
+
+	if (url.hash) {
+		throw new Error('MICROSOFT_REDIRECT_URI must not include a fragment.');
+	}
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function validateMicrosoftScopes(value) {
+	if (!value?.trim()) return;
+
+	const scopes = value
+		.split(/[,\s]+/)
+		.map((scope) => scope.trim())
+		.filter(Boolean);
+	if (!scopes.includes('openid')) {
+		throw new Error('MICROSOFT_SCOPES must include openid.');
 	}
 }
 

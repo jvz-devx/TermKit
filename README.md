@@ -160,7 +160,7 @@ Importer uploads are capped at 10 MiB. SFTP uploads are capped at 50 MiB, and th
 
 Supported uploads are JSON arrays, JSON objects with `records`, `connections`, or `hosts` arrays, and SQLite `.sqlite`, `.sqlite3`, or `.db` files with supported Termix host tables. Supported target protocols are SSH, RDP, VNC, and Telnet; SFTP is normalized to SSH. Plaintext passwords, SSH keys, `ip` host aliases, reusable SQLite `ssh_credentials` records, host `credential_id` links, and supported Termix AES-256-GCM/HKDF encrypted password/key fields can be imported. Encrypted source fields require a `sourceSecret` multipart field; missing secrets, unsupported encrypted formats, and failed decrypts are recorded as warnings.
 
-Imported protocol metadata is preserved on host records. RDP `domain` values are carried through session tickets into the Devolutions Gateway bootstrap so Windows domain imports do not get dropped between import and launch.
+Imported protocol metadata is preserved on host records. RDP `domain` values are carried through session tickets into the Devolutions Gateway bootstrap so Windows domain imports do not get dropped between import and launch. Source owner hints such as owner/source user IDs and emails are retained as host metadata while V1 imports records into the current signed-in user.
 
 RDP saved password credentials are resolved during the authenticated remote launch, staged only in the browser tab for the IronRDP connect call, and cleared by the RDP pane after the connect attempt is built. The Devolutions Gateway provisioning request receives only destination/session metadata and never receives the saved target password.
 
@@ -169,7 +169,7 @@ Current limitations are intentional and visible in validation results:
 - SQLite parsing is intentionally bounded to supported Termix host and credential tables. Corrupt files, unsupported SQLite page shapes, and unsupported tables are rejected or surfaced as validation warnings instead of being guessed.
 - Import jobs are persisted through the Drizzle-backed `import_jobs` repository.
 - Imported hosts and credentials are persisted through the current Drizzle-backed service repository.
-- Guacamole-only settings, snippets, server statistics, unsupported protocols, and unsupported encrypted credential formats are surfaced as warnings rather than imported as first-class records.
+- Guacamole-only settings, snippets, dashboards, server statistics, Docker integration settings, SSH tunnels, RBAC, sharing, audit records, unsupported protocols, and unsupported encrypted credential formats are surfaced as warnings rather than imported as first-class records.
 
 ## Verification
 
