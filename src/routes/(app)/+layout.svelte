@@ -1,8 +1,9 @@
 <script lang="ts">
 	import AppShell from '$lib/components/termix/AppShell.svelte';
-	import HostTable from '$lib/components/termix/HostTable.svelte';
+
+	let { children } = $props();
 </script>
 
 <AppShell>
-	<HostTable />
+	{@render children()}
 </AppShell>
