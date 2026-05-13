@@ -59,7 +59,6 @@ npm run db:push
 
 ```sh
 POSTGRES_PASSWORD=dev-password \
-BETTER_AUTH_SECRET=dev-better-auth-secret \
 APP_SECRET=dev-app-secret \
 CREDENTIAL_MASTER_KEY=dev-credential-master-key \
 GATEWAY_PROVISIONER_KEY=dev-gateway-key \
@@ -71,8 +70,7 @@ docker compose config
 Do not commit real values for any secret.
 
 - `DATABASE_URL`: Postgres connection string used by the app and Drizzle.
-- `ORIGIN`: public app origin, for example `http://localhost:3000`.
-- `BETTER_AUTH_SECRET`: Better Auth signing secret.
+- `ORIGIN`: public app origin, for example `http://localhost:3000`; use the external `https://` origin in production behind a TLS-terminating reverse proxy so session cookies are marked secure.
 - `APP_SECRET`: app-level cookie/session signing secret reserved by the V1 spec.
 - `CREDENTIAL_MASTER_KEY`: high-entropy key used to derive credential encryption material.
 - `GATEWAY_URL`: internal Devolutions Gateway URL, defaulting to `http://gateway:7171` in Compose.
@@ -97,10 +95,6 @@ Current limitations are intentional and visible in validation results:
 - Imported hosts and credentials follow the current service layer, which is still in-memory in this worker branch.
 - The source decrypt secret field is reserved; encrypted Termix source credentials are still skipped.
 
-## Better Auth Demo Cleanup
-
-TermixKit now uses local auth/session primitives. The old Better Auth demo pages under `src/routes/demo/better-auth` are obsolete, but they still import `better-auth/api`; the Better Auth package and `auth:schema` script are retained until those demo routes are removed in a worker that owns `src/routes/demo/**`.
-
 ## Verification
 
 Run the importer tests:
@@ -120,6 +114,18 @@ Run static checks:
 ```sh
 nix develop -c npm run check
 nix develop -c npm run lint
+```
+
+Build the SvelteKit app and custom production server:
+
+```sh
+nix develop -c npm run build
+```
+
+Smoke-test the production WebSocket upgrade entrypoint:
+
+```sh
+nix develop -c npm run smoke:ws
 ```
 
 Build the app image:

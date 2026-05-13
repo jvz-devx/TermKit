@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
-import { eq, and, gt, count } from 'drizzle-orm';
+import { eq, and, gt, count, sql } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { sessions, users } from '$lib/server/db/schema';
 import { hashPassword, verifyPassword } from './password';
@@ -52,6 +52,44 @@ function sessionCookieOptions(secure: boolean) {
 	};
 }
 
+function configuredOrigin(): URL | null {
+	const origin = process.env.ORIGIN;
+
+	if (!origin) {
+		return null;
+	}
+
+	try {
+		return new URL(origin);
+	} catch {
+		return null;
+	}
+}
+
+function forwardedProto(headers: Headers): string | null {
+	return headers.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase() ?? null;
+}
+
+export function shouldUseSecureSessionCookie(
+	event: Pick<RequestEvent, 'request' | 'url'>
+): boolean {
+	if (event.url.protocol === 'https:') {
+		return true;
+	}
+
+	if (process.env.NODE_ENV !== 'production') {
+		return false;
+	}
+
+	const origin = configuredOrigin();
+
+	if (origin) {
+		return origin.protocol === 'https:';
+	}
+
+	return forwardedProto(event.request.headers) === 'https';
+}
+
 export function setSessionCookie(cookies: Cookies, token: string, secure: boolean): void {
 	cookies.set(sessionCookieName, token, sessionCookieOptions(secure));
 }
@@ -75,30 +113,38 @@ export async function createFirstRunAdmin(input: {
 	username: string;
 	password: string;
 }): Promise<AuthUser> {
-	if (await hasAnyUser()) {
-		throw new AuthError('Initial admin already exists');
-	}
+	const passwordHash = await hashPassword(input.password);
 
-	const [user] = await db
-		.insert(users)
-		.values({
-			username: input.username,
-			passwordHash: await hashPassword(input.password),
-			isAdmin: true
-		})
-		.returning({
-			id: users.id,
-			username: users.username,
-			isAdmin: users.isAdmin,
-			createdAt: users.createdAt,
-			updatedAt: users.updatedAt
-		});
+	return db.transaction(async (tx) => {
+		await tx.execute(sql`select pg_advisory_xact_lock(hashtext('termixkit:first-run-admin'))`);
 
-	if (!user) {
-		throw new AuthError('Could not create initial admin');
-	}
+		const [existingUserCount] = await tx.select({ value: count() }).from(users);
 
-	return user;
+		if (Number(existingUserCount?.value ?? 0) > 0) {
+			throw new AuthError('Initial admin already exists');
+		}
+
+		const [user] = await tx
+			.insert(users)
+			.values({
+				username: input.username,
+				passwordHash,
+				isAdmin: true
+			})
+			.returning({
+				id: users.id,
+				username: users.username,
+				isAdmin: users.isAdmin,
+				createdAt: users.createdAt,
+				updatedAt: users.updatedAt
+			});
+
+		if (!user) {
+			throw new AuthError('Could not create initial admin');
+		}
+
+		return user;
+	});
 }
 
 export async function authenticateUser(input: {
@@ -199,7 +245,7 @@ export async function loginWithPassword(
 	}
 
 	const { token, session } = await createSessionForUser(user.id, event);
-	setSessionCookie(event.cookies, token, event.url.protocol === 'https:');
+	setSessionCookie(event.cookies, token, shouldUseSecureSessionCookie(event));
 
 	return { user, session };
 }
@@ -211,5 +257,5 @@ export async function logout(event: RequestEvent): Promise<void> {
 		await revokeSessionToken(token);
 	}
 
-	clearSessionCookie(event.cookies, event.url.protocol === 'https:');
+	clearSessionCookie(event.cookies, shouldUseSecureSessionCookie(event));
 }

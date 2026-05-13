@@ -6,15 +6,21 @@ import {
 	createSshAdapter,
 	createTelnetAdapter,
 	createVncAdapter,
+	type ConsumedTicket,
 	rejectingTicketConsumer,
 	type Protocol,
 	type ProtocolAdapter,
 	type TicketConsumer
 } from '$lib/server/protocols';
+import {
+	connectionSessionService,
+	type ConnectionSessionLifecycleRecorder
+} from '$lib/server/services/connection-sessions';
 
 export type WebSocketUpgradeOptions = {
 	tickets?: TicketConsumer;
 	adapters?: ProtocolAdapter[];
+	connectionSessions?: ConnectionSessionLifecycleRecorder;
 };
 
 const WS_PATH = /^\/ws\/(ssh|vnc|telnet|rdp)\/([^/]+)$/;
@@ -23,7 +29,8 @@ export function installWebSocketUpgrades(
 	server: HttpServer,
 	{
 		tickets = rejectingTicketConsumer,
-		adapters = defaultProtocolAdapters()
+		adapters = defaultProtocolAdapters(),
+		connectionSessions = connectionSessionService
 	}: WebSocketUpgradeOptions = {}
 ): void {
 	const webSockets = new WebSocketServer({ noServer: true });
@@ -50,9 +57,23 @@ export function installWebSocketUpgrades(
 			return;
 		}
 
+		const connectionSession = await connectionSessions
+			.start({
+				userId: consumedTicket.userId,
+				hostId: consumedTicket.hostId,
+				protocol: consumedTicket.protocol
+			})
+			.catch(() => null);
+
 		webSockets.handleUpgrade(request, socket, head, (webSocket) => {
 			webSockets.emit('connection', webSocket, request);
-			void adapter.handle(webSocket, consumedTicket);
+			void handleTrackedConnection({
+				connectionSessions,
+				connectionSessionId: connectionSession?.id ?? null,
+				webSocket,
+				adapter,
+				ticket: consumedTicket
+			});
 		});
 	});
 }
@@ -89,4 +110,74 @@ function rejectUpgrade(socket: Duplex, status: number, message: string): void {
 		)}\r\n\r\n${message}`
 	);
 	socket.destroy();
+}
+
+type TrackedConnectionInput = {
+	connectionSessions: ConnectionSessionLifecycleRecorder;
+	connectionSessionId: string | null;
+	webSocket: Parameters<ProtocolAdapter['handle']>[0];
+	adapter: ProtocolAdapter;
+	ticket: ConsumedTicket;
+};
+
+async function handleTrackedConnection({
+	connectionSessions,
+	connectionSessionId,
+	webSocket,
+	adapter,
+	ticket
+}: TrackedConnectionInput): Promise<void> {
+	let finalized = false;
+	let lifecycleQueue: Promise<unknown> = Promise.resolve();
+
+	const enqueueLifecycle = (work: () => Promise<unknown>) => {
+		lifecycleQueue = lifecycleQueue.then(work).catch(() => undefined);
+		return lifecycleQueue;
+	};
+
+	const finalize = (status: 'ended' | 'failed', errorCode?: string) => {
+		if (!connectionSessionId || finalized) return;
+
+		finalized = true;
+		void enqueueLifecycle(() =>
+			status === 'failed'
+				? connectionSessions.fail(connectionSessionId, errorCode ?? 'connection_failed')
+				: connectionSessions.end(connectionSessionId)
+		);
+	};
+
+	webSocket.once('error', () => finalize('failed', 'websocket_error'));
+	webSocket.once('close', (code) => {
+		if (isFailedCloseCode(code)) {
+			finalize('failed', `websocket_close_${code}`);
+			return;
+		}
+
+		finalize('ended');
+	});
+
+	if (connectionSessionId) {
+		void enqueueLifecycle(() => connectionSessions.markActive(connectionSessionId));
+	}
+
+	try {
+		await adapter.handle(webSocket, ticket);
+	} catch (error) {
+		finalize('failed', adapterErrorCode(error));
+		if (webSocket.readyState === webSocket.OPEN) {
+			webSocket.close(1011, 'protocol adapter failed');
+		}
+	}
+}
+
+function isFailedCloseCode(code: number): boolean {
+	return code !== 1000 && code !== 1001;
+}
+
+function adapterErrorCode(error: unknown): string {
+	if (error instanceof Error && error.name && error.name !== 'Error') {
+		return `adapter_${error.name.toLowerCase()}`;
+	}
+
+	return 'adapter_error';
 }

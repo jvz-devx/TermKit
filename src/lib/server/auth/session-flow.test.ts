@@ -94,23 +94,6 @@ describe('auth session routing', () => {
 		expect(resolve).not.toHaveBeenCalled();
 	});
 
-	it('redirects broken Better Auth demo pages to local login', async () => {
-		expect.assertions(2);
-		vi.resetModules();
-		getSessionFromEvent.mockResolvedValue(null);
-		hasAnyUser.mockResolvedValue(true);
-		const handle = await loadHandle();
-		const resolve = vi.fn(() => new Response('ok'));
-
-		await expect(
-			handle({ event: createEvent('/demo/better-auth/login') as never, resolve })
-		).rejects.toMatchObject({
-			status: 302,
-			location: '/login'
-		});
-		expect(resolve).not.toHaveBeenCalled();
-	});
-
 	it('attaches authenticated session locals and resolves app pages', async () => {
 		expect.assertions(3);
 		vi.resetModules();

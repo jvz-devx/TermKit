@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { CredentialEncryptionContext } from '$lib/server/crypto/credentials';
 import { AesGcmCredentialCrypto } from './crypto';
 import { ServiceNotFoundError, ServiceValidationError } from './errors';
 import { termixRepository } from './repository';
@@ -10,6 +11,20 @@ import type {
 } from './types';
 import { credentialKinds } from './types';
 
+const encryptedPassphraseMetadataKey = 'encryptedPassphrase';
+const sensitiveMetadataKeys = new Set([
+	encryptedPassphraseMetadataKey.toLowerCase(),
+	'passphrase',
+	'password',
+	'secret',
+	'token',
+	'apikey',
+	'accesstoken',
+	'refreshtoken',
+	'privatekey',
+	'private_key'
+]);
+
 export interface CredentialInput {
 	name?: unknown;
 	kind?: unknown;
@@ -18,38 +33,39 @@ export interface CredentialInput {
 	metadata?: unknown;
 }
 
+export type PublicCredentialRecord = Omit<CredentialRecord, 'encryptedSecret' | 'encryption'>;
+
 export class CredentialService {
 	constructor(
 		private readonly repository: CredentialRepository = termixRepository,
 		private readonly crypto: CredentialCrypto = new AesGcmCredentialCrypto()
 	) {}
 
-	async list(userId: string): Promise<Array<Omit<CredentialRecord, 'encryptedSecret'>>> {
+	async list(userId: string): Promise<PublicCredentialRecord[]> {
 		return (await this.repository.listCredentials(userId)).map(redactCredential);
 	}
 
-	async get(userId: string, id: string): Promise<Omit<CredentialRecord, 'encryptedSecret'>> {
+	async get(userId: string, id: string): Promise<PublicCredentialRecord> {
 		const credential = await this.repository.getCredential(userId, id);
 		if (!credential) throw new ServiceNotFoundError('Credential not found');
 		return redactCredential(credential);
 	}
 
-	async create(
-		userId: string,
-		input: CredentialInput
-	): Promise<Omit<CredentialRecord, 'encryptedSecret'>> {
+	async create(userId: string, input: CredentialInput): Promise<PublicCredentialRecord> {
 		const now = new Date();
 		const validated = validateCredentialInput(input, true);
-		const encrypted = this.crypto.encrypt(validated.secret!);
+		const id = randomUUID();
+		const encrypted = this.crypto.encrypt(validated.secret!, credentialSecretContext(userId, id));
+		const metadata = this.protectMetadata(userId, id, validated.metadata);
 		const credential = await this.repository.createCredential({
-			id: randomUUID(),
+			id,
 			userId,
 			name: validated.name!,
 			kind: validated.kind!,
 			username: validated.username,
 			encryptedSecret: encrypted.ciphertext,
 			encryption: encrypted.metadata,
-			metadata: validated.metadata,
+			metadata,
 			createdAt: now,
 			updatedAt: now
 		});
@@ -61,16 +77,21 @@ export class CredentialService {
 		userId: string,
 		id: string,
 		input: CredentialInput
-	): Promise<Omit<CredentialRecord, 'encryptedSecret'>> {
+	): Promise<PublicCredentialRecord> {
 		const current = await this.repository.getCredential(userId, id);
 		if (!current) throw new ServiceNotFoundError('Credential not found');
 
 		const validated = validateCredentialInput({ ...current, ...input }, false);
+		const metadata =
+			'metadata' in input ? this.protectMetadata(userId, id, validated.metadata) : current.metadata;
 		const secretPatch =
 			validated.secret === undefined
 				? {}
 				: (() => {
-						const encrypted = this.crypto.encrypt(validated.secret);
+						const encrypted = this.crypto.encrypt(
+							validated.secret,
+							credentialSecretContext(userId, id)
+						);
 						return { encryptedSecret: encrypted.ciphertext, encryption: encrypted.metadata };
 					})();
 
@@ -78,7 +99,7 @@ export class CredentialService {
 			name: validated.name!,
 			kind: validated.kind!,
 			username: validated.username,
-			metadata: validated.metadata,
+			metadata,
 			...secretPatch,
 			updatedAt: new Date()
 		});
@@ -90,6 +111,28 @@ export class CredentialService {
 	async delete(userId: string, id: string): Promise<void> {
 		const deleted = await this.repository.deleteCredential(userId, id);
 		if (!deleted) throw new ServiceNotFoundError('Credential not found');
+	}
+
+	private protectMetadata(
+		userId: string,
+		credentialId: string,
+		metadata: Record<string, unknown>
+	): Record<string, unknown> {
+		const protectedMetadata = stripSensitiveMetadata(metadata);
+		const passphrase = typeof metadata.passphrase === 'string' ? metadata.passphrase : null;
+
+		if (passphrase) {
+			const encrypted = this.crypto.encrypt(
+				passphrase,
+				credentialPassphraseContext(userId, credentialId)
+			);
+			protectedMetadata[encryptedPassphraseMetadataKey] = {
+				ciphertext: encrypted.ciphertext,
+				encryption: encrypted.metadata
+			};
+		}
+
+		return protectedMetadata;
 	}
 }
 
@@ -125,9 +168,36 @@ function validateCredentialInput(
 	};
 }
 
-function redactCredential(credential: CredentialRecord): Omit<CredentialRecord, 'encryptedSecret'> {
-	const { encryptedSecret: _encryptedSecret, ...redacted } = credential;
-	return redacted;
+function redactCredential(credential: CredentialRecord): PublicCredentialRecord {
+	const {
+		encryptedSecret: _encryptedSecret,
+		encryption: _encryption,
+		metadata,
+		...redacted
+	} = credential;
+	return {
+		...redacted,
+		metadata: stripSensitiveMetadata(metadata)
+	};
+}
+
+function stripSensitiveMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(metadata).flatMap(([key, value]) => {
+			if (sensitiveMetadataKeys.has(normalizeMetadataKey(key))) return [];
+			return [[key, stripSensitiveMetadataValue(value)]];
+		})
+	);
+}
+
+function stripSensitiveMetadataValue(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(stripSensitiveMetadataValue);
+	if (isRecord(value)) return stripSensitiveMetadata(value);
+	return value;
+}
+
+function normalizeMetadataKey(key: string): string {
+	return key.replace(/[-_\s]/g, '').toLowerCase();
 }
 
 function asTrimmedString(value: unknown): string | null {
@@ -139,3 +209,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export const credentialService = new CredentialService();
+
+export function credentialSecretContext(
+	userId: string,
+	credentialId: string
+): CredentialEncryptionContext {
+	return {
+		userId,
+		credentialId,
+		field: 'secret'
+	};
+}
+
+export function credentialPassphraseContext(
+	userId: string,
+	credentialId: string
+): CredentialEncryptionContext {
+	return {
+		userId,
+		credentialId,
+		field: 'metadata.passphrase'
+	};
+}

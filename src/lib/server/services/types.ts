@@ -1,8 +1,13 @@
+import type { CredentialEncryptionContext } from '$lib/server/crypto/credentials';
+
 export const protocols = ['ssh', 'rdp', 'vnc', 'telnet'] as const;
 export type HostProtocol = (typeof protocols)[number];
 
 export const credentialKinds = ['password', 'ssh_key'] as const;
 export type CredentialKind = (typeof credentialKinds)[number];
+
+export const connectionSessionStatuses = ['starting', 'active', 'ended', 'failed'] as const;
+export type ConnectionSessionStatus = (typeof connectionSessionStatuses)[number];
 
 export interface HostRecord {
 	id: string;
@@ -45,12 +50,32 @@ export interface SessionTicketRecord {
 	createdAt: Date;
 }
 
+export interface ConnectionSessionRecord {
+	id: string;
+	userId: string;
+	hostId: string | null;
+	protocol: HostProtocol;
+	status: ConnectionSessionStatus;
+	startedAt: Date;
+	endedAt: Date | null;
+	errorCode: string | null;
+	updatedAt: Date;
+}
+
+export type ConnectionSessionPatch = Partial<
+	Pick<ConnectionSessionRecord, 'status' | 'endedAt' | 'errorCode' | 'updatedAt'>
+>;
+
 export interface EncryptionMetadata {
 	algorithm: 'aes-256-gcm';
 	keyVersion: number;
 	iv: string;
 	authTag: string;
 	salt: string;
+	associatedData?: {
+		version: 1;
+		field: string;
+	};
 }
 
 export interface SecretCiphertext {
@@ -59,8 +84,8 @@ export interface SecretCiphertext {
 }
 
 export interface CredentialCrypto {
-	encrypt(plaintext: string): SecretCiphertext;
-	decrypt(secret: SecretCiphertext): string;
+	encrypt(plaintext: string, context?: CredentialEncryptionContext): SecretCiphertext;
+	decrypt(secret: SecretCiphertext, context?: CredentialEncryptionContext): string;
 }
 
 export interface HostRepository {
@@ -89,5 +114,17 @@ export interface SessionTicketRepository {
 	consumeTicket(ticketHash: string, usedAt: Date): Promise<SessionTicketRecord | null>;
 }
 
+export interface ConnectionSessionRepository {
+	createConnectionSession(session: ConnectionSessionRecord): Promise<ConnectionSessionRecord>;
+	updateConnectionSession(
+		id: string,
+		patch: ConnectionSessionPatch
+	): Promise<ConnectionSessionRecord | null>;
+}
+
 export interface TermixServicesRepository
-	extends HostRepository, CredentialRepository, SessionTicketRepository {}
+	extends
+		HostRepository,
+		CredentialRepository,
+		SessionTicketRepository,
+		ConnectionSessionRepository {}

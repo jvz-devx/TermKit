@@ -7,7 +7,12 @@ describe('AesGcmCredentialCrypto', () => {
 		expect.assertions(3);
 
 		const crypto = new AesGcmCredentialCrypto('test-master-key');
-		const encrypted = crypto.encrypt('secret-password');
+		const context = {
+			userId: 'user-1',
+			credentialId: 'credential-1',
+			field: 'secret'
+		};
+		const encrypted = crypto.encrypt('secret-password', context);
 
 		expect(encrypted.metadata).toMatchObject({
 			algorithm: 'aes-256-gcm',
@@ -15,8 +20,8 @@ describe('AesGcmCredentialCrypto', () => {
 			authTag: expect.any(String),
 			salt: expect.any(String)
 		});
-		expect(crypto.decrypt(encrypted)).toBe('secret-password');
-		expect(decryptCredentialSecret(encrypted, { masterKey: 'test-master-key' })).toBe(
+		expect(crypto.decrypt(encrypted, context)).toBe('secret-password');
+		expect(decryptCredentialSecret(encrypted, { masterKey: 'test-master-key', context })).toBe(
 			'secret-password'
 		);
 	});

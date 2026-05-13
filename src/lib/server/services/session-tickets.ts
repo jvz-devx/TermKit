@@ -10,8 +10,10 @@ import {
 import { hostService, type HostService } from './hosts';
 import { termixRepository } from './repository';
 import type {
+	CredentialRecord,
 	CredentialRepository,
 	HostProtocol,
+	HostRecord,
 	SessionTicketRecord,
 	SessionTicketRepository
 } from './types';
@@ -29,6 +31,24 @@ export interface CreateSessionTicketInput {
 export interface CreatedSessionTicket {
 	ticket: string;
 	record: SessionTicketRecord;
+}
+
+export interface SessionTicketTargetSnapshot {
+	version: 1;
+	host: {
+		id: string;
+		protocol: HostProtocol;
+		hostname: string;
+		port: number;
+		username: string | null;
+		credentialId: string | null;
+	};
+	credential: {
+		id: string;
+		kind: CredentialRecord['kind'];
+		username: string | null;
+		fingerprint: string;
+	} | null;
 }
 
 export class SessionTicketService {
@@ -67,8 +87,9 @@ export class SessionTicketService {
 		if (protocol !== host.protocol) {
 			throw new ServiceValidationError(['protocol must match the selected host']);
 		}
+		let credential: CredentialRecord | null = null;
 		if (host.credentialId) {
-			const credential = await this.credentials.getCredential(userId, host.credentialId);
+			credential = await this.credentials.getCredential(userId, host.credentialId);
 			if (!credential) {
 				throw new ServiceValidationError([
 					'host credential must reference an existing credential owned by the user'
@@ -84,7 +105,7 @@ export class SessionTicketService {
 			userId,
 			hostId: host.id,
 			protocol: protocol as HostProtocol,
-			target: `${host.protocol}:${host.hostname}:${host.port}`,
+			target: serializeSessionTicketTargetSnapshot(createTargetSnapshot(host, credential)),
 			expiresAt: new Date(now.getTime() + ttlMs),
 			usedAt: null,
 			createdAt: now
@@ -108,6 +129,7 @@ export class SessionTicketService {
 		if (protocol && existing.protocol !== protocol) throw new TicketInvalidError();
 		if (existing.usedAt) throw new TicketConsumedError();
 		if (existing.expiresAt.getTime() <= now.getTime()) throw new TicketExpiredError();
+		await this.assertTargetUnchanged(existing);
 
 		const consumed = await this.repository.consumeTicket(ticketHash, now);
 		if (!consumed) throw new TicketConsumedError();
@@ -115,6 +137,143 @@ export class SessionTicketService {
 
 		return consumed;
 	}
+
+	private async assertTargetUnchanged(record: SessionTicketRecord): Promise<void> {
+		const snapshot = parseSessionTicketTargetSnapshot(record);
+		let host: HostRecord;
+
+		try {
+			host = await this.hosts.get(record.userId, record.hostId);
+		} catch (error) {
+			if (error instanceof ServiceNotFoundError) throw new TicketInvalidError();
+			throw error;
+		}
+
+		if (
+			host.id !== snapshot.host.id ||
+			host.protocol !== snapshot.host.protocol ||
+			host.hostname !== snapshot.host.hostname ||
+			host.port !== snapshot.host.port ||
+			host.username !== snapshot.host.username ||
+			host.credentialId !== snapshot.host.credentialId
+		) {
+			throw new TicketInvalidError();
+		}
+
+		if (!snapshot.credential) return;
+
+		const credential = await this.credentials.getCredential(record.userId, snapshot.credential.id);
+		if (
+			!credential ||
+			credential.id !== snapshot.credential.id ||
+			credential.kind !== snapshot.credential.kind ||
+			credential.username !== snapshot.credential.username ||
+			credentialFingerprint(credential) !== snapshot.credential.fingerprint
+		) {
+			throw new TicketInvalidError();
+		}
+	}
 }
 
 export const sessionTicketService = new SessionTicketService();
+
+export function parseSessionTicketTargetSnapshot(
+	record: SessionTicketRecord
+): SessionTicketTargetSnapshot {
+	if (!record.target) throw new TicketInvalidError();
+
+	try {
+		const parsed = JSON.parse(record.target) as unknown;
+		if (!isSessionTicketTargetSnapshot(parsed)) throw new TicketInvalidError();
+		return parsed;
+	} catch (error) {
+		if (error instanceof TicketInvalidError) throw error;
+		throw new TicketInvalidError();
+	}
+}
+
+function createTargetSnapshot(
+	host: HostRecord,
+	credential: CredentialRecord | null
+): SessionTicketTargetSnapshot {
+	return {
+		version: 1,
+		host: {
+			id: host.id,
+			protocol: host.protocol,
+			hostname: host.hostname,
+			port: host.port,
+			username: host.username,
+			credentialId: host.credentialId
+		},
+		credential: credential
+			? {
+					id: credential.id,
+					kind: credential.kind,
+					username: credential.username,
+					fingerprint: credentialFingerprint(credential)
+				}
+			: null
+	};
+}
+
+function serializeSessionTicketTargetSnapshot(snapshot: SessionTicketTargetSnapshot): string {
+	return JSON.stringify(snapshot);
+}
+
+function credentialFingerprint(credential: CredentialRecord): string {
+	return hashToken(
+		stableStringify({
+			id: credential.id,
+			userId: credential.userId,
+			kind: credential.kind,
+			username: credential.username,
+			encryptedSecret: credential.encryptedSecret,
+			encryption: credential.encryption,
+			metadata: credential.metadata
+		})
+	);
+}
+
+function stableStringify(value: unknown): string {
+	if (value === null || typeof value !== 'object') return JSON.stringify(value);
+	if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+
+	return `{${Object.entries(value as Record<string, unknown>)
+		.sort(([left], [right]) => left.localeCompare(right))
+		.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+		.join(',')}}`;
+}
+
+function isSessionTicketTargetSnapshot(value: unknown): value is SessionTicketTargetSnapshot {
+	if (!isRecord(value)) return false;
+	if (value.version !== 1 || !isRecord(value.host)) return false;
+
+	const host = value.host;
+	if (
+		typeof host.id !== 'string' ||
+		!protocols.includes(host.protocol as HostProtocol) ||
+		typeof host.hostname !== 'string' ||
+		typeof host.port !== 'number' ||
+		!Number.isSafeInteger(host.port) ||
+		!(typeof host.username === 'string' || host.username === null) ||
+		!(typeof host.credentialId === 'string' || host.credentialId === null)
+	) {
+		return false;
+	}
+
+	if (value.credential === null) return true;
+	if (!isRecord(value.credential)) return false;
+
+	const credential = value.credential;
+	return (
+		typeof credential.id === 'string' &&
+		(credential.kind === 'password' || credential.kind === 'ssh_key') &&
+		(typeof credential.username === 'string' || credential.username === null) &&
+		typeof credential.fingerprint === 'string'
+	);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}

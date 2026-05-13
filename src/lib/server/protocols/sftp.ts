@@ -1,5 +1,11 @@
 import posixPath from 'node:path/posix';
-import { Client, type ConnectConfig, type FileEntryWithStats, type SFTPWrapper } from 'ssh2';
+import {
+	Client,
+	type ConnectConfig,
+	type FileEntryWithStats,
+	type SFTPWrapper,
+	type Stats
+} from 'ssh2';
 import { ServiceNotFoundError, ServiceValidationError } from '$lib/server/services/errors';
 import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
 import { termixRepository } from '$lib/server/services/repository';
@@ -93,6 +99,47 @@ export async function writeSftpFile(target: SftpTarget, path: string, data: Buff
 	return withSftp(target, (sftp) => writeFile(sftp, remotePath, data));
 }
 
+export async function readSftpTextFile(target: SftpTarget, path: string): Promise<string> {
+	const data = await readSftpFile(target, path);
+	return data.toString('utf8');
+}
+
+export async function writeSftpTextFile(
+	target: SftpTarget,
+	path: string,
+	text: string
+): Promise<void> {
+	if (typeof text !== 'string') throw new ServiceValidationError(['text is required']);
+	await writeSftpFile(target, path, Buffer.from(text, 'utf8'));
+}
+
+export async function createSftpDirectory(target: SftpTarget, path: string): Promise<void> {
+	const remotePath = validateSftpPath(path);
+	return withSftp(target, (sftp) => mkdir(sftp, remotePath));
+}
+
+export async function renameSftpPath(
+	target: SftpTarget,
+	fromPath: string,
+	toPath: string
+): Promise<void> {
+	const from = validateSftpPath(fromPath, 'from');
+	const to = validateSftpPath(toPath, 'to');
+	if (from === to) throw new ServiceValidationError(['from and to must differ']);
+	return withSftp(target, (sftp) => rename(sftp, from, to));
+}
+
+export async function deleteSftpPath(target: SftpTarget, path: string): Promise<void> {
+	const remotePath = validateSftpPath(path);
+	if (remotePath === '/') throw new ServiceValidationError(['path cannot be the filesystem root']);
+
+	return withSftp(target, async (sftp) => {
+		const attrs = await stat(sftp, remotePath);
+		if (attrs.isDirectory()) await rmdir(sftp, remotePath);
+		else await unlink(sftp, remotePath);
+	});
+}
+
 async function withSftp<T>(
 	target: SftpTarget,
 	operation: (sftp: SFTPWrapper) => Promise<T>
@@ -169,6 +216,51 @@ function writeFile(sftp: SFTPWrapper, path: string, data: Buffer): Promise<void>
 		sftp.writeFile(path, data, (error) => {
 			if (error) reject(error);
 			else resolve();
+		});
+	});
+}
+
+function mkdir(sftp: SFTPWrapper, path: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		sftp.mkdir(path, (error) => {
+			if (error) reject(error);
+			else resolve();
+		});
+	});
+}
+
+function rename(sftp: SFTPWrapper, from: string, to: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		sftp.rename(from, to, (error) => {
+			if (error) reject(error);
+			else resolve();
+		});
+	});
+}
+
+function unlink(sftp: SFTPWrapper, path: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		sftp.unlink(path, (error) => {
+			if (error) reject(error);
+			else resolve();
+		});
+	});
+}
+
+function rmdir(sftp: SFTPWrapper, path: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		sftp.rmdir(path, (error) => {
+			if (error) reject(error);
+			else resolve();
+		});
+	});
+}
+
+function stat(sftp: SFTPWrapper, path: string): Promise<Stats> {
+	return new Promise((resolve, reject) => {
+		sftp.stat(path, (error, attrs) => {
+			if (error) reject(error);
+			else resolve(attrs);
 		});
 	});
 }

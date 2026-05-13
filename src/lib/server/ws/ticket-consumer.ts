@@ -1,12 +1,18 @@
 import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
 import {
+	credentialPassphraseContext,
+	credentialSecretContext
+} from '$lib/server/services/credentials';
+import {
 	ServiceNotFoundError,
 	TicketConsumedError,
-	TicketExpiredError
+	TicketExpiredError,
+	TicketInvalidError
 } from '$lib/server/services/errors';
 import { hostService, type HostService } from '$lib/server/services/hosts';
 import { termixRepository } from '$lib/server/services/repository';
 import {
+	parseSessionTicketTargetSnapshot,
 	sessionTicketService,
 	type SessionTicketService
 } from '$lib/server/services/session-tickets';
@@ -34,8 +40,9 @@ export class SessionTicketConsumer implements TicketConsumer {
 				undefined,
 				protocol as HostProtocol
 			);
-			const host = await this.hosts.get(record.userId, record.hostId);
-			const credential = await this.resolveCredential(record.userId, host.credentialId);
+			const snapshot = parseSessionTicketTargetSnapshot(record);
+			await this.hosts.get(record.userId, record.hostId);
+			const credential = await this.resolveCredential(record.userId, snapshot.host.credentialId);
 
 			return {
 				ticketId: record.id,
@@ -43,18 +50,21 @@ export class SessionTicketConsumer implements TicketConsumer {
 				hostId: record.hostId,
 				protocol: record.protocol,
 				target: {
-					host: host.hostname,
-					port: host.port,
-					username: host.username ?? credential?.username,
+					host: snapshot.host.hostname,
+					port: snapshot.host.port,
+					username: snapshot.host.username ?? credential?.username,
 					credential: credential ?? undefined
 				},
-				metadata: host.credentialId ? { credentialId: host.credentialId } : undefined
+				metadata: snapshot.host.credentialId
+					? { credentialId: snapshot.host.credentialId }
+					: undefined
 			};
 		} catch (error) {
 			if (
 				error instanceof ServiceNotFoundError ||
 				error instanceof TicketConsumedError ||
-				error instanceof TicketExpiredError
+				error instanceof TicketExpiredError ||
+				error instanceof TicketInvalidError
 			) {
 				return null;
 			}
@@ -72,21 +82,21 @@ export class SessionTicketConsumer implements TicketConsumer {
 		const credential = await this.credentials.getCredential(userId, credentialId);
 		if (!credential) return null;
 
-		return this.toProtocolCredential(credential);
+		return this.toProtocolCredential(userId, credential);
 	}
 
-	private toProtocolCredential(credential: CredentialRecord): Credential {
-		const secret = this.crypto.decrypt({
-			ciphertext: credential.encryptedSecret,
-			metadata: credential.encryption
-		});
+	private toProtocolCredential(userId: string, credential: CredentialRecord): Credential {
+		const secret = this.crypto.decrypt(
+			{
+				ciphertext: credential.encryptedSecret,
+				metadata: credential.encryption
+			},
+			credentialSecretContext(userId, credential.id)
+		);
 		const username = credential.username ?? undefined;
 
 		if (credential.kind === 'ssh_key') {
-			const passphrase =
-				typeof credential.metadata.passphrase === 'string'
-					? credential.metadata.passphrase
-					: undefined;
+			const passphrase = this.decryptPassphrase(userId, credential);
 
 			return {
 				kind: 'ssh_key',
@@ -102,8 +112,49 @@ export class SessionTicketConsumer implements TicketConsumer {
 			password: secret
 		};
 	}
+
+	private decryptPassphrase(userId: string, credential: CredentialRecord): string | undefined {
+		const encrypted = credential.metadata.encryptedPassphrase;
+		if (isEncryptedMetadataSecret(encrypted)) {
+			return this.crypto.decrypt(
+				{
+					ciphertext: encrypted.ciphertext,
+					metadata: encrypted.encryption
+				},
+				credentialPassphraseContext(userId, credential.id)
+			);
+		}
+
+		return typeof credential.metadata.passphrase === 'string'
+			? credential.metadata.passphrase
+			: undefined;
+	}
 }
 
 export function createSessionTicketConsumer(): TicketConsumer {
 	return new SessionTicketConsumer();
+}
+
+function isEncryptedMetadataSecret(
+	value: unknown
+): value is { ciphertext: string; encryption: CredentialRecord['encryption'] } {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		!Array.isArray(value) &&
+		typeof (value as { ciphertext?: unknown }).ciphertext === 'string' &&
+		isEncryptionMetadata((value as { encryption?: unknown }).encryption)
+	);
+}
+
+function isEncryptionMetadata(value: unknown): value is CredentialRecord['encryption'] {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+	const metadata = value as Partial<CredentialRecord['encryption']>;
+	return (
+		metadata.algorithm === 'aes-256-gcm' &&
+		typeof metadata.keyVersion === 'number' &&
+		typeof metadata.iv === 'string' &&
+		typeof metadata.authTag === 'string' &&
+		typeof metadata.salt === 'string'
+	);
 }

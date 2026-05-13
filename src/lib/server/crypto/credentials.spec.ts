@@ -23,6 +23,31 @@ describe('credential encryption', () => {
 		);
 	});
 
+	it('binds ciphertext to credential owner and record context', () => {
+		expect.assertions(3);
+
+		const context = {
+			userId: 'user-1',
+			credentialId: 'credential-1',
+			field: 'secret'
+		};
+		const encrypted = encryptCredentialSecret('secret-password', {
+			masterKey: 'test-master-key',
+			context
+		});
+
+		expect(encrypted.metadata.associatedData).toEqual({ version: 1, field: 'secret' });
+		expect(decryptCredentialSecret(encrypted, { masterKey: 'test-master-key', context })).toBe(
+			'secret-password'
+		);
+		expect(() =>
+			decryptCredentialSecret(encrypted, {
+				masterKey: 'test-master-key',
+				context: { ...context, credentialId: 'credential-2' }
+			})
+		).toThrow();
+	});
+
 	it('rejects tampered ciphertext', () => {
 		expect.assertions(1);
 

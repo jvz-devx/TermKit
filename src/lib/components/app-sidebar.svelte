@@ -9,6 +9,7 @@
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import SquareTerminalIcon from '@lucide/svelte/icons/square-terminal';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
+	import { listHosts, type HostSummary } from '$lib/termix.remote';
 
 	const data = {
 		user: {
@@ -63,34 +64,26 @@
 				items: [{ title: 'Application', url: '/settings' }]
 			}
 		],
-		projects: [
-			{
-				name: 'edge-01',
-				url: '/sessions?host=edge-01',
-				icon: TerminalIcon
-			},
-			{
-				name: 'win-admin',
-				url: '/sessions?host=win-admin',
-				icon: MonitorIcon
-			},
-			{
-				name: 'nas-console',
-				url: '/sessions?host=nas-console',
-				icon: NetworkIcon
-			},
-			{
-				name: 'switch-a',
-				url: '/sessions?host=switch-a',
-				icon: KeyRoundIcon
-			},
-			{
-				name: 'Import Termix',
-				url: '/import',
-				icon: FolderSyncIcon
-			}
-		]
+		projects: [{ name: 'Import Termix', url: '/import', icon: FolderSyncIcon }]
 	};
+
+	const protocolIcons = {
+		ssh: TerminalIcon,
+		rdp: MonitorIcon,
+		vnc: NetworkIcon,
+		telnet: KeyRoundIcon
+	};
+
+	function hostProjects(hosts: HostSummary[]) {
+		return [
+			...hosts.slice(0, 6).map((host) => ({
+				name: host.name,
+				url: `/sessions?host=${encodeURIComponent(host.id)}&tab=${host.protocol}`,
+				icon: protocolIcons[host.protocol]
+			})),
+			...data.projects
+		];
+	}
 </script>
 
 <script lang="ts">
@@ -106,6 +99,9 @@
 		collapsible = 'icon',
 		...restProps
 	}: ComponentProps<typeof Sidebar.Root> = $props();
+
+	const hostsQuery = listHosts();
+	let projects = $derived(hostProjects(hostsQuery.current ?? []));
 </script>
 
 <Sidebar.Root bind:ref {collapsible} {...restProps}>
@@ -114,7 +110,7 @@
 	</Sidebar.Header>
 	<Sidebar.Content>
 		<NavMain items={data.navMain} />
-		<NavProjects projects={data.projects} />
+		<NavProjects {projects} />
 	</Sidebar.Content>
 	<Sidebar.Footer>
 		<NavUser user={data.user} />

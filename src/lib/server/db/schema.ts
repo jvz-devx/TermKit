@@ -121,7 +121,8 @@ export const connectionSessions = pgTable(
 		status: connectionSessionStatus('status').notNull().default('starting'),
 		startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
 		endedAt: timestamp('ended_at', { withTimezone: true }),
-		errorCode: text('error_code')
+		errorCode: text('error_code'),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(table) => [
 		index('connection_sessions_user_id_idx').on(table.userId),
@@ -158,22 +159,74 @@ export const settings = pgTable('settings', {
 	...timestamps
 });
 
-export const importJobs = pgTable('import_jobs', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	status: text('status').notNull().default('pending'),
-	source: text('source'),
-	startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
-	finishedAt: timestamp('finished_at', { withTimezone: true }),
-	importedCount: integer('imported_count').notNull().default(0),
-	skippedCount: integer('skipped_count').notNull().default(0),
-	warnings: jsonb('warnings').$type<string[]>().notNull().default([]),
-	failures: jsonb('failures').$type<string[]>().notNull().default([])
-});
+export const importJobs = pgTable(
+	'import_jobs',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		mode: text('mode', { enum: ['validate', 'import'] }).notNull(),
+		status: text('status', {
+			enum: [
+				'pending',
+				'validating',
+				'validated',
+				'importing',
+				'completed',
+				'completed_with_errors',
+				'failed'
+			]
+		})
+			.notNull()
+			.default('pending'),
+		sourceName: text('source_name').notNull(),
+		sourceKind: text('source_kind', { enum: ['json', 'sqlite', 'unknown'] })
+			.notNull()
+			.default('unknown'),
+		summary: jsonb('summary')
+			.$type<{
+				totalRecords: number;
+				validHosts: number;
+				validCredentials: number;
+				importedHosts: number;
+				importedCredentials: number;
+				skippedRecords: number;
+				warnings: number;
+				failures: number;
+			}>()
+			.notNull()
+			.default({
+				totalRecords: 0,
+				validHosts: 0,
+				validCredentials: 0,
+				importedHosts: 0,
+				importedCredentials: 0,
+				skippedRecords: 0,
+				warnings: 0,
+				failures: 0
+			}),
+		warnings: jsonb('warnings')
+			.$type<Array<{ sourceId: string; code: string; message: string }>>()
+			.notNull()
+			.default([]),
+		failures: jsonb('failures').$type<string[]>().notNull().default([]),
+		startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+		finishedAt: timestamp('finished_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(table) => [
+		index('import_jobs_user_id_idx').on(table.userId),
+		index('import_jobs_status_idx').on(table.status)
+	]
+);
 
 export const usersRelations = relations(users, ({ many }) => ({
 	sessions: many(sessions),
 	hosts: many(hosts),
-	credentials: many(credentials)
+	credentials: many(credentials),
+	importJobs: many(importJobs)
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -200,4 +253,8 @@ export const connectionSessionsRelations = relations(connectionSessions, ({ one 
 export const sessionTicketsRelations = relations(sessionTickets, ({ one }) => ({
 	user: one(users, { fields: [sessionTickets.userId], references: [users.id] }),
 	host: one(hosts, { fields: [sessionTickets.hostId], references: [hosts.id] })
+}));
+
+export const importJobsRelations = relations(importJobs, ({ one }) => ({
+	user: one(users, { fields: [importJobs.userId], references: [users.id] })
 }));

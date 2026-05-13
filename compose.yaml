@@ -10,7 +10,6 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-termixkit}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-termixkit}
       ORIGIN: ${ORIGIN:-http://localhost:3000}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:?set CREDENTIAL_MASTER_KEY in .env}
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:7171}

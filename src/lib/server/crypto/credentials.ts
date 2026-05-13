@@ -3,6 +3,13 @@ import { env } from '$env/dynamic/private';
 
 const algorithm = 'aes-256-gcm';
 const info = 'termixkit:credential-encryption:v1';
+const associatedDataInfo = 'termixkit:credential-encryption:aad:v1';
+
+export type CredentialEncryptionContext = {
+	userId: string;
+	credentialId: string;
+	field: string;
+};
 
 export type CredentialEncryptionMetadata = {
 	algorithm: typeof algorithm;
@@ -10,6 +17,10 @@ export type CredentialEncryptionMetadata = {
 	iv: string;
 	authTag: string;
 	salt: string;
+	associatedData?: {
+		version: 1;
+		field: string;
+	};
 };
 
 export type EncryptedCredential = {
@@ -49,12 +60,17 @@ function deriveKey(masterKey: Buffer, salt: Buffer): Buffer {
 
 export function encryptCredentialSecret(
 	plaintext: string,
-	options: { masterKey?: string; keyVersion?: number } = {}
+	options: { masterKey?: string; keyVersion?: number; context?: CredentialEncryptionContext } = {}
 ): EncryptedCredential {
 	const salt = randomBytes(16);
 	const iv = randomBytes(12);
 	const key = deriveKey(getMasterKey(options.masterKey), salt);
 	const cipher = createCipheriv(algorithm, key, iv);
+
+	if (options.context) {
+		cipher.setAAD(credentialAssociatedData(options.context));
+	}
+
 	const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
 
 	return {
@@ -64,17 +80,35 @@ export function encryptCredentialSecret(
 			keyVersion: options.keyVersion ?? getCredentialKeyVersion(),
 			iv: iv.toString('base64url'),
 			authTag: cipher.getAuthTag().toString('base64url'),
-			salt: salt.toString('base64url')
+			salt: salt.toString('base64url'),
+			associatedData: options.context
+				? {
+						version: 1,
+						field: options.context.field
+					}
+				: undefined
 		}
 	};
 }
 
 export function decryptCredentialSecret(
 	encrypted: EncryptedCredential,
-	options: { masterKey?: string } = {}
+	options: { masterKey?: string; context?: CredentialEncryptionContext } = {}
 ): string {
 	if (encrypted.metadata.algorithm !== algorithm) {
 		throw new CredentialEncryptionError('Unsupported credential encryption algorithm');
+	}
+
+	if (encrypted.metadata.associatedData && !options.context) {
+		throw new CredentialEncryptionError('Credential encryption context is required');
+	}
+
+	if (
+		encrypted.metadata.associatedData &&
+		options.context &&
+		encrypted.metadata.associatedData.field !== options.context.field
+	) {
+		throw new CredentialEncryptionError('Credential encryption context does not match metadata');
 	}
 
 	const salt = Buffer.from(encrypted.metadata.salt, 'base64url');
@@ -83,10 +117,26 @@ export function decryptCredentialSecret(
 	const key = deriveKey(getMasterKey(options.masterKey), salt);
 	const decipher = createDecipheriv(algorithm, key, iv);
 
+	if (encrypted.metadata.associatedData && options.context) {
+		decipher.setAAD(credentialAssociatedData(options.context));
+	}
+
 	decipher.setAuthTag(authTag);
 
 	return Buffer.concat([
 		decipher.update(Buffer.from(encrypted.ciphertext, 'base64url')),
 		decipher.final()
 	]).toString('utf8');
+}
+
+function credentialAssociatedData(context: CredentialEncryptionContext): Buffer {
+	return Buffer.from(
+		JSON.stringify({
+			info: associatedDataInfo,
+			userId: context.userId,
+			credentialId: context.credentialId,
+			field: context.field
+		}),
+		'utf8'
+	);
 }

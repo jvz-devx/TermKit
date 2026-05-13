@@ -18,10 +18,6 @@ function isSvelteKitPath(pathname: string): boolean {
 	return pathname.startsWith('/_app');
 }
 
-function isBetterAuthDemoPath(pathname: string): boolean {
-	return pathname === '/demo/better-auth' || pathname.startsWith('/demo/better-auth/');
-}
-
 export const handle: Handle = async ({ event, resolve }) => {
 	const session = await getSessionFromEvent(event);
 
@@ -40,10 +36,6 @@ export const handle: Handle = async ({ event, resolve }) => {
 		!event.url.pathname.startsWith('/favicon')
 	) {
 		throw redirect(302, firstRunPath);
-	}
-
-	if (isBetterAuthDemoPath(event.url.pathname)) {
-		throw redirect(302, event.locals.user ? '/hosts' : '/login');
 	}
 
 	if (!event.locals.user && !isPublicPath(event.url.pathname)) {

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { HostService } from '../hosts';
 import { InMemoryTermixServicesRepository } from '../repository';
-import { SessionTicketService } from '../session-tickets';
+import { parseSessionTicketTargetSnapshot, SessionTicketService } from '../session-tickets';
 import { TicketConsumedError, TicketExpiredError, TicketInvalidError } from '../errors';
 
 describe('SessionTicketService', () => {
 	it('creates short-lived tickets and consumes them once', async () => {
-		expect.assertions(5);
+		expect.assertions(6);
 
 		const repository = new InMemoryTermixServicesRepository();
 		const hosts = new HostService(repository);
@@ -40,8 +40,18 @@ describe('SessionTicketService', () => {
 		expect(consumed).toMatchObject({
 			userId: 'user-1',
 			hostId: host.id,
-			protocol: 'ssh',
-			target: 'ssh:shell.example.test:22'
+			protocol: 'ssh'
+		});
+		expect(parseSessionTicketTargetSnapshot(consumed)).toMatchObject({
+			version: 1,
+			host: {
+				id: host.id,
+				protocol: 'ssh',
+				hostname: 'shell.example.test',
+				port: 22,
+				credentialId: null
+			},
+			credential: null
 		});
 	});
 
@@ -132,4 +142,82 @@ describe('SessionTicketService', () => {
 			protocol: 'ssh'
 		});
 	});
+
+	it('rejects tickets when the host target changed before consumption', async () => {
+		expect.assertions(2);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const tickets = new SessionTicketService(repository, hosts, repository);
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const created = await tickets.create('user-1', {
+			hostId: host.id,
+			protocol: 'ssh'
+		});
+
+		await hosts.update('user-1', host.id, { hostname: 'changed.example.test' });
+
+		await expect(tickets.consume(created.ticket)).rejects.toBeInstanceOf(TicketInvalidError);
+		await expect(
+			tickets.consume(created.ticket, new Date(), undefined, 'ssh')
+		).rejects.toBeInstanceOf(TicketInvalidError);
+	});
+
+	it('rejects tickets when the bound credential changed before consumption', async () => {
+		expect.assertions(2);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const tickets = new SessionTicketService(repository, hosts, repository);
+		const now = new Date();
+		await repository.createCredential({
+			id: 'credential-1',
+			userId: 'user-1',
+			name: 'Shell password',
+			kind: 'password',
+			username: 'credential-user',
+			encryptedSecret: 'encrypted-password',
+			encryption: testEncryptionMetadata(),
+			metadata: {},
+			createdAt: now,
+			updatedAt: now
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22,
+			credentialId: 'credential-1'
+		});
+		const created = await tickets.create('user-1', {
+			hostId: host.id,
+			protocol: 'ssh'
+		});
+		const snapshot = parseSessionTicketTargetSnapshot(created.record);
+
+		await repository.updateCredential('user-1', 'credential-1', {
+			encryptedSecret: 'changed-password'
+		});
+
+		expect(snapshot.credential).toMatchObject({
+			id: 'credential-1',
+			fingerprint: expect.any(String)
+		});
+		await expect(tickets.consume(created.ticket)).rejects.toBeInstanceOf(TicketInvalidError);
+	});
 });
+
+function testEncryptionMetadata() {
+	return {
+		algorithm: 'aes-256-gcm' as const,
+		keyVersion: 1,
+		iv: 'iv',
+		authTag: 'auth-tag',
+		salt: 'salt'
+	};
+}

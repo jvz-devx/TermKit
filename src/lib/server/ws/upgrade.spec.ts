@@ -8,7 +8,15 @@ import type { ProtocolAdapter } from '$lib/server/protocols';
 import { HostService } from '$lib/server/services/hosts';
 import { InMemoryTermixServicesRepository } from '$lib/server/services/repository';
 import { SessionTicketService } from '$lib/server/services/session-tickets';
-import type { CredentialCrypto, EncryptionMetadata } from '$lib/server/services/types';
+import type {
+	ConnectionSessionRecord,
+	CredentialCrypto,
+	EncryptionMetadata
+} from '$lib/server/services/types';
+import type {
+	ConnectionSessionLifecycleRecorder,
+	StartConnectionSessionInput
+} from '$lib/server/services/connection-sessions';
 
 const servers: ReturnType<typeof createServer>[] = [];
 
@@ -165,6 +173,70 @@ describe('websocket upgrade routing', () => {
 		expect(adapterCalled).toBe(false);
 		await expect(webSocketClose(server, `/ws/ssh/${created.ticket}`)).resolves.toEqual(1000);
 	});
+
+	it('records connection sessions from accepted upgrades through normal close', async () => {
+		expect.assertions(2);
+
+		const lifecycle = createLifecycleRecorder();
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			tickets: {
+				async consume() {
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle(socket) {
+						socket.close(1000, 'ok');
+					}
+				}
+			],
+			connectionSessions: lifecycle.recorder
+		});
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/ssh/ticket-1')).resolves.toEqual(1000);
+		await waitFor(() => lifecycle.calls.length === 3);
+		expect(lifecycle.calls.map((call) => call.action)).toEqual(['start', 'active', 'end']);
+	});
+
+	it('marks connection sessions failed when an adapter throws', async () => {
+		expect.assertions(3);
+
+		const lifecycle = createLifecycleRecorder();
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			tickets: {
+				async consume() {
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						throw new Error('adapter failed');
+					}
+				}
+			],
+			connectionSessions: lifecycle.recorder
+		});
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/ssh/ticket-1')).resolves.toEqual(1011);
+		await waitFor(() => lifecycle.calls.some((call) => call.action === 'fail'));
+		expect(lifecycle.calls.map((call) => call.action)).toEqual(['start', 'active', 'fail']);
+		expect(lifecycle.calls.at(-1)).toMatchObject({
+			action: 'fail',
+			errorCode: 'adapter_error'
+		});
+	});
 });
 
 function createTicketTestServices(): {
@@ -237,4 +309,80 @@ function webSocketClose(server: ReturnType<typeof createServer>, path: string): 
 		socket.on('close', (code) => resolve(code));
 		socket.on('error', reject);
 	});
+}
+
+type LifecycleCall =
+	| { action: 'start'; input: StartConnectionSessionInput }
+	| { action: 'active'; id: string }
+	| { action: 'end'; id: string }
+	| { action: 'fail'; id: string; errorCode: string };
+
+function createLifecycleRecorder(): {
+	calls: LifecycleCall[];
+	recorder: ConnectionSessionLifecycleRecorder;
+} {
+	const calls: LifecycleCall[] = [];
+	const started = testConnectionSessionRecord('starting');
+
+	return {
+		calls,
+		recorder: {
+			async start(input) {
+				calls.push({ action: 'start', input });
+				return { ...started, ...input };
+			},
+			async markActive(id) {
+				calls.push({ action: 'active', id });
+				return { ...started, id, status: 'active' };
+			},
+			async end(id) {
+				calls.push({ action: 'end', id });
+				return { ...started, id, status: 'ended', endedAt: new Date() };
+			},
+			async fail(id, errorCode) {
+				calls.push({ action: 'fail', id, errorCode });
+				return { ...started, id, status: 'failed', errorCode, endedAt: new Date() };
+			}
+		}
+	};
+}
+
+function testConsumedTicket() {
+	return {
+		ticketId: 'ticket-1',
+		userId: 'user-1',
+		hostId: 'host-1',
+		protocol: 'ssh' as const,
+		target: {
+			host: 'shell.example.test',
+			port: 22
+		}
+	};
+}
+
+function testConnectionSessionRecord(
+	status: ConnectionSessionRecord['status']
+): ConnectionSessionRecord {
+	const now = new Date('2026-05-13T12:00:00.000Z');
+
+	return {
+		id: 'connection-session-1',
+		userId: 'user-1',
+		hostId: 'host-1',
+		protocol: 'ssh',
+		status,
+		startedAt: now,
+		endedAt: null,
+		errorCode: null,
+		updatedAt: now
+	};
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 50; attempt += 1) {
+		if (predicate()) return;
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+
+	throw new Error('Timed out waiting for websocket lifecycle calls');
 }

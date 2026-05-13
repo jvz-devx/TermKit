@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { and, desc, eq } from 'drizzle-orm';
+import { db, type TermixDb } from '$lib/server/db';
+import { importJobs as importJobsTable } from '$lib/server/db/schema';
 import type { ImportWarning } from './termix';
 
 export type ImportJobMode = 'validate' | 'import';
@@ -64,6 +67,8 @@ export interface ImportJobRepository {
 	getImportJob(userId: string, id: string): Promise<ImportJobRecord | null>;
 	listImportJobs(userId: string): Promise<ImportJobRecord[]>;
 }
+
+type ImportJobRow = typeof importJobsTable.$inferSelect;
 
 export const emptyImportJobSummary = {
 	totalRecords: 0,
@@ -132,4 +137,96 @@ export class InMemoryImportJobRepository implements ImportJobRepository {
 	}
 }
 
-export const importJobRepository = new InMemoryImportJobRepository();
+export class DrizzleImportJobRepository implements ImportJobRepository {
+	constructor(private readonly database: TermixDb = db) {}
+
+	async createImportJob(input: ImportJobCreate): Promise<ImportJobRecord> {
+		const now = new Date();
+		const [row] = await this.database
+			.insert(importJobsTable)
+			.values({
+				userId: input.userId,
+				mode: input.mode,
+				status: 'pending',
+				sourceName: input.sourceName,
+				sourceKind: input.sourceKind ?? 'unknown',
+				summary: { ...emptyImportJobSummary },
+				warnings: [],
+				failures: [],
+				startedAt: now,
+				finishedAt: null,
+				createdAt: now,
+				updatedAt: now
+			})
+			.returning();
+
+		if (!row) throw new Error('Could not create import job');
+		return toImportJobRecord(row);
+	}
+
+	async updateImportJob(
+		userId: string,
+		id: string,
+		patch: ImportJobPatch
+	): Promise<ImportJobRecord | null> {
+		const [row] = await this.database
+			.update(importJobsTable)
+			.set(importJobPatchToDb(patch))
+			.where(and(eq(importJobsTable.id, id), eq(importJobsTable.userId, userId)))
+			.returning();
+
+		return row ? toImportJobRecord(row) : null;
+	}
+
+	async getImportJob(userId: string, id: string): Promise<ImportJobRecord | null> {
+		const [row] = await this.database
+			.select()
+			.from(importJobsTable)
+			.where(and(eq(importJobsTable.id, id), eq(importJobsTable.userId, userId)))
+			.limit(1);
+
+		return row ? toImportJobRecord(row) : null;
+	}
+
+	async listImportJobs(userId: string): Promise<ImportJobRecord[]> {
+		const rows = await this.database
+			.select()
+			.from(importJobsTable)
+			.where(eq(importJobsTable.userId, userId))
+			.orderBy(desc(importJobsTable.createdAt));
+
+		return rows.map(toImportJobRecord);
+	}
+}
+
+function toImportJobRecord(row: ImportJobRow): ImportJobRecord {
+	return {
+		id: row.id,
+		userId: row.userId,
+		mode: row.mode,
+		status: row.status,
+		sourceName: row.sourceName,
+		sourceKind: row.sourceKind,
+		summary: row.summary,
+		warnings: row.warnings as ImportWarning[],
+		failures: row.failures,
+		startedAt: row.startedAt,
+		finishedAt: row.finishedAt,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
+	};
+}
+
+function importJobPatchToDb(patch: ImportJobPatch): Partial<typeof importJobsTable.$inferInsert> {
+	return {
+		status: patch.status,
+		sourceKind: patch.sourceKind,
+		summary: patch.summary,
+		warnings: patch.warnings,
+		failures: patch.failures,
+		finishedAt: patch.finishedAt,
+		updatedAt: new Date()
+	};
+}
+
+export const importJobRepository = new DrizzleImportJobRepository();
