@@ -15,6 +15,13 @@
       "when": 1778701069995,
       "tag": "0001_nappy_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778706528345,
+      "tag": "0002_daffy_nuke",
+      "breakpoints": true
     }
   ]
 }

@@ -79,6 +79,40 @@ describe('auth session routing', () => {
 		expect(resolve).toHaveBeenCalledOnce();
 	});
 
+	it('allows Microsoft auth callback routes before login', async () => {
+		expect.assertions(2);
+		vi.resetModules();
+		getSessionFromEvent.mockResolvedValue(null);
+		hasAnyUser.mockResolvedValue(true);
+		const handle = await loadHandle();
+		const resolve = vi.fn(() => new Response('microsoft-auth'));
+
+		const response = await handle({
+			event: createEvent('/auth/microsoft/callback') as never,
+			resolve
+		});
+
+		expect(response.status).toBe(200);
+		expect(resolve).toHaveBeenCalledOnce();
+	});
+
+	it('allows Microsoft auth start routes during first-run setup', async () => {
+		expect.assertions(2);
+		vi.resetModules();
+		getSessionFromEvent.mockResolvedValue(null);
+		hasAnyUser.mockResolvedValue(false);
+		const handle = await loadHandle();
+		const resolve = vi.fn(() => new Response('microsoft-auth'));
+
+		const response = await handle({
+			event: createEvent('/auth/microsoft/login') as never,
+			resolve
+		});
+
+		expect(response.status).toBe(200);
+		expect(resolve).toHaveBeenCalledOnce();
+	});
+
 	it('redirects unauthenticated app pages to login once setup is complete', async () => {
 		expect.assertions(2);
 		vi.resetModules();

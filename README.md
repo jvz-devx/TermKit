@@ -106,6 +106,13 @@ Do not commit real values for any secret.
 - `APP_SECRET`: high-entropy session token hashing secret. Keep it stable across container restarts or existing sessions will be invalidated.
 - `BODY_SIZE_LIMIT`: global SvelteKit/Node request body cap. Compose defaults to `55M`, which leaves multipart overhead above the 50 MiB SFTP upload cap while still returning 413 before oversized declared or chunked bodies are accepted.
 - `CREDENTIAL_MASTER_KEY`: high-entropy key used to derive credential encryption material.
+- `MICROSOFT_AUTH_ENABLED`: set to `1` or `true` to enable Microsoft Entra login alongside local username/password login.
+- `MICROSOFT_TENANT_ID`: tenant-specific Entra tenant UUID or verified tenant domain. Production validation rejects shared authorities such as `common`, `organizations`, and `consumers`.
+- `MICROSOFT_CLIENT_ID`: Entra application client UUID for the TermixKit app registration.
+- `MICROSOFT_CLIENT_SECRET`: Entra application client secret. Keep it out of source control and rotate it through the deployment secret store.
+- `MICROSOFT_ALLOWED_DOMAINS`: comma-separated bare email domains allowed to auto-provision through Microsoft login, for example `example.com,example.org`. Wildcards are rejected.
+- `MICROSOFT_ADMIN_EMAILS`: comma-separated Microsoft account email addresses that should provision as TermixKit admins.
+- Microsoft app registration: configure a web redirect URI at `${ORIGIN}/auth/microsoft/callback` unless `MICROSOFT_REDIRECT_URI` is explicitly set. The auth flow uses authorization code + PKCE with `openid profile email` scopes by default.
 - `TERMIXKIT_SSH_KNOWN_HOSTS_PATH`: JSON SSH/SFTP known-host trust store. Compose mounts `app-data` at `/var/lib/termixkit` and defaults this to `/var/lib/termixkit/ssh-known-hosts.json` so TOFU pins survive container rebuilds.
 - `TERMIXKIT_SSH_TRUST_ON_FIRST_USE`: set to `1` only while enrolling trusted SSH/SFTP hosts. Leave unset or `0` for strict known-host checking.
 - `TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU`: production-only override for TOFU enrollment. Prefer seeding `TERMIXKIT_SSH_KNOWN_HOSTS_PATH` and disabling TOFU after enrollment.

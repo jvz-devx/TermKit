@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { getTableName } from 'drizzle-orm';
 import {
+	authIdentities,
+	authIdentityProvider,
 	connectionSessions,
 	credentials,
 	hostProtocol,
@@ -17,10 +19,17 @@ describe('core schema', () => {
 		expect(hostProtocol.enumValues).toEqual(['ssh', 'rdp', 'vnc', 'telnet']);
 	});
 
+	it('defines the V2 auth identity provider enum values', () => {
+		expect.assertions(1);
+
+		expect(authIdentityProvider.enumValues).toEqual(['microsoft']);
+	});
+
 	it('uses the expected core table names', () => {
-		expect.assertions(6);
+		expect.assertions(7);
 
 		expect(getTableName(users)).toBe('users');
+		expect(getTableName(authIdentities)).toBe('auth_identities');
 		expect(getTableName(sessions)).toBe('sessions');
 		expect(getTableName(hosts)).toBe('hosts');
 		expect(getTableName(credentials)).toBe('credentials');

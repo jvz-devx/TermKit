@@ -3,10 +3,14 @@ import { getSessionFromEvent, hasAnyUser } from '$lib/server/auth';
 
 const firstRunPath = '/first-run';
 const publicPagePaths = new Set(['/login', firstRunPath]);
+const publicAuthPaths = new Set(['/auth/microsoft/login', '/auth/microsoft/callback']);
 
 function isPublicPath(pathname: string): boolean {
 	return (
-		publicPagePaths.has(pathname) || pathname.startsWith('/favicon') || isSvelteKitPath(pathname)
+		publicPagePaths.has(pathname) ||
+		publicAuthPaths.has(pathname) ||
+		pathname.startsWith('/favicon') ||
+		isSvelteKitPath(pathname)
 	);
 }
 
@@ -30,10 +34,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	if (
 		!hasUsers &&
-		event.url.pathname !== firstRunPath &&
+		!isPublicPath(event.url.pathname) &&
 		!isApiPath(event.url.pathname) &&
-		!isSvelteKitPath(event.url.pathname) &&
-		!event.url.pathname.startsWith('/favicon')
+		!isSvelteKitPath(event.url.pathname)
 	) {
 		throw redirect(302, firstRunPath);
 	}

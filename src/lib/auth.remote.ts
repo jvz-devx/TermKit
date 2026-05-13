@@ -1,4 +1,4 @@
-import { getRequestEvent, form } from '$app/server';
+import { getRequestEvent, form, query } from '$app/server';
 import { invalid, redirect } from '@sveltejs/kit';
 import {
 	AuthError,
@@ -7,6 +7,7 @@ import {
 	loginWithPassword,
 	logout
 } from '$lib/server/auth';
+import { parseMicrosoftEntraAuthConfig } from '$lib/server/auth/microsoft';
 
 type LoginFields = {
 	username: string;
@@ -15,6 +16,11 @@ type LoginFields = {
 
 type FirstRunFields = LoginFields & {
 	confirmPassword: string;
+};
+
+export type MicrosoftAuthAvailability = {
+	enabled: boolean;
+	href: string | null;
 };
 
 function asTrimmedString(value: unknown): string {
@@ -66,4 +72,17 @@ export const firstRunForm = form<FirstRunFields, void>('unchecked', async (data,
 export const logoutForm = form(async () => {
 	await logout(getRequestEvent());
 	redirect(303, '/login');
+});
+
+export const getMicrosoftAuthAvailability = query((): MicrosoftAuthAvailability => {
+	const event = getRequestEvent();
+	const result = parseMicrosoftEntraAuthConfig({
+		...process.env,
+		ORIGIN: process.env.ORIGIN ?? event.url.origin
+	});
+
+	return {
+		enabled: result.enabled,
+		href: result.enabled ? '/auth/microsoft/login' : null
+	};
 });

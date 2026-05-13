@@ -12,6 +12,7 @@ const username = 'termixkit_migration_smoke';
 const password = `termixkit-smoke-${randomBytes(18).toString('base64url')}`;
 const containerName = `termixkit-postgres-migration-smoke-${process.pid}-${Date.now().toString(36)}`;
 const expectedTables = [
+	'auth_identities',
 	'connection_sessions',
 	'credentials',
 	'hosts',
@@ -157,6 +158,38 @@ async function verifyMigratedSchema(url) {
 
 		if (!journal?.journal_table) {
 			throw new Error('Migration did not create drizzle.__drizzle_migrations.');
+		}
+
+		const [authIdentityProvider] = await sql`
+			select exists (
+				select 1
+				from pg_type
+				where typname = 'auth_identity_provider'
+			) as exists
+		`;
+
+		if (!authIdentityProvider?.exists) {
+			throw new Error('Migration did not create auth_identity_provider enum.');
+		}
+
+		const [authIdentityUniqueIndex] = await sql`
+			select to_regclass('public.auth_identities_provider_tenant_subject_unique') as index_name
+		`;
+
+		if (!authIdentityUniqueIndex?.index_name) {
+			throw new Error(
+				'Migration did not create auth identity provider/tenant/subject unique index.'
+			);
+		}
+
+		const [authIdentityForeignKey] = await sql`
+			select confdeltype
+			from pg_constraint
+			where conname = 'auth_identities_user_id_users_id_fk'
+		`;
+
+		if (authIdentityForeignKey?.confdeltype !== 'c') {
+			throw new Error('Migration did not create cascading auth identity user foreign key.');
 		}
 	} finally {
 		await sql.end();

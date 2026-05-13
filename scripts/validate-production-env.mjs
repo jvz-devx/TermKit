@@ -15,6 +15,7 @@ export function validateProductionEnv(env = process.env) {
 	validateGatewayUrl(env.GATEWAY_URL);
 	validateGatewayPublicUrl(env.GATEWAY_PUBLIC_URL, allowInsecureLocalHttp);
 	validateGatewayProvisionerKey(env.GATEWAY_PROVISIONER_KEY);
+	validateMicrosoftAuth(env);
 
 	if (origin.protocol === 'https:') return;
 
@@ -176,6 +177,96 @@ function validateGatewayProvisionerKey(value) {
 }
 
 /**
+ * @param {NodeJS.ProcessEnv} env
+ */
+function validateMicrosoftAuth(env) {
+	if (!isEnabled(env.MICROSOFT_AUTH_ENABLED)) return;
+
+	validateMicrosoftTenantId(env.MICROSOFT_TENANT_ID);
+	validateMicrosoftClientId(env.MICROSOFT_CLIENT_ID);
+	validateMicrosoftClientSecret(env.MICROSOFT_CLIENT_SECRET);
+	validateMicrosoftAllowedDomains(env.MICROSOFT_ALLOWED_DOMAINS);
+	validateMicrosoftAdminEmails(env.MICROSOFT_ADMIN_EMAILS);
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function validateMicrosoftTenantId(value) {
+	const tenantId = value?.trim();
+	if (!tenantId) {
+		throw new Error('MICROSOFT_TENANT_ID is required when Microsoft auth is enabled.');
+	}
+
+	if (['common', 'organizations', 'consumers'].includes(tenantId.toLowerCase())) {
+		throw new Error('MICROSOFT_TENANT_ID must be a tenant-specific ID or domain.');
+	}
+
+	if (!isUuid(tenantId) && !isDomainName(tenantId)) {
+		throw new Error('MICROSOFT_TENANT_ID must be a tenant UUID or verified tenant domain.');
+	}
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function validateMicrosoftClientId(value) {
+	const clientId = value?.trim();
+	if (!clientId) {
+		throw new Error('MICROSOFT_CLIENT_ID is required when Microsoft auth is enabled.');
+	}
+
+	if (!isUuid(clientId)) {
+		throw new Error('MICROSOFT_CLIENT_ID must be an Entra application client UUID.');
+	}
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function validateMicrosoftClientSecret(value) {
+	if (!value) {
+		throw new Error('MICROSOFT_CLIENT_SECRET is required when Microsoft auth is enabled.');
+	}
+
+	if (value.trim() !== value || value.length < 16 || isPlaceholderSecret(value)) {
+		throw new Error('MICROSOFT_CLIENT_SECRET must be a non-placeholder secret value.');
+	}
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function validateMicrosoftAllowedDomains(value) {
+	const domains = parseCommaSeparated(value);
+	if (domains.length === 0) {
+		throw new Error('MICROSOFT_ALLOWED_DOMAINS must include at least one allowed domain.');
+	}
+
+	for (const domain of domains) {
+		if (!isDomainName(domain) || domain.startsWith('*.')) {
+			throw new Error('MICROSOFT_ALLOWED_DOMAINS must contain comma-separated bare domains.');
+		}
+	}
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function validateMicrosoftAdminEmails(value) {
+	const emails = parseCommaSeparated(value);
+	if (emails.length === 0) {
+		throw new Error('MICROSOFT_ADMIN_EMAILS must include at least one admin email.');
+	}
+
+	for (const email of emails) {
+		if (!isEmailAddress(email)) {
+			throw new Error('MICROSOFT_ADMIN_EMAILS must contain comma-separated email addresses.');
+		}
+	}
+}
+
+/**
  * @param {string} value
  */
 function isStrongProductionSecret(value) {
@@ -206,6 +297,16 @@ function isStrongProductionSecret(value) {
 /**
  * @param {string} value
  */
+function isPlaceholderSecret(value) {
+	const lower = value.toLowerCase();
+	return ['change-me', 'changeme', 'client-secret', 'microsoft-client-secret'].some((placeholder) =>
+		lower.includes(placeholder)
+	);
+}
+
+/**
+ * @param {string} value
+ */
 function isRepeatedPattern(value) {
 	for (let size = 1; size <= 8 && size <= value.length / 2; size += 1) {
 		if (value.length % size === 0 && value.slice(0, size).repeat(value.length / size) === value) {
@@ -229,6 +330,41 @@ function isInternalGatewayHostname(hostname) {
 		normalized === '::1' ||
 		/^127(?:\.\d{1,3}){3}$/.test(normalized)
 	);
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function parseCommaSeparated(value) {
+	return (
+		value
+			?.split(',')
+			.map((entry) => entry.trim().toLowerCase())
+			.filter(Boolean) ?? []
+	);
+}
+
+/**
+ * @param {string} value
+ */
+function isUuid(value) {
+	return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+/**
+ * @param {string} value
+ */
+function isDomainName(value) {
+	if (value.length > 253 || value.includes('..') || value.includes('/')) return false;
+	return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value);
+}
+
+/**
+ * @param {string} value
+ */
+function isEmailAddress(value) {
+	const [localPart, domain, ...extra] = value.split('@');
+	return extra.length === 0 && Boolean(localPart) && Boolean(domain) && isDomainName(domain);
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;

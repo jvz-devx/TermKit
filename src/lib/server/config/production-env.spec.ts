@@ -160,6 +160,68 @@ describe('production environment validation', () => {
 			)
 		).toThrow('GATEWAY_PUBLIC_URL must use the app /gateway proxy path');
 	});
+
+	it('allows Microsoft Entra auth when production OIDC configuration is complete', () => {
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: '1',
+					MICROSOFT_TENANT_ID: 'f4b1fdd6-9f44-4fd7-9d87-0b984d40d807',
+					MICROSOFT_CLIENT_ID: 'a2e3eb49-7d63-4bc1-9630-93d05a393482',
+					MICROSOFT_CLIENT_SECRET: '0xY8Qp9sLd2nV6rT',
+					MICROSOFT_ALLOWED_DOMAINS: 'example.com, example.org',
+					MICROSOFT_ADMIN_EMAILS: 'admin@example.com, owner@example.org'
+				})
+			)
+		).not.toThrow();
+	});
+
+	it('requires Microsoft Entra auth configuration when enabled in production', () => {
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_TENANT_ID: ''
+				})
+			)
+		).toThrow('MICROSOFT_TENANT_ID is required');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_CLIENT_ID: 'not-a-uuid'
+				})
+			)
+		).toThrow('MICROSOFT_CLIENT_ID must be an Entra application client UUID');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_CLIENT_SECRET: 'change-me'
+				})
+			)
+		).toThrow('MICROSOFT_CLIENT_SECRET must be a non-placeholder secret value');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_ALLOWED_DOMAINS: '*.example.com'
+				})
+			)
+		).toThrow('MICROSOFT_ALLOWED_DOMAINS must contain comma-separated bare domains');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					MICROSOFT_AUTH_ENABLED: 'true',
+					MICROSOFT_ADMIN_EMAILS: 'admin'
+				})
+			)
+		).toThrow('MICROSOFT_ADMIN_EMAILS must contain comma-separated email addresses');
+	});
 });
 
 function productionEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
@@ -171,6 +233,11 @@ function productionEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
 		GATEWAY_URL: 'http://gateway:7171',
 		GATEWAY_PUBLIC_URL: 'https://rdp.example/gateway',
 		GATEWAY_PROVISIONER_KEY: 'shared-key',
+		MICROSOFT_TENANT_ID: 'contoso.onmicrosoft.com',
+		MICROSOFT_CLIENT_ID: 'a2e3eb49-7d63-4bc1-9630-93d05a393482',
+		MICROSOFT_CLIENT_SECRET: '0xY8Qp9sLd2nV6rT',
+		MICROSOFT_ALLOWED_DOMAINS: 'example.com',
+		MICROSOFT_ADMIN_EMAILS: 'admin@example.com',
 		...overrides
 	};
 }

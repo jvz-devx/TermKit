@@ -3,9 +3,23 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { Separator } from '$lib/components/ui/separator';
 	import { firstRunForm, loginForm } from '$lib/auth.remote';
+	import MicrosoftSignIn from './MicrosoftSignIn.svelte';
 
-	let { mode = 'login' }: { mode?: 'login' | 'first-run' } = $props();
+	type MicrosoftAuth = {
+		enabled?: boolean;
+		href?: string | null;
+	};
+
+	let {
+		mode = 'login',
+		microsoftAuth
+	}: { mode?: 'login' | 'first-run'; microsoftAuth?: MicrosoftAuth } = $props();
+
+	const showMicrosoftSignIn = $derived(
+		mode === 'login' && microsoftAuth?.enabled === true && typeof microsoftAuth.href === 'string'
+	);
 </script>
 
 <main class="grid min-h-screen place-items-center bg-muted/20 p-4">
@@ -66,6 +80,18 @@
 				</Button>
 			</form>
 		{:else}
+			{#if showMicrosoftSignIn && microsoftAuth?.href}
+				<div class="mb-4 space-y-4">
+					<MicrosoftSignIn href={microsoftAuth.href} />
+					<div class="relative flex items-center">
+						<Separator />
+						<span
+							class="absolute left-1/2 -translate-x-1/2 bg-background px-2 text-xs text-muted-foreground"
+							>or</span
+						>
+					</div>
+				</div>
+			{/if}
 			<form class="space-y-4" {...loginForm}>
 				<div class="space-y-2">
 					<Label for="username">Username</Label>

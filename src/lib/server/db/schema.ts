@@ -14,6 +14,7 @@ import {
 
 export const hostProtocol = pgEnum('host_protocol', ['ssh', 'rdp', 'vnc', 'telnet']);
 export const credentialKind = pgEnum('credential_kind', ['password', 'ssh_key']);
+export const authIdentityProvider = pgEnum('auth_identity_provider', ['microsoft']);
 export const connectionSessionStatus = pgEnum('connection_session_status', [
 	'starting',
 	'active',
@@ -36,6 +37,31 @@ export const users = pgTable(
 		...timestamps
 	},
 	(table) => [uniqueIndex('users_username_unique').on(table.username)]
+);
+
+export const authIdentities = pgTable(
+	'auth_identities',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		provider: authIdentityProvider('provider').notNull(),
+		tenantId: text('tenant_id').notNull(),
+		providerSubject: text('provider_subject').notNull(),
+		email: text('email'),
+		displayName: text('display_name'),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		...timestamps
+	},
+	(table) => [
+		index('auth_identities_user_id_idx').on(table.userId),
+		uniqueIndex('auth_identities_provider_tenant_subject_unique').on(
+			table.provider,
+			table.tenantId,
+			table.providerSubject
+		)
+	]
 );
 
 export const sessions = pgTable(
@@ -224,10 +250,15 @@ export const importJobs = pgTable(
 );
 
 export const usersRelations = relations(users, ({ many }) => ({
+	authIdentities: many(authIdentities),
 	sessions: many(sessions),
 	hosts: many(hosts),
 	credentials: many(credentials),
 	importJobs: many(importJobs)
+}));
+
+export const authIdentitiesRelations = relations(authIdentities, ({ one }) => ({
+	user: one(users, { fields: [authIdentities.userId], references: [users.id] })
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
