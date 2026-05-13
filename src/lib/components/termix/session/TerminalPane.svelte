@@ -12,12 +12,14 @@
 		title,
 		subtitle,
 		websocketUrl,
-		welcome = []
+		welcome = [],
+		fontSize = 13
 	}: {
 		title: string;
 		subtitle: string;
 		websocketUrl?: string;
 		welcome?: string[];
+		fontSize?: number;
 	} = $props();
 
 	let terminalElement: HTMLDivElement;
@@ -30,7 +32,7 @@
 		const instance = new Terminal({
 			cursorBlink: true,
 			fontFamily: 'JetBrains Mono, Menlo, Consolas, monospace',
-			fontSize: 13,
+			fontSize,
 			scrollback: 5000,
 			theme: {
 				background: '#09090b',

@@ -299,12 +299,12 @@ function validateGatewayPublicUrl(
 	allowInsecureLocalHttp: boolean
 ): string | null {
 	const url = new URL(value);
+	let optedInLocalHttp = false;
 	if (url.username || url.password || url.hash) {
 		return 'GATEWAY_PUBLIC_URL must not include credentials or fragments';
 	}
 
-	if (!production) return null;
-	if (url.protocol !== 'https:') {
+	if (production && url.protocol !== 'https:') {
 		if (!allowInsecureLocalHttp) {
 			return 'GATEWAY_PUBLIC_URL must use https:// in production. For direct local HTTP only, set TERMIXKIT_INSECURE_LOCAL_HTTP=1';
 		}
@@ -313,8 +313,15 @@ function validateGatewayPublicUrl(
 			return 'TERMIXKIT_INSECURE_LOCAL_HTTP=1 only permits local http://localhost or loopback GATEWAY_PUBLIC_URL values';
 		}
 
-		return null;
+		optedInLocalHttp = true;
 	}
+
+	if (url.pathname !== '/gateway' && url.pathname !== '/gateway/') {
+		return 'GATEWAY_PUBLIC_URL must use the app /gateway proxy path';
+	}
+
+	if (optedInLocalHttp) return null;
+	if (!production) return null;
 
 	if (isInternalGatewayHostname(url.hostname)) {
 		return 'GATEWAY_PUBLIC_URL must be browser-reachable in production, not localhost, loopback, wildcard, or the internal Compose gateway hostname';

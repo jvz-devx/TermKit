@@ -1,0 +1,178 @@
+import { eq } from 'drizzle-orm';
+import { db, type TermixDb } from '$lib/server/db';
+import { settings as settingsTable } from '$lib/server/db/schema';
+import { ServiceValidationError } from './errors';
+
+export const BASIC_APP_SETTINGS_KEY = 'app.basic';
+const ticketTtlMinimumSeconds = 10;
+const ticketTtlMaximumSeconds = 300;
+
+export type BasicAppSettings = {
+	ticketTtlSeconds: number;
+	terminalFontSize: number;
+	clipboardSync: boolean;
+	rememberLastActiveTab: boolean;
+};
+
+export type BasicAppSettingsInput = Partial<Record<keyof BasicAppSettings, unknown>>;
+
+export const DEFAULT_BASIC_APP_SETTINGS: BasicAppSettings = {
+	ticketTtlSeconds: 60,
+	terminalFontSize: 13,
+	clipboardSync: true,
+	rememberLastActiveTab: true
+};
+
+export interface SettingsRepository {
+	getSetting(key: string): Promise<unknown | null>;
+	upsertSetting(key: string, value: unknown, now: Date): Promise<unknown>;
+}
+
+export class DrizzleSettingsRepository implements SettingsRepository {
+	constructor(private readonly database: TermixDb = db) {}
+
+	async getSetting(key: string): Promise<unknown | null> {
+		const [row] = await this.database
+			.select({ value: settingsTable.value })
+			.from(settingsTable)
+			.where(eq(settingsTable.key, key))
+			.limit(1);
+
+		return row?.value ?? null;
+	}
+
+	async upsertSetting(key: string, value: unknown, now: Date): Promise<unknown> {
+		const [row] = await this.database
+			.insert(settingsTable)
+			.values({
+				key,
+				value,
+				createdAt: now,
+				updatedAt: now
+			})
+			.onConflictDoUpdate({
+				target: settingsTable.key,
+				set: {
+					value,
+					updatedAt: now
+				}
+			})
+			.returning({ value: settingsTable.value });
+
+		if (!row) throw new Error('Could not persist settings');
+		return row.value;
+	}
+}
+
+export class InMemorySettingsRepository implements SettingsRepository {
+	private readonly settings = new Map<string, unknown>();
+
+	async getSetting(key: string): Promise<unknown | null> {
+		return this.settings.get(key) ?? null;
+	}
+
+	async upsertSetting(key: string, value: unknown): Promise<unknown> {
+		this.settings.set(key, value);
+		return value;
+	}
+}
+
+export class SettingsService {
+	constructor(private readonly repository: SettingsRepository = new DrizzleSettingsRepository()) {}
+
+	async getBasicAppSettings(): Promise<BasicAppSettings> {
+		const value = await this.repository.getSetting(BASIC_APP_SETTINGS_KEY);
+		return normalizeStoredSettings(value);
+	}
+
+	async saveBasicAppSettings(input: BasicAppSettingsInput): Promise<BasicAppSettings> {
+		const validated = validateBasicAppSettingsInput(input);
+		const stored = await this.repository.upsertSetting(
+			BASIC_APP_SETTINGS_KEY,
+			validated,
+			new Date()
+		);
+
+		return normalizeStoredSettings(stored);
+	}
+}
+
+export function validateBasicAppSettingsInput(input: BasicAppSettingsInput): BasicAppSettings {
+	const issues: string[] = [];
+	const ticketTtlSeconds = asInteger(input.ticketTtlSeconds);
+	const terminalFontSize = asInteger(input.terminalFontSize);
+	const clipboardSync = asBoolean(input.clipboardSync);
+	const rememberLastActiveTab = asBoolean(input.rememberLastActiveTab);
+
+	if (
+		ticketTtlSeconds === null ||
+		ticketTtlSeconds < ticketTtlMinimumSeconds ||
+		ticketTtlSeconds > ticketTtlMaximumSeconds
+	) {
+		issues.push('ticketTtlSeconds must be an integer between 10 and 300');
+	}
+
+	if (terminalFontSize === null || terminalFontSize < 8 || terminalFontSize > 32) {
+		issues.push('terminalFontSize must be an integer between 8 and 32');
+	}
+
+	if (clipboardSync === null) {
+		issues.push('clipboardSync must be a boolean');
+	}
+
+	if (rememberLastActiveTab === null) {
+		issues.push('rememberLastActiveTab must be a boolean');
+	}
+
+	if (issues.length > 0) throw new ServiceValidationError(issues);
+
+	return {
+		ticketTtlSeconds: ticketTtlSeconds!,
+		terminalFontSize: terminalFontSize!,
+		clipboardSync: clipboardSync!,
+		rememberLastActiveTab: rememberLastActiveTab!
+	};
+}
+
+function normalizeStoredSettings(value: unknown): BasicAppSettings {
+	if (!isRecord(value)) return { ...DEFAULT_BASIC_APP_SETTINGS };
+
+	return {
+		ticketTtlSeconds:
+			asStoredInteger(value.ticketTtlSeconds, ticketTtlMinimumSeconds, ticketTtlMaximumSeconds) ??
+			DEFAULT_BASIC_APP_SETTINGS.ticketTtlSeconds,
+		terminalFontSize:
+			asStoredInteger(value.terminalFontSize, 8, 32) ?? DEFAULT_BASIC_APP_SETTINGS.terminalFontSize,
+		clipboardSync:
+			typeof value.clipboardSync === 'boolean'
+				? value.clipboardSync
+				: DEFAULT_BASIC_APP_SETTINGS.clipboardSync,
+		rememberLastActiveTab:
+			typeof value.rememberLastActiveTab === 'boolean'
+				? value.rememberLastActiveTab
+				: DEFAULT_BASIC_APP_SETTINGS.rememberLastActiveTab
+	};
+}
+
+function asInteger(value: unknown): number | null {
+	if (typeof value === 'number' && Number.isInteger(value)) return value;
+	if (typeof value !== 'string' || !value.trim()) return null;
+
+	const parsed = Number(value);
+	return Number.isInteger(parsed) ? parsed : null;
+}
+
+function asBoolean(value: unknown): boolean | null {
+	return typeof value === 'boolean' ? value : null;
+}
+
+function asStoredInteger(value: unknown, minimum: number, maximum: number): number | null {
+	const parsed = asInteger(value);
+	return parsed !== null && parsed >= minimum && parsed <= maximum ? parsed : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export const settingsService = new SettingsService();

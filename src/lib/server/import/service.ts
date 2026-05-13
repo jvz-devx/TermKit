@@ -21,6 +21,7 @@ export type ImportUploadInput = {
 	fileName: string;
 	contentType?: string;
 	bytes: ArrayBuffer | Uint8Array | string;
+	sourceSecret?: string;
 };
 
 export type ImportPreview = {
@@ -65,7 +66,9 @@ export class ImportService {
 		try {
 			await this.jobs.updateImportJob(userId, job.id, { status: 'validating' });
 			const parsed = parseImportUpload(upload);
-			const mapping = mapTermixRecords(parsed.records);
+			const mapping = mapTermixRecords(parsed.records, {
+				sourceSecret: upload.sourceSecret
+			});
 			const summary = summaryFromMapping(parsed.records.length, mapping);
 			const updated = await this.jobs.updateImportJob(userId, job.id, {
 				status: 'validated',
@@ -91,7 +94,9 @@ export class ImportService {
 		try {
 			await this.jobs.updateImportJob(userId, job.id, { status: 'importing' });
 			const parsed = parseImportUpload(upload);
-			const mapping = mapTermixRecords(parsed.records);
+			const mapping = mapTermixRecords(parsed.records, {
+				sourceSecret: upload.sourceSecret
+			});
 			const failures: string[] = [];
 			const credentialIds = new Map<string, string>();
 			let importedCredentials = 0;

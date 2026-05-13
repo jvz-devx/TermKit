@@ -15,6 +15,7 @@
 	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tabs from '$lib/components/ui/tabs';
+	import { getAppSettings, type BasicAppSettings } from '$lib/settings.remote';
 	import { createSessionLaunch, listHosts, type HostSummary } from '$lib/termix.remote';
 	import StatePanel from './StatePanel.svelte';
 	import RdpPane from './session/RdpPane.svelte';
@@ -25,6 +26,14 @@
 	type WorkspaceProtocol = 'ssh' | 'sftp' | 'rdp' | 'vnc' | 'telnet';
 
 	const hostsQuery = listHosts();
+	const settingsQuery = getAppSettings();
+	const defaultSessionSettings: BasicAppSettings = {
+		ticketTtlSeconds: 60,
+		terminalFontSize: 13,
+		clipboardSync: true,
+		rememberLastActiveTab: true
+	};
+	const lastProtocolStoragePrefix = 'termixkit:last-protocol:';
 	const tabIcons = {
 		ssh: Terminal,
 		sftp: Database,
@@ -36,6 +45,7 @@
 	let reconnectNonce = $state(0);
 	let pausedSessionKey = $state<string | null>(null);
 	let hosts = $derived(hostsQuery.current ?? []);
+	let appSettings = $derived(settingsQuery.current ?? defaultSessionSettings);
 	let requestedHostId = $derived(page.url.searchParams.get('host'));
 	let selectedHost = $derived.by(() => {
 		if (!requestedHostId) return null;
@@ -95,12 +105,10 @@
 
 	function selectHost(host: HostSummary) {
 		const params = new SvelteURLSearchParams(page.url.searchParams);
-		const protocol =
-			hostSelectionProtocol && protocolsForHost(host).includes(hostSelectionProtocol)
-				? hostSelectionProtocol
-				: host.protocol;
+		const protocol = protocolForSelectedHost(host);
 		params.set('host', host.id);
 		params.set('tab', protocol);
+		rememberProtocol(host.id, protocol);
 		pausedSessionKey = null;
 		void goto(resolve(`/sessions?${params.toString()}` as '/'));
 	}
@@ -110,8 +118,32 @@
 		const params = new SvelteURLSearchParams(page.url.searchParams);
 		params.set('host', selectedHost.id);
 		params.set('tab', protocol);
+		rememberProtocol(selectedHost.id, protocol);
 		pausedSessionKey = null;
 		void goto(resolve(`/sessions?${params.toString()}` as '/'));
+	}
+
+	function protocolForSelectedHost(host: HostSummary): WorkspaceProtocol {
+		const available = protocolsForHost(host);
+		if (hostSelectionProtocol && available.includes(hostSelectionProtocol))
+			return hostSelectionProtocol;
+
+		const remembered = rememberedProtocol(host.id);
+		if (remembered && available.includes(remembered)) return remembered;
+
+		return host.protocol;
+	}
+
+	function rememberedProtocol(hostId: string): WorkspaceProtocol | null {
+		if (!browser || !appSettings.rememberLastActiveTab) return null;
+
+		const value = window.localStorage.getItem(`${lastProtocolStoragePrefix}${hostId}`);
+		return value && isWorkspaceProtocol(value) ? value : null;
+	}
+
+	function rememberProtocol(hostId: string, protocol: WorkspaceProtocol) {
+		if (!browser || !appSettings.rememberLastActiveTab) return;
+		window.localStorage.setItem(`${lastProtocolStoragePrefix}${hostId}`, protocol);
 	}
 
 	function protocolsForHost(host: HostSummary): WorkspaceProtocol[] {
@@ -258,6 +290,7 @@
 									? toWebSocketUrl(currentLaunch.websocketPath)
 									: undefined}
 								welcome={[`$ ssh ${selectedHost.hostname}`, 'Opening websocket bridge...', '']}
+								fontSize={appSettings.terminalFontSize}
 							/>
 						{:catch caught}
 							<StatePanel
@@ -282,15 +315,31 @@
 						launch={null}
 						error="Disconnected. Reconnect to create a new session."
 						onReconnect={reconnect}
+						clipboardSync={appSettings.clipboardSync}
 					/>
 				{:else if browser && activeProtocol === 'rdp'}
 					{#key `rdp:${selectedHost.id}:${reconnectNonce}`}
 						{#await getSessionLaunch(selectedHost.id, 'rdp')}
-							<RdpPane launch={null} error={null} onReconnect={reconnect} />
+							<RdpPane
+								launch={null}
+								error={null}
+								onReconnect={reconnect}
+								clipboardSync={appSettings.clipboardSync}
+							/>
 						{:then currentLaunch}
-							<RdpPane launch={currentLaunch} error={null} onReconnect={reconnect} />
+							<RdpPane
+								launch={currentLaunch}
+								error={null}
+								onReconnect={reconnect}
+								clipboardSync={appSettings.clipboardSync}
+							/>
 						{:catch caught}
-							<RdpPane launch={null} error={errorMessage(caught)} onReconnect={reconnect} />
+							<RdpPane
+								launch={null}
+								error={errorMessage(caught)}
+								onReconnect={reconnect}
+								clipboardSync={appSettings.clipboardSync}
+							/>
 						{/await}
 					{/key}
 				{/if}
@@ -352,6 +401,7 @@
 									? toWebSocketUrl(currentLaunch.websocketPath)
 									: undefined}
 								welcome={[`Trying ${selectedHost.hostname}...`, 'Opening websocket bridge...', '']}
+								fontSize={appSettings.terminalFontSize}
 							/>
 						{:catch caught}
 							<StatePanel

@@ -23,6 +23,7 @@ export type WebSocketUpgradeOptions = {
 	adapters?: ProtocolAdapter[];
 	connectionSessions?: ConnectionSessionLifecycleRecorder;
 	allowedOrigins?: string[];
+	ignoredPaths?: RegExp[];
 	requireOrigin?: boolean;
 	authenticateSession?: WebSocketSessionAuthenticator;
 };
@@ -45,6 +46,7 @@ export function installWebSocketUpgrades(
 		adapters = defaultProtocolAdapters(),
 		connectionSessions = connectionSessionService,
 		allowedOrigins,
+		ignoredPaths = [],
 		requireOrigin = false,
 		authenticateSession = authenticateWebSocketSession
 	}: WebSocketUpgradeOptions = {}
@@ -54,6 +56,8 @@ export function installWebSocketUpgrades(
 	const originPolicy = createOriginPolicy({ allowedOrigins, requireOrigin });
 
 	server.on('upgrade', async (request, socket, head) => {
+		if (isIgnoredUpgradePath(request.url, ignoredPaths)) return;
+
 		const route = parseWebSocketRoute(request);
 
 		if (!route) {
@@ -116,6 +120,12 @@ export function installWebSocketUpgrades(
 			});
 		});
 	});
+}
+
+function isIgnoredUpgradePath(url: string | undefined, ignoredPaths: RegExp[]): boolean {
+	if (ignoredPaths.length === 0) return false;
+	const pathname = new URL(url ?? '/', 'http://localhost').pathname;
+	return ignoredPaths.some((pattern) => pattern.test(pathname));
 }
 
 export function defaultProtocolAdapters(): ProtocolAdapter[] {

@@ -10,6 +10,7 @@ import { RdpGatewayBootstrapper, type RdpGatewayBootstrap } from '$lib/server/rd
 import { SessionTicketConsumer } from '$lib/server/ws/ticket-consumer';
 import { resolveVncLaunchCredentials, type VncLaunchCredentials } from '$lib/server/protocols/vnc';
 import { connectionSessionService } from '$lib/server/services/connection-sessions';
+import { settingsService } from '$lib/server/services/settings';
 import type { CredentialKind, HostProtocol } from '$lib/server/services/types';
 
 export type HostSummary = {
@@ -223,10 +224,11 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 			};
 		}
 
+		const settings = await settingsService.getBasicAppSettings();
 		const created = await sessionTicketService.create(userId, {
 			hostId,
 			protocol,
-			ttlMs: 60_000
+			ttlMs: settings.ticketTtlSeconds * 1000
 		});
 		const launchProtocol = created.record.protocol;
 		const ticket = created.ticket;

@@ -28,11 +28,13 @@
 	let {
 		launch,
 		error,
-		onReconnect
+		onReconnect,
+		clipboardSync = true
 	}: {
 		launch: SessionLaunch | null;
 		error: string | null;
 		onReconnect: () => void;
+		clipboardSync?: boolean;
 	} = $props();
 
 	let bootstrap = $derived(launch?.rdp ?? null);
@@ -137,7 +139,7 @@
 		}
 
 		api = userInteraction;
-		api.setEnableAutoClipboard(false);
+		api.setEnableAutoClipboard(clipboardSync);
 		api.setVisibility(true);
 		connectionState = 'ready';
 		detail = targetCredentialState;

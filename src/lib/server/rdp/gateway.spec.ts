@@ -20,7 +20,7 @@ describe('RDP Gateway bootstrap', () => {
 			loadRdpGatewayConfig({
 				NODE_ENV: 'production',
 				GATEWAY_URL: 'http://gateway:7171',
-				GATEWAY_PUBLIC_URL: 'http://rdp.example.test',
+				GATEWAY_PUBLIC_URL: 'http://rdp.example.test/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key'
 			})
 		).toThrow('GATEWAY_PUBLIC_URL must use https:// in production');
@@ -29,10 +29,28 @@ describe('RDP Gateway bootstrap', () => {
 			loadRdpGatewayConfig({
 				NODE_ENV: 'production',
 				GATEWAY_URL: 'http://gateway:7171',
-				GATEWAY_PUBLIC_URL: 'https://gateway',
+				GATEWAY_PUBLIC_URL: 'https://gateway/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key'
 			})
 		).toThrow('GATEWAY_PUBLIC_URL must be browser-reachable in production');
+
+		expect(() =>
+			loadRdpGatewayConfig({
+				NODE_ENV: 'production',
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			})
+		).toThrow('GATEWAY_PUBLIC_URL must use the app /gateway proxy path');
+
+		expect(() =>
+			loadRdpGatewayConfig({
+				NODE_ENV: 'production',
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test/gateway/custom',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			})
+		).toThrow('GATEWAY_PUBLIC_URL must use the app /gateway proxy path');
 	});
 
 	it('allows explicitly opted-in local http Gateway public URLs in production', () => {
@@ -41,7 +59,7 @@ describe('RDP Gateway bootstrap', () => {
 				NODE_ENV: 'production',
 				TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
 				GATEWAY_URL: 'http://gateway:7171',
-				GATEWAY_PUBLIC_URL: 'http://localhost:7171',
+				GATEWAY_PUBLIC_URL: 'http://localhost:3000/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key'
 			})
 		).not.toThrow();
@@ -51,7 +69,7 @@ describe('RDP Gateway bootstrap', () => {
 		expect(() =>
 			loadRdpGatewayConfig({
 				GATEWAY_URL: 'ftp://gateway',
-				GATEWAY_PUBLIC_URL: 'https://rdp.example.test',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key'
 			})
 		).toThrow('GATEWAY_URL must use http:// or https://');
@@ -59,7 +77,7 @@ describe('RDP Gateway bootstrap', () => {
 		expect(() =>
 			loadRdpGatewayConfig({
 				GATEWAY_URL: 'http://user:pass@gateway:7171',
-				GATEWAY_PUBLIC_URL: 'https://rdp.example.test',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key'
 			})
 		).toThrow('GATEWAY_URL must not include credentials or fragments');
@@ -71,7 +89,7 @@ describe('RDP Gateway bootstrap', () => {
 		const bootstrapper = new RdpGatewayBootstrapper(
 			loadRdpGatewayConfig({
 				GATEWAY_URL: 'http://gateway:7171',
-				GATEWAY_PUBLIC_URL: 'https://rdp.example.test',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key',
 				GATEWAY_PROVISIONER_SUBJECT: 'termix'
 			}),
@@ -88,7 +106,7 @@ describe('RDP Gateway bootstrap', () => {
 			protocol: 'rdp',
 			destination: 'tcp://windows.example.test:3389',
 			gatewayUrl: 'http://gateway:7171',
-			gatewayPublicUrl: 'https://rdp.example.test',
+			gatewayPublicUrl: 'https://rdp.example.test/gateway',
 			associationToken: 'association-token',
 			preconnectionBlob: 'association-token',
 			identity: {
@@ -125,7 +143,7 @@ describe('RDP Gateway bootstrap', () => {
 		const bootstrapper = new RdpGatewayBootstrapper(
 			loadRdpGatewayConfig({
 				GATEWAY_URL: 'http://gateway:7171',
-				GATEWAY_PUBLIC_URL: 'http://localhost:7171',
+				GATEWAY_PUBLIC_URL: 'http://localhost:3000/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key'
 			}),
 			async () => textResponse('gateway unavailable', false, 502, 'Bad Gateway')

@@ -1,5 +1,8 @@
+import { createCipheriv, hkdfSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { mapTermixRecords } from './termix';
+
+const sourceSecret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
 describe('mapTermixRecords', () => {
 	it('maps supported host fields and plaintext password credentials', () => {
@@ -119,6 +122,110 @@ describe('mapTermixRecords', () => {
 		]);
 	});
 
+	it('decrypts supported Termix field-crypto password fields with a source secret', () => {
+		const encryptedPassword = encryptTermixField({
+			plaintext: 'decrypted-password',
+			sourceSecret,
+			recordId: 'rdp-1',
+			fieldName: 'password'
+		});
+
+		const result = mapTermixRecords(
+			[
+				{
+					id: 'rdp-1',
+					name: 'Windows',
+					protocol: 'rdp',
+					hostname: 'win.example.test',
+					username: 'admin',
+					password: JSON.stringify(encryptedPassword)
+				}
+			],
+			{ sourceSecret }
+		);
+
+		expect(result.credentials).toEqual([
+			{
+				sourceId: 'rdp-1:password',
+				name: 'Windows password',
+				kind: 'password',
+				username: 'admin',
+				secret: 'decrypted-password',
+				metadata: { sourceRecordId: 'rdp-1' }
+			}
+		]);
+		expect(result.hosts[0]?.credentialRef).toBe('rdp-1:password');
+		expect(result.warnings).toHaveLength(0);
+	});
+
+	it('maps Termix export ip aliases and decrypts encrypted key fields', () => {
+		const encryptedKey = encryptTermixField({
+			plaintext: '-----BEGIN OPENSSH PRIVATE KEY-----',
+			sourceSecret,
+			recordId: 'ssh-1',
+			fieldName: 'key'
+		});
+
+		const result = mapTermixRecords(
+			[
+				{
+					id: 'ssh-1',
+					name: 'Exported SSH',
+					connectionType: 'ssh',
+					ip: '10.0.0.10',
+					username: 'deploy',
+					key: encryptedKey
+				}
+			],
+			{ sourceSecret }
+		);
+
+		expect(result.hosts[0]).toMatchObject({
+			sourceId: 'ssh-1',
+			hostname: '10.0.0.10',
+			credentialRef: 'ssh-1:ssh-key'
+		});
+		expect(result.credentials[0]).toMatchObject({
+			sourceId: 'ssh-1:ssh-key',
+			kind: 'ssh_key',
+			secret: '-----BEGIN OPENSSH PRIVATE KEY-----'
+		});
+		expect(result.warnings).toHaveLength(0);
+	});
+
+	it('warns explicitly when encrypted credentials are unsupported or fail decryption', () => {
+		const encryptedPassword = encryptTermixField({
+			plaintext: 'decrypted-password',
+			sourceSecret,
+			recordId: 'rdp-1',
+			fieldName: 'password'
+		});
+
+		const result = mapTermixRecords(
+			[
+				{
+					id: 'legacy',
+					protocol: 'ssh',
+					hostname: 'legacy.example.test',
+					password: 'encrypted:v1:ciphertext'
+				},
+				{
+					id: 'rdp-1',
+					protocol: 'rdp',
+					hostname: 'win.example.test',
+					password: JSON.stringify(encryptedPassword)
+				}
+			],
+			{ sourceSecret: 'wrong-secret' }
+		);
+
+		expect(result.credentials).toHaveLength(0);
+		expect(result.warnings.map((warning) => warning.code)).toEqual([
+			'unsupported_encrypted_credential',
+			'credential_decryption_failed'
+		]);
+	});
+
 	it('skips records with missing hostname or invalid port', () => {
 		const result = mapTermixRecords([
 			{ id: 'missing-host', protocol: 'vnc' },
@@ -133,3 +240,27 @@ describe('mapTermixRecords', () => {
 		]);
 	});
 });
+
+function encryptTermixField(input: {
+	plaintext: string;
+	sourceSecret: string;
+	recordId: string;
+	fieldName: string;
+}) {
+	const salt = Buffer.from('11'.repeat(32), 'hex');
+	const iv = Buffer.from('22'.repeat(16), 'hex');
+	const key = Buffer.from(input.sourceSecret, 'hex');
+	const fieldKey = Buffer.from(
+		hkdfSync('sha256', key, salt, `${input.recordId}:${input.fieldName}`, 32)
+	);
+	const cipher = createCipheriv('aes-256-gcm', fieldKey, iv);
+	const data = cipher.update(input.plaintext, 'utf8', 'hex') + cipher.final('hex');
+
+	return {
+		data,
+		iv: iv.toString('hex'),
+		tag: cipher.getAuthTag().toString('hex'),
+		salt: salt.toString('hex'),
+		recordId: input.recordId
+	};
+}

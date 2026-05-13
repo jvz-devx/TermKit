@@ -1,3 +1,4 @@
+import { createCipheriv, hkdfSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { CredentialService } from '$lib/server/services/credentials';
 import { HostService } from '$lib/server/services/hosts';
@@ -23,6 +24,7 @@ const crypto: CredentialCrypto = {
 		return secret.ciphertext.replace(/^encrypted:/, '');
 	}
 };
+const sourceSecret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
 function createService() {
 	const repository = new InMemoryTermixServicesRepository();
@@ -116,4 +118,65 @@ describe('ImportService', () => {
 		expect(credentials).toHaveLength(1);
 		expect(hosts[0]?.credentialId).toBe(credentials[0]?.id);
 	});
+
+	it('uses sourceSecret during import so decryptable source credentials are stored', async () => {
+		const { imports, repository } = createService();
+		const encryptedPassword = encryptTermixField({
+			plaintext: 'source-password',
+			sourceSecret,
+			recordId: 'prod',
+			fieldName: 'password'
+		});
+
+		const result = await imports.import('user-1', {
+			fileName: 'termix.json',
+			sourceSecret,
+			bytes: JSON.stringify({
+				records: [
+					{
+						id: 'prod',
+						name: 'Prod SSH',
+						protocol: 'ssh',
+						hostname: 'prod.example.test',
+						username: 'deploy',
+						password: JSON.stringify(encryptedPassword)
+					}
+				]
+			})
+		});
+
+		const [credential] = await repository.listCredentials('user-1');
+
+		expect(result.job.status).toBe('completed');
+		expect(result.job.summary).toMatchObject({
+			importedHosts: 1,
+			importedCredentials: 1,
+			warnings: 0
+		});
+		expect(credential?.encryptedSecret).toBe('encrypted:source-password');
+	});
 });
+
+function encryptTermixField(input: {
+	plaintext: string;
+	sourceSecret: string;
+	recordId: string;
+	fieldName: string;
+}) {
+	const salt = Buffer.from('11'.repeat(32), 'hex');
+	const iv = Buffer.from('22'.repeat(16), 'hex');
+	const key = Buffer.from(input.sourceSecret, 'hex');
+	const fieldKey = Buffer.from(
+		hkdfSync('sha256', key, salt, `${input.recordId}:${input.fieldName}`, 32)
+	);
+	const cipher = createCipheriv('aes-256-gcm', fieldKey, iv);
+	const data = cipher.update(input.plaintext, 'utf8', 'hex') + cipher.final('hex');
+
+	return {
+		data,
+		iv: iv.toString('hex'),
+		tag: cipher.getAuthTag().toString('hex'),
+		salt: salt.toString('hex'),
+		recordId: input.recordId
+	};
+}

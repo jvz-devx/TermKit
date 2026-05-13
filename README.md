@@ -1,6 +1,6 @@
 # TermixKit
 
-TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. V1 targets one Docker Compose deployment with the app, Postgres, and Devolutions Gateway wiring for browser-based RDP.
+TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. V1 targets one Docker Compose deployment with the app, Postgres, and Devolutions Gateway wiring for browser-based RDP through the app's single public HTTP port.
 
 ## Milestones
 
@@ -33,7 +33,9 @@ cp .env.example .env
 The template is set up for direct local Compose: `ORIGIN` and `GATEWAY_PUBLIC_URL`
 use `http://localhost` values and `TERMIXKIT_INSECURE_LOCAL_HTTP=1`. Production
 deployments should remove that opt-in and set browser-reachable `https://`
-origins.
+origins. Keep `GATEWAY_PUBLIC_URL` on the app origin, for example
+`https://termix.example/gateway`; the app reverse-proxies that path to the
+internal Gateway container so reverse proxies only expose the app port.
 
 Start Postgres, Gateway, and the production app container:
 
@@ -72,7 +74,7 @@ DATABASE_URL=postgres://termixkit:termixkit@localhost:5432/termixkit npm run db:
 POSTGRES_PASSWORD=dev-password \
 ORIGIN=https://termix.example \
 CREDENTIAL_MASTER_KEY=dev-credential-master-key \
-GATEWAY_PUBLIC_URL=https://rdp.termix.example \
+GATEWAY_PUBLIC_URL=https://termix.example/gateway \
 GATEWAY_PROVISIONER_KEY=dev-gateway-key \
 docker compose config
 ```
@@ -90,9 +92,8 @@ Do not commit real values for any secret.
 - `TERMIXKIT_SSH_TRUST_ON_FIRST_USE`: set to `1` only while enrolling trusted SSH/SFTP hosts. Leave unset or `0` for strict known-host checking.
 - `TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU`: production-only override for TOFU enrollment. Prefer seeding `TERMIXKIT_SSH_KNOWN_HOSTS_PATH` and disabling TOFU after enrollment.
 - `GATEWAY_URL`: internal Devolutions Gateway URL, defaulting to `http://gateway:7171` in Compose. Production startup requires an absolute `http://` or `https://` URL.
-- `GATEWAY_PUBLIC_URL`: browser-reachable Devolutions Gateway URL used by IronRDP. Production requires `https://` and rejects internal Compose names such as `https://gateway`; direct local Compose can use `http://localhost:7171` only with `TERMIXKIT_INSECURE_LOCAL_HTTP=1`.
+- `GATEWAY_PUBLIC_URL`: browser-reachable app proxy URL used by IronRDP, defaulting to `https://localhost:3000/gateway` in Compose. Production requires `https://` and rejects internal Compose names such as `https://gateway`; direct local Compose can use `http://localhost:3000/gateway` only with `TERMIXKIT_INSECURE_LOCAL_HTTP=1`.
 - `GATEWAY_PROVISIONER_KEY`: Gateway provisioning key shared with the app. Production startup requires this value before accepting traffic.
-- `GATEWAY_PORT`: local Compose host port for the Gateway listener, defaulting to `7171`.
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`: local Compose database settings.
 - `DEVOLUTIONS_GATEWAY_TAG`: Gateway container tag. The Compose file currently pins `2026.1.1` by default.
 

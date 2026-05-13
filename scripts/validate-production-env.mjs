@@ -112,6 +112,7 @@ function validateGatewayPublicUrl(value, allowInsecureLocalHttp) {
 	}
 
 	let url;
+	let optedInLocalHttp = false;
 	try {
 		url = new URL(value);
 	} catch {
@@ -135,8 +136,14 @@ function validateGatewayPublicUrl(value, allowInsecureLocalHttp) {
 			);
 		}
 
-		return;
+		optedInLocalHttp = true;
 	}
+
+	if (url.pathname !== '/gateway' && url.pathname !== '/gateway/') {
+		throw new Error('GATEWAY_PUBLIC_URL must use the app /gateway proxy path.');
+	}
+
+	if (optedInLocalHttp) return;
 
 	if (isInternalGatewayHostname(url.hostname)) {
 		throw new Error(

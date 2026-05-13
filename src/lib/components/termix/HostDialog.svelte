@@ -27,7 +27,6 @@
 	let open = $state(false);
 	let saving = $state(false);
 	let error = $state<string | null>(null);
-	let form = $state(createForm());
 
 	type HostForm = {
 		name: string;
@@ -62,6 +61,8 @@
 		vnc: 5900,
 		telnet: 23
 	};
+
+	let form = $state(createForm());
 
 	function createForm(source: HostSummary | null = null): HostForm {
 		return {

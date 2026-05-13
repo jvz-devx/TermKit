@@ -29,7 +29,7 @@ describe('production environment validation', () => {
 		expect(() =>
 			validateProductionEnv(
 				productionEnv({
-					GATEWAY_PUBLIC_URL: 'http://localhost:7171',
+					GATEWAY_PUBLIC_URL: 'http://localhost:3000/gateway',
 					TERMIXKIT_INSECURE_LOCAL_HTTP: 'true'
 				})
 			)
@@ -96,7 +96,7 @@ describe('production environment validation', () => {
 			validateProductionEnv(
 				productionEnv({
 					ORIGIN: 'https://termix.example',
-					GATEWAY_PUBLIC_URL: 'http://rdp.example'
+					GATEWAY_PUBLIC_URL: 'http://rdp.example/gateway'
 				})
 			)
 		).toThrow('GATEWAY_PUBLIC_URL must use https:// in production');
@@ -105,7 +105,7 @@ describe('production environment validation', () => {
 			validateProductionEnv(
 				productionEnv({
 					ORIGIN: 'https://termix.example',
-					GATEWAY_PUBLIC_URL: 'http://rdp.example',
+					GATEWAY_PUBLIC_URL: 'http://rdp.example/gateway',
 					TERMIXKIT_INSECURE_LOCAL_HTTP: '1'
 				})
 			)
@@ -115,10 +115,28 @@ describe('production environment validation', () => {
 			validateProductionEnv(
 				productionEnv({
 					ORIGIN: 'https://termix.example',
-					GATEWAY_PUBLIC_URL: 'https://gateway'
+					GATEWAY_PUBLIC_URL: 'https://gateway/gateway'
 				})
 			)
 		).toThrow('GATEWAY_PUBLIC_URL must be browser-reachable in production');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					ORIGIN: 'https://termix.example',
+					GATEWAY_PUBLIC_URL: 'https://rdp.example'
+				})
+			)
+		).toThrow('GATEWAY_PUBLIC_URL must use the app /gateway proxy path');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					ORIGIN: 'https://termix.example',
+					GATEWAY_PUBLIC_URL: 'https://rdp.example/gateway/custom'
+				})
+			)
+		).toThrow('GATEWAY_PUBLIC_URL must use the app /gateway proxy path');
 	});
 });
 
@@ -128,7 +146,7 @@ function productionEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
 		ORIGIN: 'https://termix.example',
 		CREDENTIAL_MASTER_KEY: 'v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL',
 		GATEWAY_URL: 'http://gateway:7171',
-		GATEWAY_PUBLIC_URL: 'https://rdp.example',
+		GATEWAY_PUBLIC_URL: 'https://rdp.example/gateway',
 		GATEWAY_PROVISIONER_KEY: 'shared-key',
 		...overrides
 	};
