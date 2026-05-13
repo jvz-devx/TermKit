@@ -9,9 +9,15 @@ import { ServiceUnauthorizedError, ServiceValidationError } from '$lib/server/se
 import { RdpGatewayBootstrapper, type RdpGatewayBootstrap } from '$lib/server/rdp/gateway';
 import { SessionTicketConsumer } from '$lib/server/ws/ticket-consumer';
 import { resolveVncLaunchCredentials, type VncLaunchCredentials } from '$lib/server/protocols/vnc';
+import {
+	resolveRdpLaunchCredentials,
+	type RdpLaunchCredentials
+} from '$lib/server/protocols/rdp-credentials';
 import { connectionSessionService } from '$lib/server/services/connection-sessions';
 import { settingsService } from '$lib/server/services/settings';
 import type { CredentialKind, HostProtocol } from '$lib/server/services/types';
+
+export type { RdpLaunchCredentials };
 
 export type HostSummary = {
 	id: string;
@@ -69,6 +75,7 @@ export type SessionLaunch = {
 	websocketPath: string | null;
 	expiresAt: string | null;
 	rdp: RdpGatewayBootstrap | null;
+	rdpCredentials: RdpLaunchCredentials | null;
 	vncCredentials: VncLaunchCredentials | null;
 };
 
@@ -220,6 +227,7 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 				websocketPath: null,
 				expiresAt: null,
 				rdp: null,
+				rdpCredentials: null,
 				vncCredentials: null
 			};
 		}
@@ -235,6 +243,10 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 
 		if (launchProtocol === 'rdp') {
 			const bootstrapper = new RdpGatewayBootstrapper();
+			const rdpCredentials = await resolveRdpLaunchCredentials(
+				userId,
+				parseSessionTicketTargetSnapshot(created.record)
+			);
 			const consumed = await new SessionTicketConsumer().consume(ticket, 'rdp');
 			if (!consumed) throw new ServiceValidationError(['Could not authorize RDP launch']);
 			const connectionSession = await connectionSessionService.start({
@@ -263,6 +275,7 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 				websocketPath: null,
 				expiresAt: created.record.expiresAt.toISOString(),
 				rdp,
+				rdpCredentials,
 				vncCredentials: null
 			};
 		}
@@ -282,6 +295,7 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 			websocketPath: `/ws/${launchProtocol}/${encodeURIComponent(ticket)}`,
 			expiresAt: created.record.expiresAt.toISOString(),
 			rdp: null,
+			rdpCredentials: null,
 			vncCredentials
 		};
 	}

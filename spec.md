@@ -26,6 +26,26 @@ Out of scope for V1:
 - Desktop and mobile wrappers.
 - Compatibility with the existing Termix database schema as the live schema.
 
+V2 scope:
+
+- Microsoft Entra ID login through OIDC, alongside the V1 local login flow.
+- Domain-allowlisted Microsoft auto-provisioning for new users.
+- Persistent SSH workspace tabs.
+- App-owned live SSH sessions that can detach when a browser disconnects and reattach from another browser session while the TermixKit app process remains alive.
+- Per-user live SSH session limits and detached-session idle cleanup.
+- Recent in-memory terminal scrollback for reattached SSH sessions.
+- SSH workspace UI for listing, opening, renaming, reattaching, and closing live SSH tabs.
+
+Out of scope for V2:
+
+- Generic provider-neutral OIDC beyond the Microsoft Entra integration.
+- RBAC, host sharing, and audit logs.
+- TOTP.
+- SSH tunnels, jump hosts, snippets, command history, and bulk command execution.
+- Persisting live SSH processes across app/container restart.
+- Persisting terminal output to Postgres.
+- Dashboards, server stats, Docker management, FTP/FTPS, and desktop/mobile wrappers.
+
 ## Runtime And Stack
 
 - Framework: SvelteKit with Svelte 5 and TypeScript.
@@ -87,6 +107,20 @@ Core tables:
 - `import_jobs`
   - tracks Termix import attempts, counts, warnings, and failures.
 
+V2 tables:
+
+- `auth_identities`
+  - Links local users to external login providers.
+  - Fields: `id`, `userId`, `provider`, `providerSubject`, `tenantId`, `email`, `displayName`, `createdAt`, `updatedAt`.
+  - V2 provider enum values: `microsoft`.
+- `ssh_live_sessions`
+  - Persists live SSH workspace metadata, not terminal output.
+  - Fields: `id`, `userId`, `hostId`, `title`, `status`, `startedAt`, `lastAttachedAt`, `detachedAt`, `expiresAt`, `endedAt`, `terminalCols`, `terminalRows`, `createdAt`, `updatedAt`.
+  - Status enum values: `starting`, `attached`, `detached`, `ended`, `failed`, `stale`.
+- `ssh_attach_tickets`
+  - Short-lived, single-use tickets for attaching a websocket to an existing live SSH session.
+  - Fields: `id`, `userId`, `sshLiveSessionId`, `ticketHash`, `expiresAt`, `consumedAt`, `createdAt`.
+
 Credential encryption:
 
 - Encrypt sensitive credential material before writing to Postgres.
@@ -111,6 +145,24 @@ Requirements:
 
 Do not implement OIDC, TOTP, RBAC, sharing, or audit logs in V1. Keep table and service boundaries simple enough to add them later.
 
+V2 adds Microsoft Entra ID login:
+
+- Keep local username/password login available unless explicitly disabled by configuration.
+- Add Microsoft login and callback routes.
+- Validate OIDC state, nonce, issuer, audience, expiration, and signature.
+- Require the Microsoft account email or preferred username to match a configured allowed domain.
+- Auto-provision a local user only after the domain allowlist passes.
+- Link Microsoft identities through `auth_identities`; do not key users only by email.
+- Map configured admin email addresses to `isAdmin = true` during provisioning.
+- Create the same HTTP-only secure cookie sessions used by local login.
+- Required environment:
+  - `MICROSOFT_AUTH_ENABLED`
+  - `MICROSOFT_TENANT_ID`
+  - `MICROSOFT_CLIENT_ID`
+  - `MICROSOFT_CLIENT_SECRET`
+  - `MICROSOFT_ALLOWED_DOMAINS`
+  - `MICROSOFT_ADMIN_EMAILS`
+
 ## Session Launch Flow
 
 All protocols use the same high-level session launch pattern:
@@ -126,6 +178,21 @@ All protocols use the same high-level session launch pattern:
 
 Tickets must expire quickly and must not contain plaintext credentials.
 
+V2 persistent SSH launch flow:
+
+1. User opens an SSH host in the session workspace.
+2. Server validates auth, host ownership, protocol, credential availability, and per-user live session limits.
+3. Server creates or reuses an `ssh_live_sessions` record.
+4. Server starts an app-owned SSH client and shell stream for new live sessions.
+5. Server creates a short-lived, single-use attach ticket scoped to user and live SSH session.
+6. Client opens `/ws/ssh/live/:ticket`.
+7. WebSocket upgrade validates cookie auth and consumes the attach ticket.
+8. Backend attaches the websocket to the live SSH stream and sends recent in-memory scrollback.
+9. Browser disconnect detaches the websocket but leaves the SSH shell alive until explicit close, remote shell exit, app shutdown, or idle expiry.
+10. Explicit close terminates the SSH shell, closes any attached websocket, and marks the live session ended.
+
+Only SSH uses V2 live reattach semantics. SFTP, RDP, VNC, and Telnet keep the V1 launch-ticket behavior.
+
 ## Protocol Adapters
 
 ### SSH Terminal
@@ -135,6 +202,7 @@ Use `ssh2` on the server and xterm.js in the browser.
 WebSocket path:
 
 - `/ws/ssh/:ticket`
+- `/ws/ssh/live/:ticket` for V2 persistent SSH workspace tabs.
 
 Behavior:
 
@@ -143,6 +211,15 @@ Behavior:
 - Support terminal resize messages.
 - Close the SSH channel when the websocket closes.
 - Report connection failures with structured close/error messages.
+
+V2 live SSH behavior:
+
+- Keep the SSH channel open when a websocket disconnects from a persistent tab.
+- Allow one active websocket attachment per live SSH session; a new attachment takes over from an older attachment.
+- Store recent terminal output in a bounded in-memory ring buffer for reattach.
+- Do not write terminal output or decrypted credential values to Postgres or logs.
+- Default limits: 10 live SSH sessions per user, 2 hour detached idle timeout, and a bounded 5000-line or size-limited scrollback buffer.
+- On app startup, mark any database live sessions without an in-memory owner as `stale`.
 
 ### SFTP File Manager
 
@@ -164,14 +241,18 @@ V1 does not include FTP or FTPS. If a host needs file transfer in V1, it must be
 
 Use IronRDP WASM in the browser and Devolutions Gateway for the browser-to-RDP transport.
 
-WebSocket path:
+Launch path:
 
-- `/ws/rdp/:ticket` or the gateway-compatible path required by the final IronRDP integration.
+- Authenticated remote launch command returns a Devolutions Gateway bootstrap for IronRDP.
+- Browser-facing Gateway transport uses the app proxy URL, for example `/gateway/jet/rdp?...`, not a custom app-owned `/ws/rdp/:ticket` bridge.
 
 Behavior:
 
-- Backend creates/authorizes an RDP session through the embedded Gateway.
+- Backend validates the user, host ownership, RDP protocol, credential availability, and Gateway configuration.
+- Backend creates/authorizes an RDP session through the embedded Gateway and records the connection session lifecycle.
 - Client receives the information required by IronRDP: destination, proxy address, auth token, username, domain, and desktop size.
+- Saved password credentials are decrypted only during the authenticated launch, staged in browser memory for the IronRDP connect call, and cleared after the connect attempt is built.
+- Gateway provisioning must not receive target passwords; it receives only destination/session metadata and Gateway authorization.
 - Browser renders to canvas through IronRDP.
 - Support keyboard, mouse, resize, disconnect, and basic clipboard if available through the chosen IronRDP/Gateway integration.
 
@@ -340,6 +421,37 @@ Required build checks:
 - Add Playwright coverage for primary flows.
 - Complete README and deployment docs.
 
+### V2 Milestone 1: Microsoft Entra Auth
+
+- Add Microsoft Entra OIDC configuration validation.
+- Add Microsoft login and callback routes.
+- Add `auth_identities` schema and migrations.
+- Add domain-allowlisted auto-provisioning.
+- Reuse the V1 session cookie/session table after Microsoft login.
+- Add login UI affordance for Microsoft when enabled.
+
+### V2 Milestone 2: Live SSH Session Backend
+
+- Add `ssh_live_sessions` and `ssh_attach_tickets` schema and migrations.
+- Add an in-process live SSH session manager.
+- Add live SSH create, list, rename, attach-ticket, and close services.
+- Add `/ws/ssh/live/:ticket` upgrade handling.
+- Add detached idle cleanup and startup stale-session reconciliation.
+
+### V2 Milestone 3: Persistent SSH Workspace UI
+
+- Add SSH tab strip in the session workspace.
+- Support opening multiple SSH tabs, renaming tabs, reattaching detached tabs, and closing live tabs.
+- Show attached, detached, connecting, failed, stale, and ended states.
+- Preserve V1 protocol tabs for SFTP, RDP, VNC, and Telnet.
+
+### V2 Milestone 4: Verification And Docs
+
+- Add Microsoft auth tests and configuration docs.
+- Add live SSH manager, websocket, and browser smoke tests.
+- Document V2 persistence limits, especially that live SSH sessions do not survive app/container restart.
+- Keep all V1 verification gates passing.
+
 ## Acceptance Criteria
 
 V1 is complete when:
@@ -355,3 +467,18 @@ V1 is complete when:
 - RDP works in the browser through IronRDP and Devolutions Gateway without Guacamole.
 - A Termix import can bring over supported host and credential data with a clear summary.
 - Tests and production build pass.
+
+V2 is complete when:
+
+- Microsoft Entra login works with configured tenant, client credentials, and allowed domains.
+- A domain-allowed Microsoft user can be auto-provisioned and receives a normal TermixKit session.
+- A blocked-domain Microsoft user cannot sign in.
+- Configured Microsoft admin emails become admins on first provisioning.
+- A user can open multiple live SSH tabs.
+- Refreshing the browser or signing in from another browser can reattach to a still-running SSH tab while the app process is alive.
+- Browser disconnect does not kill a persistent SSH tab.
+- Explicit tab close terminates the SSH shell.
+- Detached sessions expire after the configured idle timeout.
+- App restart marks old live SSH metadata as stale rather than pretending sessions are still alive.
+- Terminal output is not persisted to Postgres.
+- V1 SSH, SFTP, Telnet, VNC, RDP, importer, tests, and production build still pass.

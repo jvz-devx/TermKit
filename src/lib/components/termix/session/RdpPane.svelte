@@ -29,11 +29,13 @@
 		launch,
 		error,
 		onReconnect,
+		onSavedPasswordStaged,
 		clipboardSync = true
 	}: {
 		launch: SessionLaunch | null;
 		error: string | null;
 		onReconnect: () => void;
+		onSavedPasswordStaged?: () => void;
 		clipboardSync?: boolean;
 	} = $props();
 
@@ -45,6 +47,8 @@
 	let detail = $state('Loading IronRDP client.');
 	let sessionUsername = $state('');
 	let sessionPassword = $state('');
+	let stagedSavedPassword = $state<string | null>(null);
+	let savedPasswordCleared = $state(false);
 	let viewportElement = $state<HTMLDivElement | null>(null);
 	let resizeObserver: ResizeObserver | null = null;
 	let resizeFrame: number | null = null;
@@ -74,17 +78,32 @@
 				? 'secondary'
 				: 'outline'
 	);
-	let targetCredentialState = $derived(
-		bootstrap?.credentialHint
-			? 'Saved password is held server-side; enter it locally to connect.'
-			: 'Enter the target RDP password locally to connect.'
+	let rdpCredentials = $derived(launch?.rdpCredentials ?? null);
+	let savedPasswordAvailable = $derived(
+		rdpCredentials?.source === 'saved-password' &&
+			Boolean(stagedSavedPassword) &&
+			!savedPasswordCleared
 	);
+	let targetCredentialState = $derived.by(() => {
+		if (savedPasswordAvailable) {
+			return 'Saved RDP password is staged for this tab and will be cleared after connect.';
+		}
+
+		if (rdpCredentials?.unavailableReason) return rdpCredentials.unavailableReason;
+		if (rdpCredentials?.source === 'saved-password') {
+			return 'Saved RDP password is no longer staged; enter it locally to reconnect.';
+		}
+
+		return bootstrap?.credentialHint
+			? 'Saved password is held server-side; enter it locally to connect.'
+			: 'Enter the target RDP password locally to connect.';
+	});
 	let canConnect = $derived(
 		Boolean(
 			bootstrap &&
 			api &&
 			rdpModule &&
-			sessionPassword &&
+			(sessionPassword || stagedSavedPassword) &&
 			connectionState !== 'connecting' &&
 			connectionState !== 'connected'
 		)
@@ -99,7 +118,10 @@
 			return;
 		}
 
-		sessionUsername = bootstrap.identity.username ?? '';
+		sessionUsername = rdpCredentials?.username ?? bootstrap.identity.username ?? '';
+		stagedSavedPassword =
+			rdpCredentials?.source === 'saved-password' ? (rdpCredentials.password ?? null) : null;
+		if (stagedSavedPassword) onSavedPasswordStaged?.();
 		void mountIronRdp();
 
 		return () => {
@@ -147,7 +169,8 @@
 	}
 
 	async function connect() {
-		if (!bootstrap || !api || !rdpModule || !sessionPassword) return;
+		const password = sessionPassword || stagedSavedPassword;
+		if (!bootstrap || !api || !rdpModule || !password) return;
 
 		try {
 			connectionState = 'connecting';
@@ -160,7 +183,7 @@
 				.withDestination(bootstrap.destination)
 				.withProxyAddress(bootstrap.gatewayPublicUrl)
 				.withAuthToken(bootstrap.associationToken)
-				.withPassword(sessionPassword)
+				.withPassword(password)
 				.withDesktopSize(desktopSize)
 				.withExtension(rdpModule.preConnectionBlob(bootstrap.preconnectionBlob))
 				.withExtension(rdpModule.enableCredssp(true))
@@ -169,8 +192,8 @@
 			if (username) builder.withUsername(username);
 			if (bootstrap.identity.domain) builder.withServerDomain(bootstrap.identity.domain);
 
+			clearLocalPasswordState();
 			const session = await api.connect(builder.build());
-			sessionPassword = '';
 			connectionState = 'connected';
 			lastDesktopSize = desktopSize;
 			detail = 'RDP canvas is connected.';
@@ -192,10 +215,17 @@
 					void recordRdpLifecycle('failed', rdpClientErrorCode(caught));
 				});
 		} catch (caught) {
+			clearLocalPasswordState();
 			connectionState = 'error';
 			detail = `Could not connect RDP session: ${errorMessage(caught)}`;
 			void recordRdpLifecycle('failed', rdpClientErrorCode(caught));
 		}
+	}
+
+	function clearLocalPasswordState() {
+		sessionPassword = '';
+		stagedSavedPassword = null;
+		savedPasswordCleared = true;
 	}
 
 	function submitConnect(event: SubmitEvent) {

@@ -1,6 +1,8 @@
 import { spawn, execFile as execFileCallback } from 'node:child_process';
 import { once } from 'node:events';
 import { constants as fsConstants, existsSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { createServer as createHttpServer } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -39,6 +41,7 @@ const rfbVersion = Buffer.from('RFB 003.008\n');
 const cleanup = [];
 const results = [];
 let appProcess;
+let appLogs;
 let postgresContainerName;
 let tempDir;
 
@@ -61,7 +64,13 @@ try {
 	cleanup.push(fixtures.close);
 	pass('local protocol fixtures', fixtures.summary);
 
-	const app = await startOrUseApp();
+	const gateway = process.env.TERMIXKIT_SMOKE_APP_BASE_URL ? null : await startMockRdpGateway();
+	if (gateway) {
+		cleanup.push(gateway.close);
+		pass('mock RDP Gateway', gateway.url);
+	}
+
+	const app = await startOrUseApp(gateway?.url);
 	cleanup.push(app.close);
 	pass('built app ready', app.baseUrl);
 
@@ -117,9 +126,27 @@ try {
 	await smokeVncWebSocket(api, app.baseUrl, auth.cookieHeader, vncHost.id, fixtures.vncState);
 	pass('VNC websocket RFB banner', 'proxied RFB 003.008 banner');
 
+	if (gateway) {
+		const rdpCredential = await createRdpCredential(api);
+		const rdpHost = await createHost(api, {
+			name: 'Smoke RDP fixture',
+			protocol: 'rdp',
+			hostname: 'windows.example.test',
+			port: 3389,
+			username: 'host-rdp-user',
+			credentialId: rdpCredential.id,
+			tags: ['smoke']
+		});
+		await smokeRdpSessionLaunchUi(auth.page, rdpHost.id, gateway);
+		pass('RDP remote launch boundary', 'staged saved password through Gateway bootstrap');
+	} else {
+		pass('RDP remote launch boundary', 'skipped for externally managed app');
+	}
+
 	printResults(console.log);
 } catch (error) {
 	printResults(console.error);
+	if (appLogs) console.error(formatLogs(appLogs));
 	console.error(error instanceof Error ? error.stack || error.message : error);
 	process.exitCode = 1;
 } finally {
@@ -139,7 +166,7 @@ function printResults(write) {
 	}
 }
 
-async function startOrUseApp() {
+async function startOrUseApp(gatewayUrl) {
 	const existingBaseUrl = process.env.TERMIXKIT_SMOKE_APP_BASE_URL;
 	if (existingBaseUrl) {
 		return {
@@ -154,6 +181,7 @@ async function startOrUseApp() {
 	const port = Number(process.env.TERMIXKIT_SMOKE_APP_PORT ?? (await findAvailablePort()));
 	const baseUrl = `http://127.0.0.1:${port}`;
 	const logs = { stdout: '', stderr: '' };
+	appLogs = logs;
 	const appEnv = {
 		...process.env,
 		NODE_ENV: 'production',
@@ -169,7 +197,7 @@ async function startOrUseApp() {
 			process.env.TERMIXKIT_SSH_KNOWN_HOSTS_PATH ?? join(tempDir, 'ssh-known-hosts.json'),
 		TERMIXKIT_SSH_TRUST_ON_FIRST_USE: process.env.TERMIXKIT_SSH_TRUST_ON_FIRST_USE ?? '1',
 		TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: process.env.TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU ?? '1',
-		GATEWAY_URL: process.env.GATEWAY_URL ?? 'http://127.0.0.1:7171',
+		GATEWAY_URL: process.env.GATEWAY_URL ?? gatewayUrl ?? 'http://127.0.0.1:7171',
 		GATEWAY_PUBLIC_URL: process.env.GATEWAY_PUBLIC_URL ?? `${baseUrl}/gateway`,
 		GATEWAY_PROVISIONER_KEY: process.env.GATEWAY_PROVISIONER_KEY ?? 'app-smoke-local-key'
 	};
@@ -321,6 +349,7 @@ async function createAndLoginAdmin(baseUrl) {
 
 	return {
 		createdAdmin,
+		page,
 		cookieHeader,
 		close: () => context.close()
 	};
@@ -399,9 +428,66 @@ async function createSshCredential(api) {
 	return credential;
 }
 
+async function createRdpCredential(api) {
+	const { credential } = await api.post('/api/credentials', {
+		name: 'Smoke RDP password',
+		kind: 'password',
+		username: 'saved-rdp-user',
+		secret: 'saved-rdp-password'
+	});
+	return credential;
+}
+
 async function createHost(api, input) {
 	const { host } = await api.post('/api/hosts', input);
 	return host;
+}
+
+async function smokeRdpSessionLaunchUi(page, hostId, gateway) {
+	const initialGatewayRequests = gateway.requests.length;
+	const launchPage = await page.context().newPage();
+
+	try {
+		await launchPage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=rdp`);
+		await waitFor(
+			() => gateway.requests.length >= initialGatewayRequests + 2,
+			async () => {
+				const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
+					.replace(/\s+/g, ' ')
+					.trim();
+				return `RDP launch did not provision a Gateway association token. ${launchPage.url()} ${bodyText}`;
+			}
+		);
+
+		try {
+			await launchPage
+				.getByText('Saved RDP password is staged for this tab and will be cleared after connect.')
+				.waitFor({ timeout: timeoutMs });
+		} catch (error) {
+			const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
+				.replace(/\s+/g, ' ')
+				.trim();
+			throw new Error(`RDP launch UI did not show staged saved credentials: ${bodyText}`, {
+				cause: error
+			});
+		}
+
+		const requests = gateway.requests.slice(initialGatewayRequests);
+		assert(requests[0]?.path === '/jet/webapp/app-token', 'missing RDP app-token request');
+		assert(requests[1]?.path === '/jet/webapp/session-token', 'missing RDP session-token request');
+		assert(
+			requests[1]?.body?.destination === 'tcp://windows.example.test:3389',
+			'RDP launch provisioned the wrong destination'
+		);
+		assert(
+			!JSON.stringify(requests).includes('saved-rdp-password'),
+			'RDP launch leaked saved password to Gateway provisioning'
+		);
+		const bodyText = (await launchPage.locator('body').textContent()) ?? '';
+		assert(!bodyText.includes('saved-rdp-password'), 'RDP pane rendered the saved password');
+	} finally {
+		await launchPage.close().catch(() => {});
+	}
 }
 
 async function createTicket(api, hostId, protocol) {
@@ -518,6 +604,72 @@ async function smokeVncWebSocket(api, baseUrl, cookieHeader, hostId, vncState) {
 	} finally {
 		socket.close();
 	}
+}
+
+async function startMockRdpGateway() {
+	const provisionerSubject = process.env.GATEWAY_PROVISIONER_SUBJECT ?? 'TermixKit';
+	const provisionerKey = process.env.GATEWAY_PROVISIONER_KEY ?? 'app-smoke-local-key';
+	const appToken = 'app-smoke-gateway-app-token';
+	const associationToken = 'app-smoke-gateway-association-token';
+	const requests = [];
+	const server = createHttpServer(async (request, response) => {
+		try {
+			const body = await readJsonBody(request);
+			const path = new URL(request.url, 'http://127.0.0.1').pathname;
+			requests.push({
+				method: request.method,
+				path,
+				authorization: request.headers.authorization,
+				body
+			});
+
+			if (request.method !== 'POST') {
+				writeText(response, 405, 'Method Not Allowed', 'method not allowed');
+				return;
+			}
+
+			if (path === '/jet/webapp/app-token') {
+				assert(
+					request.headers.authorization ===
+						`Basic ${Buffer.from(`${provisionerSubject}:${provisionerKey}`).toString('base64')}`,
+					'RDP app-token request used the wrong Authorization header'
+				);
+				assert(body.content_type === 'WEBAPP', 'RDP app-token request used the wrong content type');
+				assert(typeof body.subject === 'string' && body.subject, 'RDP app-token subject missing');
+				writeText(response, 200, 'OK', appToken);
+				return;
+			}
+
+			if (path === '/jet/webapp/session-token') {
+				assert(
+					request.headers.authorization === `Bearer ${appToken}`,
+					'RDP session-token request used the wrong Authorization header'
+				);
+				assert(
+					body.content_type === 'ASSOCIATION',
+					'RDP session-token request used the wrong content type'
+				);
+				assert(body.protocol === 'rdp', 'RDP session-token request used the wrong protocol');
+				assert(typeof body.session_id === 'string' && body.session_id, 'RDP session id missing');
+				writeText(response, 200, 'OK', associationToken);
+				return;
+			}
+
+			writeText(response, 404, 'Not Found', 'not found');
+		} catch (error) {
+			writeText(response, 500, 'Internal Server Error', errorText(error));
+		}
+	});
+
+	await listen(server);
+	const address = server.address();
+	assert(address && typeof address !== 'string', 'mock RDP Gateway did not bind a TCP port');
+
+	return {
+		url: `http://127.0.0.1:${address.port}`,
+		requests,
+		close: () => closeServer(server)
+	};
 }
 
 function openWebSocket(baseUrl, path, cookieHeader) {
@@ -867,6 +1019,36 @@ function longname(name, attrs) {
 	return `${kind}rw-r--r-- 1 smoke smoke ${attrs.size} Jan 1 1970 ${name}`;
 }
 
+function readJsonBody(request) {
+	return new Promise((resolveBody, reject) => {
+		const chunks = [];
+		request.on('data', (chunk) => chunks.push(chunk));
+		request.on('error', reject);
+		request.on('end', () => {
+			const raw = Buffer.concat(chunks).toString('utf8');
+			if (!raw) {
+				resolveBody({});
+				return;
+			}
+
+			try {
+				resolveBody(JSON.parse(raw));
+			} catch (error) {
+				reject(error);
+			}
+		});
+	});
+}
+
+function writeText(response, statusCode, statusMessage, text) {
+	response.writeHead(statusCode, statusMessage, { 'content-type': 'text/plain; charset=utf-8' });
+	response.end(text);
+}
+
+function errorText(error) {
+	return error instanceof Error ? error.message : String(error);
+}
+
 function listen(server) {
 	server.listen(0, '127.0.0.1');
 	return once(server, 'listening');
@@ -958,7 +1140,7 @@ async function waitFor(predicate, message) {
 		if (predicate()) return;
 		await delay(50);
 	}
-	throw new Error(message);
+	throw new Error(typeof message === 'function' ? await message() : message);
 }
 
 async function runCleanup(callbacks) {

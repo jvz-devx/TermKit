@@ -7,7 +7,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import StatePanel from '../StatePanel.svelte';
-	import RFB, { type RfbClient } from './novnc-rfb';
+	import type { RfbClient } from './novnc-rfb';
 
 	type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected';
 	type CredentialStrategy = 'none' | 'saved-password';
@@ -60,6 +60,7 @@
 	onMount(() => {
 		let rfb: RfbClient | undefined;
 		let resizeObserver: ResizeObserver | undefined;
+		let disposed = false;
 
 		if (!websocketUrl) {
 			connectionState = 'idle';
@@ -69,73 +70,86 @@
 
 		connectionState = 'connecting';
 		detail = 'Opening VNC websocket.';
-		rfb = new RFB(mountElement, websocketUrl, {
-			shared: true,
-			credentials: suppliedCredentials
-		});
-		rfbClient = rfb;
-		rfb.viewOnly = viewOnly;
-		rfb.focusOnClick = true;
-		rfb.clipViewport = true;
-		rfb.dragViewport = true;
-		rfb.scaleViewport = true;
-		rfb.resizeSession = true;
-		rfb.showDotCursor = true;
+		void (async () => {
+			try {
+				const { default: RFB } = await import('./novnc-rfb');
+				if (disposed) return;
 
-		rfb.addEventListener('connect', () => {
-			connectionState = 'connected';
-			authPromptVisible = false;
-			savedCredentialFallbackPrompt = false;
-			detail = 'VNC framebuffer is connected.';
-			rfb?.focus();
-		});
-		rfb.addEventListener('disconnect', () => {
-			if (savedCredentialFallbackPrompt) {
+				rfb = new RFB(mountElement, websocketUrl, {
+					shared: true,
+					credentials: suppliedCredentials
+				});
+				rfbClient = rfb;
+				rfb.viewOnly = viewOnly;
+				rfb.focusOnClick = true;
+				rfb.clipViewport = true;
+				rfb.dragViewport = true;
+				rfb.scaleViewport = true;
+				rfb.resizeSession = true;
+				rfb.showDotCursor = true;
+
+				rfb.addEventListener('connect', () => {
+					connectionState = 'connected';
+					authPromptVisible = false;
+					savedCredentialFallbackPrompt = false;
+					detail = 'VNC framebuffer is connected.';
+					rfb?.focus();
+				});
+				rfb.addEventListener('disconnect', () => {
+					if (savedCredentialFallbackPrompt) {
+						connectionState = 'error';
+						authPromptVisible = true;
+						detail = 'Saved VNC password was rejected. Enter VNC credentials to retry manually.';
+						return;
+					}
+
+					connectionState = 'disconnected';
+					authPromptVisible = false;
+					detail = 'VNC session closed.';
+				});
+				rfb.addEventListener('securityfailure', () => {
+					connectionState = 'error';
+					if (credentialStrategy === 'saved-password' && !savedPasswordCleared && rfb) {
+						clearStagedSavedPassword(rfb);
+						showManualCredentialPrompt(['username', 'password']);
+						detail = 'Saved VNC password was rejected. Enter VNC credentials to retry manually.';
+						return;
+					}
+
+					authPromptVisible = false;
+					detail =
+						'VNC security negotiation failed. Reconnect the session if the target rejected the credentials.';
+				});
+				rfb.addEventListener('credentialsrequired', (event) => {
+					connectionState = 'error';
+					showManualCredentialPrompt(event.detail?.types ?? []);
+					detail =
+						credentialStrategy === 'saved-password'
+							? 'Saved VNC password was supplied, but the target requested more credentials.'
+							: 'VNC password is required by the target.';
+				});
+				rfb.addEventListener('desktopname', (event) => {
+					desktopName =
+						event instanceof CustomEvent && typeof event.detail?.name === 'string'
+							? event.detail.name
+							: 'VNC';
+				});
+
+				resizeObserver = new ResizeObserver(() => {
+					if (!rfb) return;
+					rfb.scaleViewport = true;
+					rfb.resizeSession = true;
+				});
+				resizeObserver.observe(mountElement);
+			} catch (caught) {
+				if (disposed) return;
 				connectionState = 'error';
-				authPromptVisible = true;
-				detail = 'Saved VNC password was rejected. Enter VNC credentials to retry manually.';
-				return;
+				detail = `Could not load noVNC client: ${caught instanceof Error ? caught.message : String(caught)}`;
 			}
-
-			connectionState = 'disconnected';
-			authPromptVisible = false;
-			detail = 'VNC session closed.';
-		});
-		rfb.addEventListener('securityfailure', () => {
-			connectionState = 'error';
-			if (credentialStrategy === 'saved-password' && !savedPasswordCleared) {
-				clearStagedSavedPassword(rfb);
-				showManualCredentialPrompt(['username', 'password']);
-				detail = 'Saved VNC password was rejected. Enter VNC credentials to retry manually.';
-				return;
-			}
-
-			authPromptVisible = false;
-			detail =
-				'VNC security negotiation failed. Reconnect the session if the target rejected the credentials.';
-		});
-		rfb.addEventListener('credentialsrequired', (event) => {
-			connectionState = 'error';
-			showManualCredentialPrompt(event.detail?.types ?? []);
-			detail =
-				credentialStrategy === 'saved-password'
-					? 'Saved VNC password was supplied, but the target requested more credentials.'
-					: 'VNC password is required by the target.';
-		});
-		rfb.addEventListener('desktopname', (event) => {
-			desktopName =
-				event instanceof CustomEvent && typeof event.detail?.name === 'string'
-					? event.detail.name
-					: 'VNC';
-		});
-
-		resizeObserver = new ResizeObserver(() => {
-			rfb!.scaleViewport = true;
-			rfb!.resizeSession = true;
-		});
-		resizeObserver.observe(mountElement);
+		})();
 
 		return () => {
+			disposed = true;
 			resizeObserver?.disconnect();
 			rfb?.disconnect();
 			rfbClient = null;

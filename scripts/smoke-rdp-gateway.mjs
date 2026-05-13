@@ -77,16 +77,20 @@ async function smokeMockedGatewayBootstrap({ RdpGatewayBootstrapper, loadRdpGate
 	});
 
 	try {
-		const config = loadRdpGatewayConfig({
+		const env = {
 			GATEWAY_URL: gateway.url,
-			GATEWAY_PUBLIC_URL: `${gateway.url}/gateway`,
+			GATEWAY_PUBLIC_URL: `${gateway.url}/gateway/`,
 			GATEWAY_PROVISIONER_SUBJECT: provisionerSubject,
 			GATEWAY_PROVISIONER_KEY: provisionerKey,
 			GATEWAY_RDP_SESSION_TTL_SECONDS: '120',
 			GATEWAY_RDP_WIDTH: '1600',
 			GATEWAY_RDP_HEIGHT: '1000'
-		});
+		};
+		const config = loadRdpGatewayConfig(env);
 		const bootstrapper = new RdpGatewayBootstrapper(config, timeoutFetch(readTimeoutMs()));
+
+		assertGatewayPublicUrlContract(loadRdpGatewayConfig, env, gateway.url);
+
 		const bootstrap = await bootstrapper.bootstrap({
 			ticketId: 'smoke-ticket',
 			userId: 'smoke-user',
@@ -106,6 +110,24 @@ async function smokeMockedGatewayBootstrap({ RdpGatewayBootstrapper, loadRdpGate
 				domain: 'SMOKE'
 			}
 		});
+		const savedCredentialBootstrap = await bootstrapper.bootstrap({
+			ticketId: 'smoke-saved-credential-ticket',
+			userId: 'smoke-user',
+			hostId: 'smoke-host',
+			protocol: 'rdp',
+			target: {
+				host: 'windows.example.test',
+				port: 3389,
+				credential: {
+					kind: 'password',
+					username: 'saved-credential-user',
+					password: 'saved-credential-secret'
+				}
+			},
+			metadata: {
+				domain: ' SAVED '
+			}
+		});
 
 		assert(bootstrap.provider === 'devolutions-gateway', 'unexpected bootstrap provider');
 		assert(bootstrap.protocol === 'rdp', 'unexpected bootstrap protocol');
@@ -115,33 +137,42 @@ async function smokeMockedGatewayBootstrap({ RdpGatewayBootstrapper, loadRdpGate
 			bootstrap.gatewayPublicUrl === `${gateway.url}/gateway`,
 			'unexpected public Gateway URL'
 		);
+		assertBrowserBootstrapContract(bootstrap, gateway.url);
 		assert(bootstrap.associationToken === associationToken, 'association token mismatch');
 		assert(bootstrap.preconnectionBlob === associationToken, 'preconnection blob mismatch');
 		assert(bootstrap.desktop.width === 1600, 'desktop width mismatch');
 		assert(bootstrap.desktop.height === 1000, 'desktop height mismatch');
 		assert(bootstrap.identity.username === 'rdp-user', 'username identity mismatch');
 		assert(bootstrap.identity.domain === 'SMOKE', 'domain identity mismatch');
+		assertSavedPasswordMetadata(bootstrap, {
+			username: 'rdp-user',
+			domain: 'SMOKE',
+			secret: 'super-secret-password',
+			label: 'explicit RDP credential'
+		});
+		assertSavedPasswordMetadata(savedCredentialBootstrap, {
+			username: 'saved-credential-user',
+			domain: 'SAVED',
+			secret: 'saved-credential-secret',
+			label: 'saved RDP credential'
+		});
 		assert(
-			bootstrap.credentialHint?.serverHeld === true,
-			'password credential was not server-held'
+			gateway.requests.length === 4,
+			'Gateway did not receive exactly four provisioning calls'
 		);
-		assert(
-			!JSON.stringify(bootstrap).includes('super-secret-password'),
-			'bootstrap leaked RDP password'
-		);
-		assert(gateway.requests.length === 2, 'Gateway did not receive exactly two provisioning calls');
 		assert(gateway.requests[0]?.path === '/jet/webapp/app-token', 'missing app-token request');
 		assert(
 			gateway.requests[1]?.path === '/jet/webapp/session-token',
 			'missing session-token request'
 		);
+		assertGatewayProvisioningContract(gateway.requests);
 		assert(
 			gateway.requests[1]?.body?.destination === 'tcp://windows.example.test:3389',
 			'session-token request used the wrong destination'
 		);
 		assert(gateway.requests[1]?.body?.lifetime === 120, 'session-token request used the wrong TTL');
 
-		return 'validated app-token and session-token provisioning flow';
+		return 'validated app proxy URL, credential metadata, and provisioning flow';
 	} finally {
 		await gateway.close();
 	}
@@ -200,6 +231,82 @@ async function smokeRealGatewayBootstrap({ RdpGatewayBootstrapper, loadRdpGatewa
 	);
 
 	return `provisioned ${destination}`;
+}
+
+function assertGatewayPublicUrlContract(loadRdpGatewayConfig, env, gatewayUrl) {
+	const normalized = loadRdpGatewayConfig(env).gatewayPublicUrl;
+	assert(normalized === `${gatewayUrl}/gateway`, 'public Gateway URL was not normalized');
+
+	assertConfigRejected(
+		loadRdpGatewayConfig,
+		{ ...env, GATEWAY_PUBLIC_URL: `${gatewayUrl}/` },
+		'app /gateway proxy path',
+		'public Gateway URL without app proxy path was accepted'
+	);
+	assertConfigRejected(
+		loadRdpGatewayConfig,
+		{
+			...env,
+			NODE_ENV: 'production',
+			GATEWAY_PUBLIC_URL: 'https://gateway/gateway'
+		},
+		'browser-reachable',
+		'production public Gateway URL accepted an internal gateway host'
+	);
+	assertConfigRejected(
+		loadRdpGatewayConfig,
+		{ ...env, GATEWAY_PUBLIC_URL: `${gatewayUrl}/gateway#token` },
+		'credentials or fragments',
+		'public Gateway URL accepted a fragment'
+	);
+}
+
+function assertBrowserBootstrapContract(bootstrap, gatewayUrl) {
+	const publicUrl = new URL(bootstrap.gatewayPublicUrl);
+	assert(bootstrap.gatewayUrl === gatewayUrl, 'bootstrap lost the internal Gateway URL');
+	assert(bootstrap.gatewayPublicUrl !== gatewayUrl, 'browser Gateway URL bypassed the app proxy');
+	assert(publicUrl.pathname === '/gateway', 'browser Gateway URL did not use the app proxy path');
+	assert(!publicUrl.username && !publicUrl.password, 'browser Gateway URL exposed credentials');
+	assert(!publicUrl.hash, 'browser Gateway URL exposed a fragment');
+}
+
+function assertSavedPasswordMetadata(bootstrap, { username, domain, secret, label }) {
+	assert(bootstrap.identity.username === username, `${label} username identity mismatch`);
+	assert(bootstrap.identity.domain === domain, `${label} domain identity mismatch`);
+	assert(bootstrap.credentialHint?.kind === 'password', `${label} kind hint mismatch`);
+	assert(bootstrap.credentialHint.username === username, `${label} credential username mismatch`);
+	assert(bootstrap.credentialHint.serverHeld === true, `${label} was not server-held`);
+	assert(
+		!Object.hasOwn(bootstrap.credentialHint, 'password'),
+		`${label} exposed password metadata`
+	);
+	assert(!JSON.stringify(bootstrap).includes(secret), `${label} leaked RDP password`);
+}
+
+function assertGatewayProvisioningContract(requests) {
+	for (const request of requests) {
+		assert(request.method === 'POST', 'Gateway provisioning used a non-POST request');
+		assert(
+			!request.path.startsWith('/gateway/'),
+			'Gateway provisioning was sent to app proxy path'
+		);
+		assert(
+			!JSON.stringify(request.body).includes('super-secret-password') &&
+				!JSON.stringify(request.body).includes('saved-credential-secret'),
+			'Gateway provisioning request leaked an RDP password'
+		);
+	}
+}
+
+function assertConfigRejected(loadRdpGatewayConfig, env, messagePart, failureMessage) {
+	try {
+		loadRdpGatewayConfig(env);
+	} catch (error) {
+		assert(errorMessage(error).includes(messagePart), failureMessage);
+		return;
+	}
+
+	throw new Error(failureMessage);
 }
 
 async function startMockGateway({

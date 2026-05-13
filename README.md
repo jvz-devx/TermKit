@@ -9,6 +9,10 @@ TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. V1 t
 - V1 wave 3: host and credential management UI.
 - V1 wave 4: SSH/SFTP, Telnet, VNC, and RDP launch flows.
 - V1 hardening: import job persistence, gateway provisioning, production runbook, backup/restore checks.
+- V2 milestone 1: Microsoft Entra ID login with domain-allowlisted auto-provisioning.
+- V2 milestone 2: app-owned live SSH sessions with attach tickets, session limits, idle cleanup, and stale-session reconciliation.
+- V2 milestone 3: persistent SSH workspace tabs for opening, renaming, reattaching, and closing live SSH sessions.
+- V2 milestone 4: Microsoft auth docs, live SSH docs, browser smokes, and continued V1 regression coverage.
 
 ## Application Navigation
 
@@ -125,6 +129,8 @@ Supported uploads are JSON arrays, JSON objects with `records`, `connections`, o
 
 Imported protocol metadata is preserved on host records. RDP `domain` values are carried through session tickets into the Devolutions Gateway bootstrap so Windows domain imports do not get dropped between import and launch.
 
+RDP saved password credentials are resolved during the authenticated remote launch, staged only in the browser tab for the IronRDP connect call, and cleared by the RDP pane after the connect attempt is built. The Devolutions Gateway provisioning request receives only destination/session metadata and never receives the saved target password.
+
 Current limitations are intentional and visible in validation results:
 
 - SQLite parsing is intentionally bounded to supported Termix host and credential tables. Corrupt files, unsupported SQLite page shapes, and unsupported tables are rejected or surfaced as validation warnings instead of being guessed.
@@ -177,7 +183,7 @@ Smoke-test local protocol loopbacks for Telnet, VNC banner negotiation, SSH, and
 nix develop -c npm run smoke:protocols
 ```
 
-Smoke-test the production app boundary with disposable SSH/SFTP, Telnet, and VNC fixtures. This builds the current production app, creates a temporary admin user, drives first-run/login through Chromium, creates hosts and credentials through the app APIs, opens WebSocket sessions through `/ws/*`, and exercises SFTP list/download/upload through the authenticated HTTP API:
+Smoke-test the production app boundary with disposable SSH/SFTP, Telnet, VNC, and mocked RDP Gateway fixtures. This builds the current production app, creates a temporary admin user, drives first-run/login through Chromium, creates hosts and credentials through the app APIs, opens WebSocket sessions through `/ws/*`, exercises SFTP list/download/upload through the authenticated HTTP API, and verifies that the RDP remote launch path stages a saved password without leaking it into Gateway provisioning:
 
 ```sh
 nix develop -c npm run smoke:app-protocols

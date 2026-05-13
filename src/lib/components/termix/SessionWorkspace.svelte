@@ -21,6 +21,7 @@
 	import { getAppSettings, type BasicAppSettings } from '$lib/settings.remote';
 	import { createSessionLaunch, listHosts, type HostSummary } from '$lib/termix.remote';
 	import StatePanel from './StatePanel.svelte';
+	import RdpLaunchPane from './session/RdpLaunchPane.svelte';
 	import RdpPane from './session/RdpPane.svelte';
 	import SftpBrowser from './session/SftpBrowser.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
@@ -432,28 +433,11 @@
 					/>
 				{:else if browser && activeProtocol === 'rdp'}
 					{#key `rdp:${selectedHost.id}:${reconnectNonce}`}
-						{#await getSessionLaunch(selectedHost.id, 'rdp')}
-							<RdpPane
-								launch={null}
-								error={null}
-								onReconnect={reconnect}
-								clipboardSync={appSettings.clipboardSync}
-							/>
-						{:then currentLaunch}
-							<RdpPane
-								launch={currentLaunch}
-								error={null}
-								onReconnect={reconnect}
-								clipboardSync={appSettings.clipboardSync}
-							/>
-						{:catch caught}
-							<RdpPane
-								launch={null}
-								error={errorMessage(caught)}
-								onReconnect={reconnect}
-								clipboardSync={appSettings.clipboardSync}
-							/>
-						{/await}
+						<RdpLaunchPane
+							hostId={selectedHost.id}
+							onReconnect={reconnect}
+							clipboardSync={appSettings.clipboardSync}
+						/>
 					{/key}
 				{/if}
 			</Tabs.Content>
