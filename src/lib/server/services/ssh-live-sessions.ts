@@ -20,6 +20,7 @@ import type {
 const defaultAttachTicketTtlMs = 60_000;
 const defaultDetachedIdleTtlMs = 2 * 60 * 60 * 1_000;
 const defaultMaxLiveSessionsPerUser = 10;
+const defaultTerminalStatusVisibleMs = 5 * 60_000;
 const defaultTerminalCols = 80;
 const defaultTerminalRows = 24;
 
@@ -27,6 +28,7 @@ export interface SshLiveSessionServiceOptions {
 	attachTicketTtlMs?: number;
 	detachedIdleTtlMs?: number;
 	maxLiveSessionsPerUser?: number;
+	terminalStatusVisibleMs?: number;
 }
 
 export interface CreateOrReuseSshLiveSessionInput {
@@ -52,6 +54,7 @@ export class SshLiveSessionService {
 	private readonly attachTicketTtlMs: number;
 	private readonly detachedIdleTtlMs: number;
 	private readonly maxLiveSessionsPerUser: number;
+	private readonly terminalStatusVisibleMs: number;
 
 	constructor(
 		private readonly repository: SshLiveSessionRepository = termixRepository,
@@ -62,10 +65,19 @@ export class SshLiveSessionService {
 		this.attachTicketTtlMs = options.attachTicketTtlMs ?? defaultAttachTicketTtlMs;
 		this.detachedIdleTtlMs = options.detachedIdleTtlMs ?? defaultDetachedIdleTtlMs;
 		this.maxLiveSessionsPerUser = options.maxLiveSessionsPerUser ?? defaultMaxLiveSessionsPerUser;
+		this.terminalStatusVisibleMs =
+			options.terminalStatusVisibleMs ?? defaultTerminalStatusVisibleMs;
 	}
 
 	list(userId: string): Promise<SshLiveSessionRecord[]> {
 		return this.repository.listSshLiveSessions(userId);
+	}
+
+	async listVisible(userId: string, now = new Date()): Promise<SshLiveSessionRecord[]> {
+		const sessions = await this.repository.listSshLiveSessions(userId);
+		return sessions.filter((session) =>
+			isVisibleLiveSshSession(session, now, this.terminalStatusVisibleMs)
+		);
 	}
 
 	get(userId: string, id: string): Promise<SshLiveSessionRecord> {
@@ -361,6 +373,17 @@ function normalizeDimension(value: unknown, fallback: number): number {
 
 function isLiveStatus(status: SshLiveSessionRecord['status']): boolean {
 	return status === 'starting' || status === 'attached' || status === 'detached';
+}
+
+function isVisibleLiveSshSession(
+	session: SshLiveSessionRecord,
+	now: Date,
+	terminalStatusVisibleMs: number
+): boolean {
+	if (isLiveStatus(session.status) || session.status === 'stale') return true;
+	if (session.status !== 'ended' && session.status !== 'failed') return false;
+	const terminalAt = session.endedAt ?? session.updatedAt;
+	return now.getTime() - terminalAt.getTime() <= terminalStatusVisibleMs;
 }
 
 function isExpiredDetachedSession(session: SshLiveSessionRecord, now: Date): boolean {

@@ -19,10 +19,8 @@
 
 	type LiveSshStatus = LiveSshSessionSummary['status'];
 
-	const visibleStatuses: LiveSshStatus[] = ['starting', 'attached', 'detached', 'stale'];
-
 	function statusLabel(status: LiveSshStatus) {
-		if (status === 'starting') return 'Starting';
+		if (status === 'starting') return 'Connecting';
 		if (status === 'attached') return 'Attached';
 		if (status === 'detached') return 'Detached';
 		if (status === 'stale') return 'Stale';
@@ -31,7 +29,8 @@
 	}
 
 	function statusDetail(session: LiveSshSessionSummary) {
-		if (session.status === 'starting') return 'SSH session is opening and will attach when ready.';
+		if (session.status === 'starting')
+			return 'SSH session is connecting and will attach when ready.';
 		if (session.status === 'attached') return 'SSH session is attached and streaming.';
 		if (session.status === 'detached') return 'SSH session is idle and can be reattached.';
 		if (session.status === 'stale')
@@ -91,9 +90,6 @@
 
 	let editingSessionId = $state<string | null>(null);
 	let draftTitle = $state('');
-	let visibleSessions = $derived.by(() =>
-		sessions.filter((session) => visibleStatuses.includes(session.status))
-	);
 
 	function beginRename(session: LiveSshSessionSummary) {
 		editingSessionId = session.id;
@@ -133,7 +129,7 @@
 			role="tablist"
 			aria-label="Persistent SSH tabs"
 		>
-			{#each visibleSessions as session (session.id)}
+			{#each sessions as session (session.id)}
 				{@const active = activeSessionId === session.id}
 				{@const attachable = canAttach(session)}
 				<div

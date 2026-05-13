@@ -13,13 +13,15 @@
 		subtitle,
 		websocketUrl,
 		welcome = [],
-		fontSize = 13
+		fontSize = 13,
+		onConnectionStateChange
 	}: {
 		title: string;
 		subtitle: string;
 		websocketUrl?: string;
 		welcome?: string[];
 		fontSize?: number;
+		onConnectionStateChange?: (state: ConnectionState) => void;
 	} = $props();
 
 	let terminalElement: HTMLDivElement;
@@ -72,11 +74,9 @@
 		let resizeDisposable: { dispose: () => void } | undefined;
 
 		if (!websocketUrl) {
-			connectionState = 'idle';
-			detail = 'Waiting for session ticket.';
+			setConnectionState('idle', 'Waiting for session ticket.');
 		} else {
-			connectionState = 'connecting';
-			detail = 'Opening websocket session.';
+			setConnectionState('connecting', 'Opening websocket session.');
 
 			socket = new WebSocket(websocketUrl);
 			socket.binaryType = 'arraybuffer';
@@ -88,8 +88,7 @@
 
 			socket.addEventListener('open', () => {
 				if (!socket || socket.readyState !== WebSocket.OPEN) return;
-				connectionState = 'connected';
-				detail = 'Terminal stream is connected.';
+				setConnectionState('connected', 'Terminal stream is connected.');
 				sendResize(socket, { cols: instance.cols, rows: instance.rows });
 				instance.focus();
 			});
@@ -98,12 +97,10 @@
 				else instance.write(new Uint8Array(event.data));
 			});
 			socket.addEventListener('close', () => {
-				connectionState = 'disconnected';
-				detail = 'Terminal stream closed.';
+				setConnectionState('disconnected', 'Terminal stream closed.');
 			});
 			socket.addEventListener('error', () => {
-				connectionState = 'error';
-				detail = 'Terminal websocket failed.';
+				setConnectionState('error', 'Terminal websocket failed.');
 			});
 		}
 
@@ -125,6 +122,12 @@
 			rows: size.rows
 		};
 		socket.send(JSON.stringify(frame));
+	}
+
+	function setConnectionState(state: ConnectionState, nextDetail: string) {
+		connectionState = state;
+		detail = nextDetail;
+		onConnectionStateChange?.(state);
 	}
 </script>
 

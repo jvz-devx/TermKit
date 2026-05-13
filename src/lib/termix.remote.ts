@@ -169,13 +169,12 @@ export const listCredentials = query(async () => {
 export const listLiveSshSessions = query(async () => {
 	const userId = requireRemoteUser();
 	const [sessions, hosts] = await Promise.all([
-		sshLiveSessionService.list(userId),
+		sshLiveSessionService.listVisible(userId),
 		hostService.list(userId)
 	]);
 	const hostsById = new Map(hosts.map((host) => [host.id, host]));
 
 	return sessions
-		.filter((session) => ['starting', 'attached', 'detached', 'stale'].includes(session.status))
 		.sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
 		.map((session): LiveSshSessionSummary | null => {
 			const host = hostsById.get(session.hostId);

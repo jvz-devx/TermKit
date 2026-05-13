@@ -310,6 +310,72 @@ describe('SshLiveSessionService', () => {
 		);
 	});
 
+	it('lists live, stale, and recent terminal sessions for workspace visibility', async () => {
+		expect.assertions(3);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository, {
+			terminalStatusVisibleMs: 5_000
+		});
+		const liveHost = await hosts.create('user-1', {
+			name: 'Live shell',
+			protocol: 'ssh',
+			hostname: 'live.example.test',
+			port: 22
+		});
+		const recentHost = await hosts.create('user-1', {
+			name: 'Recent shell',
+			protocol: 'ssh',
+			hostname: 'recent.example.test',
+			port: 22
+		});
+		const oldHost = await hosts.create('user-1', {
+			name: 'Old shell',
+			protocol: 'ssh',
+			hostname: 'old.example.test',
+			port: 22
+		});
+		const staleHost = await hosts.create('user-1', {
+			name: 'Stale shell',
+			protocol: 'ssh',
+			hostname: 'stale.example.test',
+			port: 22
+		});
+		const live = await service.createOrReuse('user-1', {
+			hostId: liveHost.id,
+			now: new Date('2026-05-13T12:00:00.000Z')
+		});
+		const recent = await service.createOrReuse('user-1', {
+			hostId: recentHost.id,
+			now: new Date('2026-05-13T12:00:00.000Z')
+		});
+		const old = await service.createOrReuse('user-1', {
+			hostId: oldHost.id,
+			now: new Date('2026-05-13T12:00:00.000Z')
+		});
+		const stale = await service.createOrReuse('user-1', {
+			hostId: staleHost.id,
+			now: new Date('2026-05-13T12:00:00.000Z')
+		});
+
+		await service.end('user-1', recent.session.id, new Date('2026-05-13T12:00:08.000Z'));
+		await service.fail('user-1', old.session.id, new Date('2026-05-13T12:00:00.000Z'));
+		await service.end('user-1', live.session.id, new Date('2026-05-13T12:00:01.000Z'));
+		await service.createOrReuse('user-1', {
+			hostId: liveHost.id,
+			now: new Date('2026-05-13T12:00:02.000Z')
+		});
+		await service.markStaleOnStartup(new Date('2026-05-13T12:00:03.000Z'));
+
+		const visible = await service.listVisible('user-1', new Date('2026-05-13T12:00:10.000Z'));
+		const visibleIds = visible.map((session) => session.id);
+
+		expect(visibleIds).toContain(recent.session.id);
+		expect(visibleIds).toContain(stale.session.id);
+		expect(visibleIds).not.toContain(old.session.id);
+	});
+
 	it('rejects expired attach tickets without consuming them', async () => {
 		expect.assertions(2);
 

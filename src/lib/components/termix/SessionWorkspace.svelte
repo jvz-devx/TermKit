@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import {
 		Database,
@@ -45,6 +46,7 @@
 	const hostsQuery = listHosts();
 	const settingsQuery = getAppSettings();
 	const liveSshSessionsQuery = listLiveSshSessions();
+	const liveSshRefreshIntervalMs = 60_000;
 	const defaultSessionSettings: BasicAppSettings = {
 		ticketTtlSeconds: 60,
 		terminalFontSize: 13,
@@ -75,8 +77,13 @@
 	let liveSshAttach = $state<LiveSshAttach | null>(null);
 	let liveSshBusy = $state(false);
 	let liveSshError = $state<string | null>(null);
+	let dismissedLiveSshSessionIds = $state<string[]>([]);
 	let hosts = $derived(hostsQuery.current ?? []);
-	let liveSshSessions = $derived(liveSshSessionsQuery.current ?? []);
+	let liveSshSessions = $derived.by(() =>
+		(liveSshSessionsQuery.current ?? []).filter(
+			(session) => !dismissedLiveSshSessionIds.includes(session.id)
+		)
+	);
 	let appSettings = $derived(settingsQuery.current ?? defaultSessionSettings);
 	let requestedHostId = $derived(page.url.searchParams.get('host'));
 	let selectedHost = $derived.by(() => {
@@ -133,6 +140,14 @@
 		selectedHost ? sessionPauseKey(selectedHost.id, activeProtocol) : null
 	);
 	let sessionPaused = $derived(Boolean(activePauseKey && pausedSessionKey === activePauseKey));
+
+	onMount(() => {
+		const refreshTimer = window.setInterval(
+			() => void listLiveSshSessions().refresh(),
+			liveSshRefreshIntervalMs
+		);
+		return () => window.clearInterval(refreshTimer);
+	});
 
 	async function getSessionLaunch(hostId: string, protocol: WorkspaceProtocol) {
 		return createSessionLaunch({ hostId, protocol });
@@ -220,6 +235,9 @@
 				rows: 24
 			});
 			activeLiveSshSessionId = launch.session.id;
+			dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
+				(sessionId) => sessionId !== launch.session.id
+			);
 			liveSshAttach = launch;
 			pausedSessionKey = null;
 		} catch (caught) {
@@ -252,6 +270,9 @@
 				cols: session.terminalCols,
 				rows: session.terminalRows
 			});
+			dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
+				(sessionId) => sessionId !== session.id
+			);
 			pausedSessionKey = null;
 		} catch (caught) {
 			liveSshError = errorMessage(caught);
@@ -271,8 +292,13 @@
 
 	async function closePersistentSshTab(session: LiveSshSessionSummary) {
 		try {
-			await closeLiveSshSession(session.id);
-			void listLiveSshSessions().refresh();
+			if (session.status === 'ended' || session.status === 'failed') {
+				dismissedLiveSshSessionIds = [...dismissedLiveSshSessionIds, session.id];
+			} else {
+				await closeLiveSshSession(session.id);
+				dismissedLiveSshSessionIds = [...dismissedLiveSshSessionIds, session.id];
+				void listLiveSshSessions().refresh();
+			}
 			if (activeLiveSshSessionId === session.id) {
 				activeLiveSshSessionId = null;
 				liveSshAttach = null;
@@ -280,6 +306,17 @@
 		} catch (caught) {
 			liveSshError = errorMessage(caught);
 		}
+	}
+
+	function refreshLiveSshSessionsSoon() {
+		void listLiveSshSessions().refresh();
+		if (browser) window.setTimeout(() => void listLiveSshSessions().refresh(), 250);
+	}
+
+	function handleLiveSshTerminalState(
+		state: 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected'
+	) {
+		if (state === 'error' || state === 'disconnected') refreshLiveSshSessionsSoon();
 	}
 
 	function protocolForSelectedHost(host: HostSummary): WorkspaceProtocol {
@@ -522,6 +559,7 @@
 									''
 								]}
 								fontSize={appSettings.terminalFontSize}
+								onConnectionStateChange={handleLiveSshTerminalState}
 							/>
 						{/key}
 					{:else if sessionPaused && activeProtocol === 'ssh'}
