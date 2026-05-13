@@ -1,14 +1,53 @@
 services:
-  db:
-    image: postgres
-    restart: always
-    ports:
-      - 5432:5432
+  app:
+    build:
+      context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: mysecretpassword
-      POSTGRES_DB: local
+      DATABASE_URL: postgres://${POSTGRES_USER:-termixkit}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-termixkit}
+      ORIGIN: ${ORIGIN:-http://localhost:3000}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
+      CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:?set CREDENTIAL_MASTER_KEY in .env}
+      GATEWAY_URL: ${GATEWAY_URL:-http://gateway:7171}
+      GATEWAY_PROVISIONER_KEY: ${GATEWAY_PROVISIONER_KEY:?set GATEWAY_PROVISIONER_KEY in .env}
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-termixkit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-termixkit}
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
     volumes:
-      - pgdata:/var/lib/postgresql
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    restart: unless-stopped
+
+  gateway:
+    image: devolutions/devolutions-gateway:${DEVOLUTIONS_GATEWAY_TAG:-2026.1.1}
+    environment:
+      DGW_LISTEN: ${DGW_LISTEN:-0.0.0.0:7171}
+      DGW_PROVISIONER_KEY: ${GATEWAY_PROVISIONER_KEY:?set GATEWAY_PROVISIONER_KEY in .env}
+      DGW_SUBJECT: ${DGW_SUBJECT:-localhost}
+    expose:
+      - '7171'
+    volumes:
+      - gateway-data:/var/lib/devolutions-gateway
+    restart: unless-stopped
+
 volumes:
-  pgdata:
+  postgres-data:
+  gateway-data:
