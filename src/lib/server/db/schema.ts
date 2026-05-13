@@ -101,6 +101,7 @@ export const hosts = pgTable(
 		folder: text('folder'),
 		tags: text('tags').array().notNull().default([]),
 		notes: text('notes'),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
 		...timestamps
 	},
 	(table) => [

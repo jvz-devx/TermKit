@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AuthError, createFirstRunAdmin, shouldUseSecureSessionCookie } from './session';
+import {
+	AuthError,
+	createFirstRunAdmin,
+	hashSessionToken,
+	shouldUseSecureSessionCookie
+} from './session';
 
 const db = vi.hoisted(() => ({
 	transaction: vi.fn(),
@@ -16,6 +21,7 @@ vi.mock('./password', () => password);
 
 const originalNodeEnv = process.env.NODE_ENV;
 const originalOrigin = process.env.ORIGIN;
+const originalAppSecret = process.env.APP_SECRET;
 
 function requestEvent(url: string, headers?: HeadersInit) {
 	return {
@@ -38,6 +44,29 @@ afterEach(() => {
 	} else {
 		process.env.ORIGIN = originalOrigin;
 	}
+
+	if (originalAppSecret === undefined) {
+		delete process.env.APP_SECRET;
+	} else {
+		process.env.APP_SECRET = originalAppSecret;
+	}
+});
+
+describe('session token hashing', () => {
+	it('keys persisted session hashes with APP_SECRET when configured', () => {
+		process.env.APP_SECRET = 'first-secret-with-enough-entropy';
+		const firstHash = hashSessionToken('opaque-session-token');
+
+		process.env.APP_SECRET = 'second-secret-with-enough-entropy';
+		const secondHash = hashSessionToken('opaque-session-token');
+
+		delete process.env.APP_SECRET;
+		const fallbackHash = hashSessionToken('opaque-session-token');
+
+		expect(firstHash).not.toBe(secondHash);
+		expect(firstHash).not.toBe(fallbackHash);
+		expect(secondHash).not.toBe(fallbackHash);
+	});
 });
 
 describe('session cookie security', () => {

@@ -111,7 +111,7 @@ describe('RDP Gateway bootstrap', () => {
 			preconnectionBlob: 'association-token',
 			identity: {
 				username: 'rdp-user',
-				domain: null
+				domain: 'ACME'
 			}
 		});
 		expect(bootstrap.credentialHint).toEqual({
@@ -173,7 +173,8 @@ function testTicket(): ConsumedTicket {
 				username: 'rdp-user',
 				password: 'secret'
 			}
-		}
+		},
+		metadata: { domain: 'ACME' }
 	};
 }
 

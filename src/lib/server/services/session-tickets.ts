@@ -42,6 +42,7 @@ export interface SessionTicketTargetSnapshot {
 		port: number;
 		username: string | null;
 		credentialId: string | null;
+		metadata: Record<string, unknown>;
 	};
 	credential: {
 		id: string;
@@ -165,7 +166,8 @@ export class SessionTicketService {
 			host.hostname !== snapshot.host.hostname ||
 			host.port !== snapshot.host.port ||
 			host.username !== snapshot.host.username ||
-			host.credentialId !== snapshot.host.credentialId
+			host.credentialId !== snapshot.host.credentialId ||
+			stableStringify(host.metadata) !== stableStringify(snapshot.host.metadata)
 		) {
 			throw new TicketInvalidError();
 		}
@@ -214,7 +216,8 @@ function createTargetSnapshot(
 			hostname: host.hostname,
 			port: host.port,
 			username: host.username,
-			credentialId: host.credentialId
+			credentialId: host.credentialId,
+			metadata: host.metadata
 		},
 		credential: credential
 			? {
@@ -267,7 +270,8 @@ function isSessionTicketTargetSnapshot(value: unknown): value is SessionTicketTa
 		typeof host.port !== 'number' ||
 		!Number.isSafeInteger(host.port) ||
 		!(typeof host.username === 'string' || host.username === null) ||
-		!(typeof host.credentialId === 'string' || host.credentialId === null)
+		!(typeof host.credentialId === 'string' || host.credentialId === null) ||
+		!isRecord(host.metadata)
 	) {
 		return false;
 	}

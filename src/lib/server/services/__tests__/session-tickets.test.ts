@@ -49,7 +49,8 @@ describe('SessionTicketService', () => {
 				protocol: 'ssh',
 				hostname: 'shell.example.test',
 				port: 22,
-				credentialId: null
+				credentialId: null,
+				metadata: {}
 			},
 			credential: null
 		});
@@ -101,6 +102,7 @@ describe('SessionTicketService', () => {
 			folder: null,
 			tags: [],
 			notes: null,
+			metadata: {},
 			createdAt: now,
 			updatedAt: now
 		});
@@ -166,6 +168,31 @@ describe('SessionTicketService', () => {
 		await expect(
 			tickets.consume(created.ticket, new Date(), undefined, 'ssh')
 		).rejects.toBeInstanceOf(TicketInvalidError);
+	});
+
+	it('rejects tickets when imported host metadata changed before consumption', async () => {
+		expect.assertions(2);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const tickets = new SessionTicketService(repository, hosts, repository);
+		const host = await hosts.create('user-1', {
+			name: 'Windows admin',
+			protocol: 'rdp',
+			hostname: 'windows.example.test',
+			port: 3389,
+			metadata: { domain: 'ACME' }
+		});
+		const created = await tickets.create('user-1', {
+			hostId: host.id,
+			protocol: 'rdp'
+		});
+		const snapshot = parseSessionTicketTargetSnapshot(created.record);
+
+		await hosts.update('user-1', host.id, { metadata: { domain: 'LAB' } });
+
+		expect(snapshot.host.metadata).toEqual({ domain: 'ACME' });
+		await expect(tickets.consume(created.ticket)).rejects.toBeInstanceOf(TicketInvalidError);
 	});
 
 	it('rejects tickets when the bound credential changed before consumption', async () => {

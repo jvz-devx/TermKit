@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import postgres from 'postgres';
 import { playwrightStatePath } from './playwright-state.mjs';
 
 const execFile = promisify(execFileCallback);
@@ -59,10 +60,11 @@ async function startIsolatedPostgres() {
 	await writeFile(statePath, JSON.stringify({ containerName }), 'utf8');
 
 	const hostPort = await readPostgresPort(containerName);
-	await waitForPostgres(containerName);
+	const databaseUrl = `postgres://${postgresUser}:${postgresPassword}@127.0.0.1:${hostPort}/${postgresDb}`;
+	await waitForPostgres(databaseUrl);
 	console.log(`Playwright isolated Postgres is ready on 127.0.0.1:${hostPort}.`);
 
-	return `postgres://${postgresUser}:${postgresPassword}@127.0.0.1:${hostPort}/${postgresDb}`;
+	return databaseUrl;
 }
 
 async function readPostgresPort(name) {
@@ -78,17 +80,27 @@ async function readPostgresPort(name) {
 	throw new Error('Timed out waiting for the isolated Postgres port mapping.');
 }
 
-async function waitForPostgres(name) {
-	for (let attempt = 0; attempt < 60; attempt += 1) {
+async function waitForPostgres(databaseUrl) {
+	let lastError;
+
+	for (let attempt = 0; attempt < 120; attempt += 1) {
+		const sql = postgres(databaseUrl, { max: 1 });
 		try {
-			await execFile('docker', ['exec', name, 'pg_isready', '-U', postgresUser, '-d', postgresDb]);
+			await sql`select 1`;
+			await sql.end();
 			return;
-		} catch {
-			await delay(500);
+		} catch (error) {
+			lastError = error;
+			await sql.end({ timeout: 1 }).catch(() => {});
+			await delay(250);
 		}
 	}
 
-	throw new Error('Timed out waiting for isolated Postgres to become healthy.');
+	throw new Error(
+		`Timed out waiting for isolated Postgres to accept SQL connections: ${
+			lastError instanceof Error ? lastError.message : 'unknown'
+		}.`
+	);
 }
 
 async function runMigrations(databaseUrl) {
@@ -120,6 +132,7 @@ function startApp(databaseUrl) {
 		TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
 		BODY_SIZE_LIMIT: process.env.BODY_SIZE_LIMIT ?? '55M',
 		DATABASE_URL: databaseUrl,
+		APP_SECRET: process.env.APP_SECRET ?? 'd4YmG5uVPKHLb4xikqu47GzDL8RQXmyC4k53YmgW',
 		CREDENTIAL_MASTER_KEY:
 			process.env.CREDENTIAL_MASTER_KEY ?? 'v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL',
 		TERMIXKIT_SSH_KNOWN_HOSTS_PATH:

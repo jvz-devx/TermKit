@@ -10,6 +10,7 @@ export function validateProductionEnv(env = process.env) {
 	const origin = parseOrigin(env.ORIGIN);
 	const allowInsecureLocalHttp = isEnabled(env.TERMIXKIT_INSECURE_LOCAL_HTTP);
 
+	validateAppSecret(env.APP_SECRET);
 	validateCredentialMasterKey(env.CREDENTIAL_MASTER_KEY);
 	validateGatewayUrl(env.GATEWAY_URL);
 	validateGatewayPublicUrl(env.GATEWAY_PUBLIC_URL, allowInsecureLocalHttp);
@@ -64,6 +65,19 @@ function isLocalHostname(hostname) {
 }
 
 /**
+ * @param {string | undefined} appSecret
+ */
+function validateAppSecret(appSecret) {
+	if (!appSecret) {
+		throw new Error('APP_SECRET is required in production.');
+	}
+
+	if (!isStrongProductionSecret(appSecret)) {
+		throw new Error('APP_SECRET must be at least 32 bytes and high-entropy in production.');
+	}
+}
+
+/**
  * @param {string | undefined} masterKey
  */
 function validateCredentialMasterKey(masterKey) {
@@ -71,7 +85,7 @@ function validateCredentialMasterKey(masterKey) {
 		throw new Error('CREDENTIAL_MASTER_KEY is required in production.');
 	}
 
-	if (!isStrongCredentialMasterKey(masterKey)) {
+	if (!isStrongProductionSecret(masterKey)) {
 		throw new Error(
 			'CREDENTIAL_MASTER_KEY must be at least 32 bytes and high-entropy in production.'
 		);
@@ -162,15 +176,16 @@ function validateGatewayProvisionerKey(value) {
 }
 
 /**
- * @param {string} masterKey
+ * @param {string} value
  */
-function isStrongCredentialMasterKey(masterKey) {
-	if (Buffer.byteLength(masterKey, 'utf8') < 32) return false;
-	if (masterKey.trim() !== masterKey) return false;
+function isStrongProductionSecret(value) {
+	if (Buffer.byteLength(value, 'utf8') < 32) return false;
+	if (value.trim() !== value) return false;
 
-	const lower = masterKey.toLowerCase();
+	const lower = value.toLowerCase();
 	if (
 		[
+			'app-secret',
 			'change-me',
 			'changeme',
 			'credential-master-key',
@@ -184,8 +199,8 @@ function isStrongCredentialMasterKey(masterKey) {
 		return false;
 	}
 
-	if (new Set(masterKey).size < 8) return false;
-	return !isRepeatedPattern(masterKey);
+	if (new Set(value).size < 8) return false;
+	return !isRepeatedPattern(value);
 }
 
 /**

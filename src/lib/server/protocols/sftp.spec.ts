@@ -130,6 +130,7 @@ function testHost(patch: Partial<HostRecord> = {}): HostRecord {
 		folder: null,
 		tags: [],
 		notes: null,
+		metadata: {},
 		createdAt: now,
 		updatedAt: now,
 		...patch

@@ -70,6 +70,46 @@ describe('SessionTicketConsumer', () => {
 			id: created.record.id
 		});
 	});
+
+	it('passes host metadata to protocol adapters with credential references', async () => {
+		expect.assertions(1);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const tickets = new SessionTicketService(repository, hosts, repository);
+		await repository.createCredential({
+			id: 'credential-1',
+			userId: 'user-1',
+			name: 'RDP password',
+			kind: 'password',
+			username: 'credential-user',
+			encryptedSecret: 'encrypted-password',
+			encryption: testEncryptionMetadata(),
+			metadata: {},
+			createdAt: new Date(),
+			updatedAt: new Date()
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Windows admin',
+			protocol: 'rdp',
+			hostname: 'windows.example.test',
+			port: 3389,
+			credentialId: 'credential-1',
+			metadata: { domain: 'ACME' }
+		});
+		const created = await tickets.create('user-1', {
+			hostId: host.id,
+			protocol: 'rdp'
+		});
+		const consumer = new SessionTicketConsumer(tickets, hosts, repository, passthroughCrypto());
+
+		await expect(consumer.consume(created.ticket, 'rdp', 'user-1')).resolves.toMatchObject({
+			metadata: {
+				domain: 'ACME',
+				credentialId: 'credential-1'
+			}
+		});
+	});
 });
 
 function passthroughCrypto(): CredentialCrypto {

@@ -14,6 +14,7 @@ export interface HostInput {
 	folder?: unknown;
 	tags?: unknown;
 	notes?: unknown;
+	metadata?: unknown;
 }
 
 export class HostService {
@@ -111,7 +112,8 @@ export function validateHostInput(
 		credentialId: asNullableString(input.credentialId),
 		folder: asNullableString(input.folder),
 		tags: [...new Set(tags)],
-		notes: asNullableString(input.notes)
+		notes: asNullableString(input.notes),
+		metadata: isRecord(input.metadata) ? input.metadata : {}
 	};
 }
 
@@ -121,6 +123,10 @@ function asTrimmedString(value: unknown): string | null {
 
 function asNullableString(value: unknown): string | null {
 	return asTrimmedString(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export const hostService = new HostService();

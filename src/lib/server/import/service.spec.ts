@@ -119,6 +119,30 @@ describe('ImportService', () => {
 		expect(hosts[0]?.credentialId).toBe(credentials[0]?.id);
 	});
 
+	it('persists imported host metadata for protocol bootstrapping', async () => {
+		const { imports, repository } = createService();
+		const result = await imports.import('user-1', {
+			fileName: 'termix.json',
+			bytes: JSON.stringify({
+				records: [
+					{
+						id: 'rdp-prod',
+						name: 'Windows admin',
+						protocol: 'rdp',
+						hostname: 'windows.example.test',
+						username: 'admin',
+						domain: 'ACME'
+					}
+				]
+			})
+		});
+
+		const [host] = await repository.listHosts('user-1');
+
+		expect(result.job.status).toBe('completed');
+		expect(host?.metadata).toEqual({ domain: 'ACME' });
+	});
+
 	it('uses sourceSecret during import so decryptable source credentials are stored', async () => {
 		const { imports, repository } = createService();
 		const encryptedPassword = encryptTermixField({

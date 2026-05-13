@@ -85,6 +85,7 @@ DATABASE_URL=postgres://termixkit:termixkit@localhost:5432/termixkit npm run db:
 ```sh
 POSTGRES_PASSWORD=dev-password \
 ORIGIN=https://termix.example \
+APP_SECRET=dev-app-secret-with-at-least-32-bytes \
 CREDENTIAL_MASTER_KEY=dev-credential-master-key \
 GATEWAY_PUBLIC_URL=https://termix.example/gateway \
 GATEWAY_PROVISIONER_KEY=dev-gateway-key \
@@ -98,6 +99,7 @@ Do not commit real values for any secret.
 - `DATABASE_URL`: Postgres connection string used by the app and Drizzle.
 - `ORIGIN`: public app origin. Compose defaults to `https://localhost:3000` so production cookies are secure by default; set the external `https://` origin behind a TLS-terminating reverse proxy.
 - `TERMIXKIT_INSECURE_LOCAL_HTTP`: set to `1` only for direct local HTTP development with an `http://localhost` or loopback `ORIGIN` or `GATEWAY_PUBLIC_URL`. Production startup rejects non-local HTTP values.
+- `APP_SECRET`: high-entropy session token hashing secret. Keep it stable across container restarts or existing sessions will be invalidated.
 - `BODY_SIZE_LIMIT`: global SvelteKit/Node request body cap. Compose defaults to `55M`, which leaves multipart overhead above the 50 MiB SFTP upload cap while still returning 413 before oversized declared or chunked bodies are accepted.
 - `CREDENTIAL_MASTER_KEY`: high-entropy key used to derive credential encryption material.
 - `TERMIXKIT_SSH_KNOWN_HOSTS_PATH`: JSON SSH/SFTP known-host trust store. Compose mounts `app-data` at `/var/lib/termixkit` and defaults this to `/var/lib/termixkit/ssh-known-hosts.json` so TOFU pins survive container rebuilds.
@@ -120,6 +122,8 @@ The importer is a one-way service under `src/lib/server/import` with upload pars
 Importer uploads are capped at 10 MiB. SFTP uploads are capped at 50 MiB, and the Compose `BODY_SIZE_LIMIT` default is 55 MiB so oversized declared or chunked multipart requests are rejected with 413 before application parsing continues.
 
 Supported uploads are JSON arrays, JSON objects with `records`, `connections`, or `hosts` arrays, and SQLite `.sqlite`, `.sqlite3`, or `.db` files with supported Termix host tables. Supported target protocols are SSH, RDP, VNC, and Telnet; SFTP is normalized to SSH. Plaintext passwords, SSH keys, `ip` host aliases, reusable SQLite `ssh_credentials` records, host `credential_id` links, and supported Termix AES-256-GCM/HKDF encrypted password/key fields can be imported. Encrypted source fields require a `sourceSecret` multipart field; missing secrets, unsupported encrypted formats, and failed decrypts are recorded as warnings.
+
+Imported protocol metadata is preserved on host records. RDP `domain` values are carried through session tickets into the Devolutions Gateway bootstrap so Windows domain imports do not get dropped between import and launch.
 
 Current limitations are intentional and visible in validation results:
 
@@ -171,6 +175,18 @@ Smoke-test local protocol loopbacks for Telnet, VNC banner negotiation, SSH, and
 
 ```sh
 nix develop -c npm run smoke:protocols
+```
+
+Smoke-test the production app boundary with disposable SSH/SFTP, Telnet, and VNC fixtures. This builds the current production app, creates a temporary admin user, drives first-run/login through Chromium, creates hosts and credentials through the app APIs, opens WebSocket sessions through `/ws/*`, and exercises SFTP list/download/upload through the authenticated HTTP API:
+
+```sh
+nix develop -c npm run smoke:app-protocols
+```
+
+Smoke-test RDP Gateway bootstrapping. Without real Gateway env vars this runs a mocked Devolutions Gateway bootstrap; with `GATEWAY_URL`, `GATEWAY_PUBLIC_URL`, `GATEWAY_PROVISIONER_KEY`, and `TERMIXKIT_SMOKE_RDP_HOST` it provisions against a real Gateway target:
+
+```sh
+nix develop -c npm run smoke:rdp-gateway
 ```
 
 Run the browser first-run/authentication smoke. The script selects Nix Chromium

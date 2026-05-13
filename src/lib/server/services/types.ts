@@ -21,6 +21,7 @@ export interface HostRecord {
 	folder: string | null;
 	tags: string[];
 	notes: string | null;
+	metadata: Record<string, unknown>;
 	createdAt: Date;
 	updatedAt: Date;
 }

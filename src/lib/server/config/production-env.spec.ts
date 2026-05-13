@@ -49,8 +49,30 @@ describe('production environment validation', () => {
 
 	it('requires a production credential master key', () => {
 		expect(() =>
-			validateProductionEnv({ NODE_ENV: 'production', ORIGIN: 'https://termix.example' })
+			validateProductionEnv({
+				NODE_ENV: 'production',
+				ORIGIN: 'https://termix.example',
+				APP_SECRET: 'd4YmG5uVPKHLb4xikqu47GzDL8RQXmyC4k53YmgW'
+			})
 		).toThrow('CREDENTIAL_MASTER_KEY is required in production');
+	});
+
+	it('requires a high-entropy app secret in production', () => {
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					APP_SECRET: ''
+				})
+			)
+		).toThrow('APP_SECRET is required in production');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					APP_SECRET: 'app-secret-app-secret-app-secret-app-secret'
+				})
+			)
+		).toThrow('APP_SECRET must be at least 32 bytes and high-entropy');
 	});
 
 	it('rejects weak production credential master keys', () => {
@@ -144,6 +166,7 @@ function productionEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
 	return {
 		NODE_ENV: 'production',
 		ORIGIN: 'https://termix.example',
+		APP_SECRET: 'd4YmG5uVPKHLb4xikqu47GzDL8RQXmyC4k53YmgW',
 		CREDENTIAL_MASTER_KEY: 'v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL',
 		GATEWAY_URL: 'http://gateway:7171',
 		GATEWAY_PUBLIC_URL: 'https://rdp.example/gateway',

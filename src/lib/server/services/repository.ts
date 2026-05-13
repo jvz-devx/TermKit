@@ -56,6 +56,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 				folder: host.folder,
 				tags: host.tags,
 				notes: host.notes,
+				metadata: host.metadata,
 				createdAt: host.createdAt,
 				updatedAt: host.updatedAt
 			})
@@ -364,6 +365,7 @@ function toHostRecord(row: HostRow): HostRecord {
 		folder: row.folder,
 		tags: row.tags,
 		notes: row.notes,
+		metadata: row.metadata ?? {},
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt
 	};
@@ -423,6 +425,7 @@ function hostPatchToDb(patch: Partial<HostRecord>): Partial<typeof hosts.$inferI
 		folder: patch.folder,
 		tags: patch.tags,
 		notes: patch.notes,
+		metadata: patch.metadata,
 		updatedAt: patch.updatedAt
 	};
 }

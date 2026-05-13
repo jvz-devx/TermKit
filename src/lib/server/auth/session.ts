@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
 import { eq, and, gt, count, sql } from 'drizzle-orm';
 import { db } from '$lib/server/db';
@@ -35,6 +35,11 @@ export class AuthError extends Error {
 }
 
 export function hashSessionToken(token: string): string {
+	const appSecret = process.env.APP_SECRET?.trim();
+	if (appSecret) {
+		return createHmac('sha256', appSecret).update(token).digest('base64url');
+	}
+
 	return createHash('sha256').update(token).digest('base64url');
 }
 

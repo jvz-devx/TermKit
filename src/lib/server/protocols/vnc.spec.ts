@@ -100,6 +100,7 @@ function testTargetSnapshot(
 			port: 5900,
 			username: null,
 			credentialId: null,
+			metadata: {},
 			...patch
 		},
 		credential: null

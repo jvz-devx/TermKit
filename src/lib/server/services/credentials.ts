@@ -56,7 +56,7 @@ export class CredentialService {
 		const validated = validateCredentialInput(input, true);
 		const id = randomUUID();
 		const encrypted = this.crypto.encrypt(validated.secret!, credentialSecretContext(userId, id));
-		const metadata = this.protectMetadata(userId, id, validated.metadata);
+		const metadata = this.protectMetadata(userId, id, validated.kind!, validated.metadata);
 		const credential = await this.repository.createCredential({
 			id,
 			userId,
@@ -82,8 +82,15 @@ export class CredentialService {
 		if (!current) throw new ServiceNotFoundError('Credential not found');
 
 		const validated = validateCredentialInput({ ...current, ...input }, false);
+		const kindChanged = validated.kind !== current.kind;
+		if (kindChanged && validated.secret === undefined) {
+			throw new ServiceValidationError(['secret is required when kind changes']);
+		}
+
 		const metadata =
-			'metadata' in input ? this.protectMetadata(userId, id, validated.metadata) : current.metadata;
+			'metadata' in input || kindChanged
+				? this.protectMetadata(userId, id, validated.kind!, validated.metadata)
+				: current.metadata;
 		const secretPatch =
 			validated.secret === undefined
 				? {}
@@ -116,12 +123,13 @@ export class CredentialService {
 	private protectMetadata(
 		userId: string,
 		credentialId: string,
+		kind: CredentialKind,
 		metadata: Record<string, unknown>
 	): Record<string, unknown> {
 		const protectedMetadata = stripSensitiveMetadata(metadata);
 		const passphrase = typeof metadata.passphrase === 'string' ? metadata.passphrase : null;
 
-		if (passphrase) {
+		if (kind === 'ssh_key' && passphrase) {
 			const encrypted = this.crypto.encrypt(
 				passphrase,
 				credentialPassphraseContext(userId, credentialId)

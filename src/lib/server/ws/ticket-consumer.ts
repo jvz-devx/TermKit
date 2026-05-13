@@ -62,9 +62,10 @@ export class SessionTicketConsumer implements TicketConsumer {
 					username: snapshot.host.username ?? credential?.username,
 					credential: credential ?? undefined
 				},
-				metadata: snapshot.host.credentialId
-					? { credentialId: snapshot.host.credentialId }
-					: undefined
+				metadata: {
+					...snapshot.host.metadata,
+					...(snapshot.host.credentialId ? { credentialId: snapshot.host.credentialId } : {})
+				}
 			};
 		} catch (error) {
 			if (

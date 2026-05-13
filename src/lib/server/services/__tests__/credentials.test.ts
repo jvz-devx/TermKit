@@ -92,13 +92,16 @@ describe('CredentialService', () => {
 		const [storedBefore] = await repository.listCredentials('user-1');
 
 		const updated = await credentials.update('user-1', created.id, {
-			name: 'ops ssh',
-			kind: 'ssh_key',
+			name: 'ops password renamed',
 			username: 'shell'
 		});
 		const [storedAfterMetadataEdit] = await repository.listCredentials('user-1');
 
-		expect(updated).toMatchObject({ name: 'ops ssh', kind: 'ssh_key', username: 'shell' });
+		expect(updated).toMatchObject({
+			name: 'ops password renamed',
+			kind: 'password',
+			username: 'shell'
+		});
 		expect(updated).not.toHaveProperty('encryptedSecret');
 		expect(storedAfterMetadataEdit?.encryptedSecret).toBe(storedBefore?.encryptedSecret);
 		expect(storedAfterMetadataEdit?.encryption).toEqual(storedBefore?.encryption);
@@ -116,7 +119,83 @@ describe('CredentialService', () => {
 				credentialSecretContext('user-1', created.id)
 			)
 		).toBe('rotated-secret');
-		expect(storedAfterRotation?.name).toBe('ops ssh');
-		expect(storedAfterRotation?.kind).toBe('ssh_key');
+		expect(storedAfterRotation?.name).toBe('ops password renamed');
+		expect(storedAfterRotation?.kind).toBe('password');
+	});
+
+	it('requires a replacement secret when changing credential kind', async () => {
+		expect.assertions(3);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const crypto = new AesGcmCredentialCrypto('test-master-key');
+		const credentials = new CredentialService(repository, crypto);
+
+		const created = await credentials.create('user-1', {
+			name: 'ops password',
+			kind: 'password',
+			username: 'ops',
+			secret: 'initial-secret'
+		});
+		const [storedBefore] = await repository.listCredentials('user-1');
+
+		await expect(
+			credentials.update('user-1', created.id, {
+				kind: 'ssh_key'
+			})
+		).rejects.toMatchObject({
+			issues: ['secret is required when kind changes']
+		});
+
+		const [storedAfter] = await repository.listCredentials('user-1');
+		expect(storedAfter?.kind).toBe('password');
+		expect(storedAfter?.encryptedSecret).toBe(storedBefore?.encryptedSecret);
+	});
+
+	it('rotates secrets and strips kind-specific sensitive metadata when changing kind', async () => {
+		expect.assertions(8);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const crypto = new AesGcmCredentialCrypto('test-master-key');
+		const credentials = new CredentialService(repository, crypto);
+
+		const created = await credentials.create('user-1', {
+			name: 'ops ssh',
+			kind: 'ssh_key',
+			username: 'shell',
+			secret: 'private-key',
+			metadata: {
+				passphrase: 'key-passphrase',
+				password: 'metadata-password',
+				sourceRecordId: 'source-1',
+				nested: { token: 'metadata-token', label: 'safe' }
+			}
+		});
+		const [storedBefore] = await repository.listCredentials('user-1');
+
+		const updated = await credentials.update('user-1', created.id, {
+			kind: 'password',
+			secret: 'rotated-password'
+		});
+		const [storedAfter] = await repository.listCredentials('user-1');
+
+		expect(updated).toMatchObject({ kind: 'password' });
+		expect(updated).not.toHaveProperty('encryptedSecret');
+		expect(storedAfter?.encryptedSecret).not.toBe(storedBefore?.encryptedSecret);
+		expect(
+			crypto.decrypt(
+				{
+					ciphertext: storedAfter!.encryptedSecret,
+					metadata: storedAfter!.encryption
+				},
+				credentialSecretContext('user-1', created.id)
+			)
+		).toBe('rotated-password');
+		expect(storedAfter?.metadata).toEqual({
+			sourceRecordId: 'source-1',
+			nested: { label: 'safe' }
+		});
+		expect(storedAfter?.metadata.encryptedPassphrase).toBeUndefined();
+		expect(storedAfter?.metadata.passphrase).toBeUndefined();
+		expect(storedAfter?.metadata.password).toBeUndefined();
 	});
 });

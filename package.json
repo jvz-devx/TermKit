@@ -18,6 +18,8 @@
 		"test:unit": "vitest",
 		"smoke:postgres": "node scripts/smoke-postgres-migrations.mjs",
 		"smoke:protocols": "node scripts/smoke-protocols.mjs",
+		"smoke:app-protocols": "node scripts/smoke-app-protocols.mjs",
+		"smoke:rdp-gateway": "node scripts/smoke-rdp-gateway.mjs",
 		"smoke:ws": "node scripts/smoke-production-websocket.mjs",
 		"test": "npm run test:unit -- --run",
 		"db:start": "docker compose up",

@@ -134,7 +134,8 @@ export class ImportService {
 						credentialId: host.credentialRef ? credentialIds.get(host.credentialRef) : undefined,
 						folder: host.folder,
 						tags: host.tags,
-						notes: host.notes
+						notes: host.notes,
+						metadata: host.metadata
 					});
 					importedHosts += 1;
 				} catch (error) {
