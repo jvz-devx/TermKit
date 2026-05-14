@@ -1,0 +1,43 @@
+name: Microsoft Acceptance Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      client_credentials_scope:
+        description: Optional .default scope for client-credentials token exchange
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  microsoft-smoke:
+    name: Real Microsoft Entra smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run real Microsoft smoke
+        env:
+          MICROSOFT_AUTH_ENABLED: '1'
+          MICROSOFT_TENANT_ID: ${{ secrets.MICROSOFT_TENANT_ID }}
+          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+          MICROSOFT_ALLOWED_DOMAINS: ${{ secrets.MICROSOFT_ALLOWED_DOMAINS }}
+          MICROSOFT_ADMIN_EMAILS: ${{ secrets.MICROSOFT_ADMIN_EMAILS }}
+          ORIGIN: ${{ vars.MICROSOFT_ACCEPTANCE_ORIGIN || 'https://termix.example' }}
+          TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL: '1'
+          TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE: ${{ inputs.client_credentials_scope }}
+        run: npm run smoke:microsoft
