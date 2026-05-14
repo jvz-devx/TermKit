@@ -281,6 +281,15 @@ script:
 npm run acceptance:github-microsoft -- --dispatch
 ```
 
+After the workflow passes, download and merge the proof artifact without
+hand-editing the local proof JSON. The local proof file must already target the
+current commit; the importer refuses to re-stamp older proof records.
+
+```sh
+gh run download <run-id> --repo jvz-devx/TermixKit -n microsoft-smoke-proof -D microsoft-smoke-proof
+npm run acceptance:import-microsoft-smoke
+```
+
 The browser-only V2 Microsoft proof is manual because it must use real tenant users. Start TermixKit with Microsoft auth enabled, then record operator notes or redacted screenshots proving that an allowed-domain user can sign in and receives a TermixKit session, a blocked-domain user is denied, a configured `MICROSOFT_ADMIN_EMAILS` account covers the admin-email provisioning or promotion case, and local login through username/password remains available. The proof narrative must include the exact fragments `allowed-domain`, `blocked-domain`, `admin-email`, and `local login` so `npm run audit:acceptance` can validate the local proof file.
 
 After collecting that browser evidence, record the interactive proof with redacted notes:

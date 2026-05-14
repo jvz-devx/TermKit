@@ -192,7 +192,8 @@ function printAfterDispatchCommands(repo, ref) {
 		`  gh run list --repo ${repo} --workflow ${shellValue(workflowName)} --branch ${shellValue(ref)} -L 5`
 	);
 	console.log(`  gh run watch <run-id> --repo ${repo}`);
-	console.log(`  gh run download <run-id> --repo ${repo} -n ${artifactName} -D .`);
+	console.log(`  gh run download <run-id> --repo ${repo} -n ${artifactName} -D ${artifactName}`);
+	console.log(`  npm run acceptance:import-microsoft-smoke`);
 }
 
 function ghJson(args) {

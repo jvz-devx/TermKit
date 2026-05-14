@@ -9,6 +9,7 @@
 		"build:server": "node scripts/build-server.mjs",
 		"audit:acceptance": "node scripts/acceptance-audit.mjs",
 		"acceptance:github-microsoft": "node scripts/github-microsoft-acceptance.mjs",
+		"acceptance:import-microsoft-smoke": "node scripts/import-microsoft-smoke-proof.mjs",
 		"acceptance:proof-template": "node scripts/acceptance-proof-template.mjs",
 		"acceptance:record-microsoft-interactive": "node scripts/record-microsoft-interactive-proof.mjs",
 		"acceptance:record-microsoft-smoke": "node scripts/record-microsoft-smoke-proof.mjs",
