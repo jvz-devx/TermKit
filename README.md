@@ -259,6 +259,20 @@ TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE=https://graph.microsoft.com/.
 
 The browser-only V2 Microsoft proof is manual because it must use real tenant users. Start TermixKit with Microsoft auth enabled, then record operator notes or redacted screenshots proving that an allowed-domain user can sign in and receives a TermixKit session, a blocked-domain user is denied, a configured `MICROSOFT_ADMIN_EMAILS` account covers the admin-email provisioning or promotion case, and local login through username/password remains available. The proof narrative must include the exact fragments `allowed-domain`, `blocked-domain`, `admin-email`, and `local login` so `npm run audit:acceptance` can validate the local proof file.
 
+After collecting that browser evidence, record the interactive proof with redacted notes:
+
+```sh
+TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES='allowed-domain: ...; blocked-domain: ...; admin-email: ...; local login: ...' \
+	npm run acceptance:record-microsoft-interactive
+```
+
+For longer notes, put the redacted text in a local file and point the recorder at it:
+
+```sh
+TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES_FILE=/path/to/redacted-microsoft-proof-notes.txt \
+	npm run acceptance:record-microsoft-interactive
+```
+
 Smoke-test Postgres migrations in a disposable container:
 
 ```sh
