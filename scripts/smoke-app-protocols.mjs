@@ -104,7 +104,10 @@ try {
 	);
 
 	await smokeSftpApi(api, sshHost.id);
-	pass('SFTP API list/download/upload', 'verified smoke.txt and uploaded.txt');
+	pass(
+		'SFTP API file workflow',
+		'verified list, download, upload, mkdir, text read/write, rename/move, and delete'
+	);
 
 	const telnetHost = await createHost(api, {
 		name: 'Smoke Telnet fixture',
@@ -391,6 +394,8 @@ function createApiClient(baseUrl, cookieHeader) {
 	return {
 		get: (path) => requestJson(baseUrl, cookieHeader, 'GET', path),
 		post: (path, body) => requestJson(baseUrl, cookieHeader, 'POST', path, body),
+		put: (path, body) => requestJson(baseUrl, cookieHeader, 'PUT', path, body),
+		delete: (path) => requestJson(baseUrl, cookieHeader, 'DELETE', path),
 		download: async (path) => {
 			const response = await fetch(new URL(path, baseUrl), {
 				headers: { cookie: cookieHeader }
@@ -704,6 +709,51 @@ async function smokeSftpApi(api, hostId) {
 	if (uploaded.toString('utf8') !== 'uploaded-through-api\n') {
 		throw new Error(`SFTP uploaded file mismatch: ${uploaded.toString('utf8')}`);
 	}
+
+	await api.post(`/api/sftp/${encodeURIComponent(hostId)}/mkdir`, {
+		path: '/workspace'
+	});
+	await api.put(`/api/sftp/${encodeURIComponent(hostId)}/text`, {
+		path: '/workspace/note.txt',
+		text: 'edited-through-text-api\n'
+	});
+	const textFile = await api.get(
+		`/api/sftp/${encodeURIComponent(hostId)}/text?path=/workspace/note.txt`
+	);
+	if (textFile.text !== 'edited-through-text-api\n') {
+		throw new Error(`SFTP text read mismatch: ${textFile.text}`);
+	}
+
+	await api.post(`/api/sftp/${encodeURIComponent(hostId)}/rename`, {
+		from: '/workspace/note.txt',
+		to: '/workspace/renamed.txt'
+	});
+	await api.post(`/api/sftp/${encodeURIComponent(hostId)}/move`, {
+		from: '/uploaded.txt',
+		to: '/workspace/uploaded-moved.txt'
+	});
+	const workspaceList = await api.get(
+		`/api/sftp/${encodeURIComponent(hostId)}/list?path=/workspace`
+	);
+	const workspaceNames = workspaceList.entries.map((entry) => entry.name);
+	for (const expectedName of ['renamed.txt', 'uploaded-moved.txt']) {
+		if (!workspaceNames.includes(expectedName)) {
+			throw new Error(
+				`SFTP workspace list did not include ${expectedName}; saw ${workspaceNames.join(', ') || '<empty>'}.`
+			);
+		}
+	}
+
+	await api.delete(`/api/sftp/${encodeURIComponent(hostId)}/delete?path=/workspace/renamed.txt`);
+	await api.delete(
+		`/api/sftp/${encodeURIComponent(hostId)}/delete?path=/workspace/uploaded-moved.txt`
+	);
+	await api.delete(`/api/sftp/${encodeURIComponent(hostId)}/delete?path=/workspace`);
+	const finalList = await api.get(`/api/sftp/${encodeURIComponent(hostId)}/list?path=/`);
+	const finalNames = finalList.entries.map((entry) => entry.name);
+	if (finalNames.includes('workspace') || finalNames.includes('uploaded.txt')) {
+		throw new Error(`SFTP delete workflow left stale entries: ${finalNames.join(', ')}`);
+	}
 }
 
 async function smokeTelnetWebSocket(api, baseUrl, cookieHeader, hostId, telnetState) {
@@ -914,6 +964,7 @@ async function startProtocolFixtures() {
 
 function createSshFixtureServer() {
 	const files = new Map([['/smoke.txt', Buffer.from('hello-from-sftp\n')]]);
+	const directories = new Set(['/']);
 	const clients = new Set();
 	const hostKeys = [utils.generateKeyPairSync('ed25519').private];
 	const server = new SshServer({ hostKeys }, (client) => {
@@ -947,7 +998,9 @@ function createSshFixtureServer() {
 							}
 						});
 					});
-					session.on('sftp', (acceptSftp) => installSftpFixtureServer(acceptSftp(), files));
+					session.on('sftp', (acceptSftp) =>
+						installSftpFixtureServer(acceptSftp(), { files, directories })
+					);
 				});
 			});
 	});
@@ -959,7 +1012,8 @@ function createSshFixtureServer() {
 	return server;
 }
 
-function installSftpFixtureServer(sftp, files) {
+function installSftpFixtureServer(sftp, filesystem) {
+	const { files, directories } = filesystem;
 	const handles = new Map();
 	let nextHandle = 1;
 
@@ -974,8 +1028,8 @@ function installSftpFixtureServer(sftp, files) {
 				}
 			]);
 		})
-		.on('STAT', (requestId, path) => sendAttrs(sftp, requestId, files, path))
-		.on('LSTAT', (requestId, path) => sendAttrs(sftp, requestId, files, path))
+		.on('STAT', (requestId, path) => sendAttrs(sftp, requestId, filesystem, path))
+		.on('LSTAT', (requestId, path) => sendAttrs(sftp, requestId, filesystem, path))
 		.on('FSTAT', (requestId, handle) => {
 			const entry = getHandle(handles, handle);
 			if (!entry) {
@@ -985,12 +1039,13 @@ function installSftpFixtureServer(sftp, files) {
 			sftp.attrs(requestId, entry.type === 'dir' ? directoryAttrs() : fileAttrs(entry.size()));
 		})
 		.on('OPENDIR', (requestId, path) => {
-			if (normalizeRemotePath(path) !== '/') {
+			const remotePath = normalizeRemotePath(path);
+			if (!directories.has(remotePath)) {
 				sftp.status(requestId, STATUS_CODE.NO_SUCH_FILE);
 				return;
 			}
 			const handle = createHandle(nextHandle++);
-			handles.set(handle.readUInt32BE(0), { type: 'dir', sent: false });
+			handles.set(handle.readUInt32BE(0), { type: 'dir', path: remotePath, sent: false });
 			sftp.handle(requestId, handle);
 		})
 		.on('READDIR', (requestId, handle) => {
@@ -1004,22 +1059,16 @@ function installSftpFixtureServer(sftp, files) {
 				return;
 			}
 			entry.sent = true;
-			sftp.name(
-				requestId,
-				[...files.entries()].map(([path, data]) => {
-					const attrs = fileAttrs(data.length);
-					return {
-						filename: posixPath.basename(path),
-						longname: longname(posixPath.basename(path), attrs),
-						attrs
-					};
-				})
-			);
+			sftp.name(requestId, listDirectoryEntries(filesystem, entry.path));
 		})
 		.on('OPEN', (requestId, path, flags) => {
 			const remotePath = normalizeRemotePath(path);
 			if (remotePath === '/') {
 				sftp.status(requestId, STATUS_CODE.FAILURE);
+				return;
+			}
+			if (!directories.has(posixPath.dirname(remotePath))) {
+				sftp.status(requestId, STATUS_CODE.NO_SUCH_FILE);
 				return;
 			}
 			if (!files.has(remotePath) && !isWritableOpen(flags)) {
@@ -1062,6 +1111,73 @@ function installSftpFixtureServer(sftp, files) {
 			files.set(entry.path, next);
 			sftp.status(requestId, STATUS_CODE.OK);
 		})
+		.on('MKDIR', (requestId, path) => {
+			const remotePath = normalizeRemotePath(path);
+			if (remotePath === '/' || files.has(remotePath) || directories.has(remotePath)) {
+				sftp.status(requestId, STATUS_CODE.FAILURE);
+				return;
+			}
+			if (!directories.has(posixPath.dirname(remotePath))) {
+				sftp.status(requestId, STATUS_CODE.NO_SUCH_FILE);
+				return;
+			}
+			directories.add(remotePath);
+			sftp.status(requestId, STATUS_CODE.OK);
+		})
+		.on('REMOVE', (requestId, path) => {
+			const remotePath = normalizeRemotePath(path);
+			if (!files.delete(remotePath)) {
+				sftp.status(requestId, STATUS_CODE.NO_SUCH_FILE);
+				return;
+			}
+			sftp.status(requestId, STATUS_CODE.OK);
+		})
+		.on('RMDIR', (requestId, path) => {
+			const remotePath = normalizeRemotePath(path);
+			if (remotePath === '/' || !directories.has(remotePath)) {
+				sftp.status(requestId, STATUS_CODE.NO_SUCH_FILE);
+				return;
+			}
+			if (listDirectoryEntries(filesystem, remotePath).length > 0) {
+				sftp.status(requestId, STATUS_CODE.FAILURE);
+				return;
+			}
+			directories.delete(remotePath);
+			sftp.status(requestId, STATUS_CODE.OK);
+		})
+		.on('RENAME', (requestId, from, to) => {
+			const source = normalizeRemotePath(from);
+			const target = normalizeRemotePath(to);
+			if (!directories.has(posixPath.dirname(target))) {
+				sftp.status(requestId, STATUS_CODE.NO_SUCH_FILE);
+				return;
+			}
+			if (files.has(source)) {
+				files.set(target, files.get(source));
+				files.delete(source);
+				sftp.status(requestId, STATUS_CODE.OK);
+				return;
+			}
+			if (source !== '/' && directories.has(source)) {
+				directories.add(target);
+				directories.delete(source);
+				for (const [path, data] of [...files.entries()]) {
+					if (path.startsWith(`${source}/`)) {
+						files.set(`${target}${path.slice(source.length)}`, data);
+						files.delete(path);
+					}
+				}
+				for (const path of [...directories]) {
+					if (path.startsWith(`${source}/`)) {
+						directories.add(`${target}${path.slice(source.length)}`);
+						directories.delete(path);
+					}
+				}
+				sftp.status(requestId, STATUS_CODE.OK);
+				return;
+			}
+			sftp.status(requestId, STATUS_CODE.NO_SUCH_FILE);
+		})
 		.on('CLOSE', (requestId, handle) => {
 			const id = handle.length === 4 ? handle.readUInt32BE(0) : null;
 			if (id === null || !handles.delete(id)) {
@@ -1072,9 +1188,9 @@ function installSftpFixtureServer(sftp, files) {
 		});
 }
 
-function sendAttrs(sftp, requestId, files, path) {
+function sendAttrs(sftp, requestId, { files, directories }, path) {
 	const remotePath = normalizeRemotePath(path);
-	if (remotePath === '/') {
+	if (directories.has(remotePath)) {
 		sftp.attrs(requestId, directoryAttrs());
 		return;
 	}
@@ -1084,6 +1200,23 @@ function sendAttrs(sftp, requestId, files, path) {
 		return;
 	}
 	sftp.attrs(requestId, fileAttrs(data.length));
+}
+
+function listDirectoryEntries({ files, directories }, directory) {
+	const entries = [];
+	for (const path of directories) {
+		if (path === directory || posixPath.dirname(path) !== directory) continue;
+		const attrs = directoryAttrs();
+		const name = posixPath.basename(path);
+		entries.push({ filename: name, longname: longname(name, attrs), attrs });
+	}
+	for (const [path, data] of files) {
+		if (posixPath.dirname(path) !== directory) continue;
+		const attrs = fileAttrs(data.length);
+		const name = posixPath.basename(path);
+		entries.push({ filename: name, longname: longname(name, attrs), attrs });
+	}
+	return entries.sort((left, right) => left.filename.localeCompare(right.filename));
 }
 
 function createTelnetFixtureServer() {
