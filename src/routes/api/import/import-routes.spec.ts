@@ -59,6 +59,24 @@ describe('import API routes', () => {
 		expect(importService.validate).not.toHaveBeenCalled();
 		expect(importService.listJobs).not.toHaveBeenCalled();
 	});
+
+	it('lists persisted import jobs for the signed-in user', async () => {
+		vi.mocked(importService.listJobs).mockResolvedValueOnce([
+			{
+				id: 'job-1',
+				sourceName: 'termix.json',
+				status: 'validated'
+			}
+		] as never);
+
+		const response = await jobsGet(routeEvent(new Request('https://termix.test/api/import/jobs')));
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({
+			jobs: [{ id: 'job-1', sourceName: 'termix.json', status: 'validated' }]
+		});
+		expect(importService.listJobs).toHaveBeenCalledWith('user-1');
+	});
 });
 
 function formRequest(path: string, sourceSecret: string): Request {

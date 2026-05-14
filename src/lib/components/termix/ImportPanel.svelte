@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { AlertTriangle, CheckCircle2, FileUp, Play } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import ImportJobHistory, { type ImportJob } from './ImportJobHistory.svelte';
 	import StatePanel from './StatePanel.svelte';
 
 	type ImportSummary = {
@@ -50,6 +52,12 @@
 	let result = $state<ImportResult | null>(null);
 	let errorMessage = $state<string | null>(null);
 	let activeAction = $state<'validate' | 'import' | null>(null);
+	let importJobs = $state<ImportJob[]>([]);
+	let importJobsLoading = $state(false);
+	let importJobsError = $state<string | null>(null);
+	let showAllWarnings = $state(false);
+	let showAllFailures = $state(false);
+	let importJobsRequestId = 0;
 
 	let statusTitle = $derived.by(() => {
 		if (activeAction === 'validate') return 'Validating import';
@@ -73,6 +81,20 @@
 	);
 	let summary = $derived(result?.job.summary);
 	let canSubmit = $derived(Boolean(selectedFile) && !activeAction);
+	let visibleWarnings = $derived(
+		result?.job.warnings
+			? showAllWarnings
+				? result.job.warnings
+				: result.job.warnings.slice(0, 4)
+			: []
+	);
+	let visibleFailures = $derived(
+		result?.job.failures
+			? showAllFailures
+				? result.job.failures
+				: result.job.failures.slice(0, 4)
+			: []
+	);
 
 	function handleFileChange(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
@@ -110,12 +132,41 @@
 			}
 
 			result = body as ImportResult;
+			showAllWarnings = false;
+			showAllFailures = false;
+			await loadImportJobs({ quiet: true });
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Import request failed';
+			await loadImportJobs({ quiet: true });
 		} finally {
 			activeAction = null;
 		}
 	}
+
+	async function loadImportJobs(options: { quiet?: boolean } = {}) {
+		const requestId = (importJobsRequestId += 1);
+		if (!options.quiet) importJobsLoading = true;
+		importJobsError = null;
+
+		try {
+			const response = await fetch('/api/import/jobs');
+			const body = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(body.error ?? 'Could not load import jobs');
+			if (requestId === importJobsRequestId) {
+				importJobs = Array.isArray(body.jobs) ? body.jobs : [];
+			}
+		} catch (error) {
+			if (requestId === importJobsRequestId) {
+				importJobsError = error instanceof Error ? error.message : 'Could not load import jobs';
+			}
+		} finally {
+			if (requestId === importJobsRequestId) importJobsLoading = false;
+		}
+	}
+
+	onMount(() => {
+		void loadImportJobs();
+	});
 </script>
 
 <section class="space-y-4 p-4">
@@ -126,7 +177,7 @@
 			and credentials.
 		</p>
 	</div>
-	<div class="grid gap-4 lg:grid-cols-[1fr_360px]">
+	<div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
 		<div class="rounded-md border p-4">
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div class="space-y-2 sm:col-span-2">
@@ -189,9 +240,20 @@
 			{/if}
 			{#if result?.job.warnings.length}
 				<div class="rounded-md border p-3 text-sm">
-					<div class="font-medium">Warnings</div>
+					<div class="flex items-center justify-between gap-2">
+						<div class="font-medium">Warnings</div>
+						{#if result.job.warnings.length > 4}
+							<Button
+								size="sm"
+								variant="ghost"
+								onclick={() => (showAllWarnings = !showAllWarnings)}
+							>
+								{showAllWarnings ? 'Show fewer' : `View all ${result.job.warnings.length}`}
+							</Button>
+						{/if}
+					</div>
 					<ul class="mt-2 space-y-1 text-xs text-muted-foreground">
-						{#each result.job.warnings.slice(0, 4) as warning (warning.sourceId + warning.code)}
+						{#each visibleWarnings as warning, index (`${warning.sourceId}:${warning.code}:${index}`)}
 							<li>{warning.sourceId}: {warning.message}</li>
 						{/each}
 					</ul>
@@ -199,9 +261,20 @@
 			{/if}
 			{#if result?.job.failures.length}
 				<div class="rounded-md border border-destructive/40 p-3 text-sm">
-					<div class="font-medium text-destructive">Failures</div>
+					<div class="flex items-center justify-between gap-2">
+						<div class="font-medium text-destructive">Failures</div>
+						{#if result.job.failures.length > 4}
+							<Button
+								size="sm"
+								variant="ghost"
+								onclick={() => (showAllFailures = !showAllFailures)}
+							>
+								{showAllFailures ? 'Show fewer' : `View all ${result.job.failures.length}`}
+							</Button>
+						{/if}
+					</div>
 					<ul class="mt-2 space-y-1 text-xs text-muted-foreground">
-						{#each result.job.failures.slice(0, 4) as failure (failure)}
+						{#each visibleFailures as failure, index (`${failure}:${index}`)}
 							<li>{failure}</li>
 						{/each}
 					</ul>
@@ -222,6 +295,12 @@
 					</div>
 				</div>
 			{/if}
+			<ImportJobHistory
+				jobs={importJobs}
+				loading={importJobsLoading}
+				error={importJobsError}
+				onRefresh={() => void loadImportJobs()}
+			/>
 		</div>
 	</div>
 </section>
