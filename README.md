@@ -156,6 +156,8 @@ The importer is a one-way service under `src/lib/server/import` with upload pars
 - `GET /api/import/jobs`: lists persisted import jobs for the signed-in user.
 - `POST /api/import/jobs`: accepts multipart `file` upload, imports mapped hosts and credentials, and persists the job result.
 
+The import page loads the persisted job list on entry and refreshes it after both successful and failed validation/import attempts. The latest result panel shows expandable warning and failure lists so validation output is not silently truncated when a source file produces many notices.
+
 Importer uploads are capped at 10 MiB. SFTP uploads are capped at 50 MiB, and the Compose `BODY_SIZE_LIMIT` default is 55 MiB so oversized declared or chunked multipart requests are rejected with 413 before application parsing continues.
 
 Supported uploads are JSON arrays, JSON objects with `records`, `connections`, or `hosts` arrays, and SQLite `.sqlite`, `.sqlite3`, or `.db` files with supported Termix host tables. Supported target protocols are SSH, RDP, VNC, and Telnet; SFTP is normalized to SSH. Plaintext passwords, SSH keys, `ip` host aliases, reusable SQLite `ssh_credentials` records, host `credential_id` links, and supported Termix AES-256-GCM/HKDF encrypted password/key fields can be imported. Encrypted source fields require a `sourceSecret` multipart field; missing secrets, unsupported encrypted formats, and failed decrypts are recorded as warnings.
@@ -240,13 +242,13 @@ nix develop -c npm run smoke:protocols
 
 When real test targets are available, the same command can also verify an external SSH host and a real VNC framebuffer handshake. Configure SSH with `TERMIXKIT_SMOKE_SSH_HOST`, `TERMIXKIT_SMOKE_SSH_USERNAME`, `TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256`, and either `TERMIXKIT_SMOKE_SSH_PASSWORD` or `TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PATH`; optional values are `TERMIXKIT_SMOKE_SSH_PORT`, `TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PASSPHRASE`, `TERMIXKIT_SMOKE_SSH_COMMAND`, `TERMIXKIT_SMOKE_SSH_SFTP_PATH`, `TERMIXKIT_SMOKE_SSH_SKIP_SFTP=1`, and `TERMIXKIT_SMOKE_PROTOCOL_TIMEOUT_MS`. The SSH fingerprint accepts OpenSSH `SHA256:<base64>` or a 64-character hex SHA256 digest and is required before credentials are sent. Configure VNC with `TERMIXKIT_SMOKE_VNC_HOST` and optional `TERMIXKIT_SMOKE_VNC_PORT`; the automated VNC target must allow no-auth RFB security so the smoke can reach `ServerInit` without storing a desktop password in the environment.
 
-Smoke-test the production app boundary with disposable SSH/SFTP, Telnet, VNC, and mocked RDP Gateway fixtures. This builds the current production app, creates a temporary admin user, drives first-run/login through Chromium, creates hosts and credentials through the app APIs, opens WebSocket sessions through `/ws/*`, exercises SFTP list/download/upload through the authenticated HTTP API, and verifies that the RDP remote launch path stages a saved password without leaking it into Gateway provisioning:
+Smoke-test the production app boundary with disposable SSH/SFTP, Telnet, VNC, and mocked RDP Gateway fixtures. This builds the current production app, creates a temporary admin user, drives first-run/login through Chromium, creates hosts and credentials through the app APIs, opens WebSocket sessions through `/ws/*`, exercises SFTP list/download/upload plus mkdir, text read/write, rename/move, and delete through the authenticated HTTP API, and verifies that the RDP remote launch path stages a saved password without leaking it into Gateway provisioning:
 
 ```sh
 nix develop -c npm run smoke:app-protocols
 ```
 
-Smoke-test RDP Gateway bootstrapping. Without real Gateway env vars this runs a mocked Devolutions Gateway bootstrap; with `GATEWAY_URL`, `GATEWAY_PUBLIC_URL`, `GATEWAY_PROVISIONER_KEY`, and `TERMIXKIT_SMOKE_RDP_HOST` it provisions against a real Gateway target:
+Smoke-test RDP Gateway bootstrapping. Without real Gateway env vars this runs a mocked Devolutions Gateway bootstrap; with `GATEWAY_URL`, `GATEWAY_PUBLIC_URL`, `GATEWAY_PROVISIONER_KEY`, and `TERMIXKIT_SMOKE_RDP_HOST` it provisions against a real Gateway target. Optional real-target inputs are `TERMIXKIT_SMOKE_RDP_PORT`, `TERMIXKIT_SMOKE_RDP_USERNAME`, `TERMIXKIT_SMOKE_RDP_PASSWORD`, `TERMIXKIT_SMOKE_RDP_DOMAIN`, `TERMIXKIT_SMOKE_RDP_USER_ID`, `TERMIXKIT_SMOKE_RDP_HOST_ID`, and `TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS`:
 
 ```sh
 nix develop -c npm run smoke:rdp-gateway
