@@ -47,6 +47,14 @@ export const sshLiveSessionStatus = pgEnum('ssh_live_session_status', [
 	'failed',
 	'stale'
 ]);
+export const terminalRecordingStatus = pgEnum('terminal_recording_status', [
+	'recording',
+	'completed',
+	'failed',
+	'expired'
+]);
+export const ftpsMode = pgEnum('ftps_mode', ['explicit', 'implicit']);
+export const fileTransferProtocol = pgEnum('file_transfer_protocol', ['sftp', 'ftp', 'ftps']);
 
 const timestamps = {
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -372,6 +380,165 @@ export const sshAttachTickets = pgTable(
 	]
 );
 
+export const terminalPreferences = pgTable(
+	'terminal_preferences',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		hostId: uuid('host_id')
+			.notNull()
+			.references(() => hosts.id, { onDelete: 'cascade' }),
+		fontSize: integer('font_size').notNull().default(13),
+		theme: text('theme').notNull().default('system'),
+		scrollbackLines: integer('scrollback_lines').notNull().default(2000),
+		shellTitle: text('shell_title'),
+		initialCols: integer('initial_cols').notNull().default(120),
+		initialRows: integer('initial_rows').notNull().default(32),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		...timestamps
+	},
+	(table) => [
+		uniqueIndex('terminal_preferences_user_host_unique').on(table.userId, table.hostId),
+		index('terminal_preferences_user_id_idx').on(table.userId),
+		index('terminal_preferences_host_id_idx').on(table.hostId)
+	]
+);
+
+export const commandSnippets = pgTable(
+	'command_snippets',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+		hostId: uuid('host_id').references(() => hosts.id, { onDelete: 'set null' }),
+		name: text('name').notNull(),
+		command: text('command').notNull(),
+		description: text('description'),
+		tags: text('tags').array().notNull().default([]),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		...timestamps
+	},
+	(table) => [
+		index('command_snippets_user_id_idx').on(table.userId),
+		index('command_snippets_workspace_id_idx').on(table.workspaceId),
+		index('command_snippets_host_id_idx').on(table.hostId)
+	]
+);
+
+export const terminalRecordings = pgTable(
+	'terminal_recordings',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		hostId: uuid('host_id')
+			.notNull()
+			.references(() => hosts.id, { onDelete: 'cascade' }),
+		connectionSessionId: uuid('connection_session_id').references(() => connectionSessions.id, {
+			onDelete: 'set null'
+		}),
+		sshLiveSessionId: uuid('ssh_live_session_id').references(() => sshLiveSessions.id, {
+			onDelete: 'set null'
+		}),
+		status: terminalRecordingStatus('status').notNull().default('recording'),
+		storageKey: text('storage_key').notNull(),
+		startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+		endedAt: timestamp('ended_at', { withTimezone: true }),
+		retentionExpiresAt: timestamp('retention_expires_at', { withTimezone: true }),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(table) => [
+		index('terminal_recordings_user_id_idx').on(table.userId),
+		index('terminal_recordings_host_id_idx').on(table.hostId),
+		index('terminal_recordings_connection_session_id_idx').on(table.connectionSessionId),
+		index('terminal_recordings_ssh_live_session_id_idx').on(table.sshLiveSessionId),
+		index('terminal_recordings_status_idx').on(table.status),
+		index('terminal_recordings_retention_expires_at_idx').on(table.retentionExpiresAt)
+	]
+);
+
+export const fileBookmarks = pgTable(
+	'file_bookmarks',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		hostId: uuid('host_id')
+			.notNull()
+			.references(() => hosts.id, { onDelete: 'cascade' }),
+		protocol: fileTransferProtocol('protocol').notNull(),
+		label: text('label').notNull(),
+		remotePath: text('remote_path').notNull(),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		...timestamps
+	},
+	(table) => [
+		uniqueIndex('file_bookmarks_user_host_path_unique').on(
+			table.userId,
+			table.hostId,
+			table.remotePath
+		),
+		index('file_bookmarks_user_id_idx').on(table.userId),
+		index('file_bookmarks_host_id_idx').on(table.hostId),
+		index('file_bookmarks_protocol_idx').on(table.protocol)
+	]
+);
+
+export const ftpsHostSettings = pgTable(
+	'ftps_host_settings',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		hostId: uuid('host_id')
+			.notNull()
+			.references(() => hosts.id, { onDelete: 'cascade' }),
+		mode: ftpsMode('mode').notNull().default('explicit'),
+		rejectUnauthorized: boolean('reject_unauthorized').notNull().default(true),
+		certificateHostname: text('certificate_hostname'),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		...timestamps
+	},
+	(table) => [
+		uniqueIndex('ftps_host_settings_user_host_unique').on(table.userId, table.hostId),
+		index('ftps_host_settings_user_id_idx').on(table.userId),
+		index('ftps_host_settings_host_id_idx').on(table.hostId)
+	]
+);
+
+export const rdpHostSettings = pgTable(
+	'rdp_host_settings',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		hostId: uuid('host_id')
+			.notNull()
+			.references(() => hosts.id, { onDelete: 'cascade' }),
+		display: jsonb('display').$type<Record<string, unknown>>().notNull().default({}),
+		clipboard: jsonb('clipboard').$type<Record<string, unknown>>().notNull().default({}),
+		audio: jsonb('audio').$type<Record<string, unknown>>().notNull().default({}),
+		gateway: jsonb('gateway').$type<Record<string, unknown>>().notNull().default({}),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		...timestamps
+	},
+	(table) => [
+		uniqueIndex('rdp_host_settings_user_host_unique').on(table.userId, table.hostId),
+		index('rdp_host_settings_user_id_idx').on(table.userId),
+		index('rdp_host_settings_host_id_idx').on(table.hostId)
+	]
+);
+
 export const settings = pgTable('settings', {
 	key: text('key').primaryKey(),
 	value: jsonb('value').$type<unknown>().notNull(),
@@ -452,6 +619,12 @@ export const usersRelations = relations(users, ({ many }) => ({
 	workspaceLayouts: many(workspaceLayouts),
 	sshLiveSessions: many(sshLiveSessions),
 	sshAttachTickets: many(sshAttachTickets),
+	terminalPreferences: many(terminalPreferences),
+	commandSnippets: many(commandSnippets),
+	terminalRecordings: many(terminalRecordings),
+	fileBookmarks: many(fileBookmarks),
+	ftpsHostSettings: many(ftpsHostSettings),
+	rdpHostSettings: many(rdpHostSettings),
 	importJobs: many(importJobs)
 }));
 
@@ -470,7 +643,8 @@ export const workspacesRelations = relations(workspaces, ({ many }) => ({
 	connectionSessions: many(connectionSessions),
 	sshTunnelProfiles: many(sshTunnelProfiles),
 	sshTunnelSessions: many(sshTunnelSessions),
-	workspaceLayouts: many(workspaceLayouts)
+	workspaceLayouts: many(workspaceLayouts),
+	commandSnippets: many(commandSnippets)
 }));
 
 export const workspaceMembershipsRelations = relations(workspaceMemberships, ({ one }) => ({
@@ -489,7 +663,13 @@ export const hostsRelations = relations(hosts, ({ one, many }) => ({
 	sessionTickets: many(sessionTickets),
 	sshTunnelProfiles: many(sshTunnelProfiles),
 	sshTunnelSessions: many(sshTunnelSessions),
-	sshLiveSessions: many(sshLiveSessions)
+	sshLiveSessions: many(sshLiveSessions),
+	terminalPreferences: many(terminalPreferences),
+	commandSnippets: many(commandSnippets),
+	terminalRecordings: many(terminalRecordings),
+	fileBookmarks: many(fileBookmarks),
+	ftpsHostSettings: many(ftpsHostSettings),
+	rdpHostSettings: many(rdpHostSettings)
 }));
 
 export const credentialsRelations = relations(credentials, ({ one, many }) => ({
@@ -501,13 +681,14 @@ export const credentialsRelations = relations(credentials, ({ one, many }) => ({
 	hosts: many(hosts)
 }));
 
-export const connectionSessionsRelations = relations(connectionSessions, ({ one }) => ({
+export const connectionSessionsRelations = relations(connectionSessions, ({ one, many }) => ({
 	user: one(users, { fields: [connectionSessions.userId], references: [users.id] }),
 	workspace: one(workspaces, {
 		fields: [connectionSessions.workspaceId],
 		references: [workspaces.id]
 	}),
-	host: one(hosts, { fields: [connectionSessions.hostId], references: [hosts.id] })
+	host: one(hosts, { fields: [connectionSessions.hostId], references: [hosts.id] }),
+	terminalRecordings: many(terminalRecordings)
 }));
 
 export const sessionTicketsRelations = relations(sessionTickets, ({ one }) => ({
@@ -549,7 +730,8 @@ export const workspaceLayoutsRelations = relations(workspaceLayouts, ({ one }) =
 export const sshLiveSessionsRelations = relations(sshLiveSessions, ({ one, many }) => ({
 	user: one(users, { fields: [sshLiveSessions.userId], references: [users.id] }),
 	host: one(hosts, { fields: [sshLiveSessions.hostId], references: [hosts.id] }),
-	attachTickets: many(sshAttachTickets)
+	attachTickets: many(sshAttachTickets),
+	terminalRecordings: many(terminalRecordings)
 }));
 
 export const sshAttachTicketsRelations = relations(sshAttachTickets, ({ one }) => ({
@@ -558,6 +740,48 @@ export const sshAttachTicketsRelations = relations(sshAttachTickets, ({ one }) =
 		fields: [sshAttachTickets.sshLiveSessionId],
 		references: [sshLiveSessions.id]
 	})
+}));
+
+export const terminalPreferencesRelations = relations(terminalPreferences, ({ one }) => ({
+	user: one(users, { fields: [terminalPreferences.userId], references: [users.id] }),
+	host: one(hosts, { fields: [terminalPreferences.hostId], references: [hosts.id] })
+}));
+
+export const commandSnippetsRelations = relations(commandSnippets, ({ one }) => ({
+	user: one(users, { fields: [commandSnippets.userId], references: [users.id] }),
+	workspace: one(workspaces, {
+		fields: [commandSnippets.workspaceId],
+		references: [workspaces.id]
+	}),
+	host: one(hosts, { fields: [commandSnippets.hostId], references: [hosts.id] })
+}));
+
+export const terminalRecordingsRelations = relations(terminalRecordings, ({ one }) => ({
+	user: one(users, { fields: [terminalRecordings.userId], references: [users.id] }),
+	host: one(hosts, { fields: [terminalRecordings.hostId], references: [hosts.id] }),
+	connectionSession: one(connectionSessions, {
+		fields: [terminalRecordings.connectionSessionId],
+		references: [connectionSessions.id]
+	}),
+	sshLiveSession: one(sshLiveSessions, {
+		fields: [terminalRecordings.sshLiveSessionId],
+		references: [sshLiveSessions.id]
+	})
+}));
+
+export const fileBookmarksRelations = relations(fileBookmarks, ({ one }) => ({
+	user: one(users, { fields: [fileBookmarks.userId], references: [users.id] }),
+	host: one(hosts, { fields: [fileBookmarks.hostId], references: [hosts.id] })
+}));
+
+export const ftpsHostSettingsRelations = relations(ftpsHostSettings, ({ one }) => ({
+	user: one(users, { fields: [ftpsHostSettings.userId], references: [users.id] }),
+	host: one(hosts, { fields: [ftpsHostSettings.hostId], references: [hosts.id] })
+}));
+
+export const rdpHostSettingsRelations = relations(rdpHostSettings, ({ one }) => ({
+	user: one(users, { fields: [rdpHostSettings.userId], references: [users.id] }),
+	host: one(hosts, { fields: [rdpHostSettings.hostId], references: [hosts.id] })
 }));
 
 export const importJobsRelations = relations(importJobs, ({ one }) => ({

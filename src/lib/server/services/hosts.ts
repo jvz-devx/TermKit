@@ -9,6 +9,7 @@ import type {
 	WorkspaceRepository
 } from './types';
 import { protocols } from './types';
+import { normalizeHostMetadata } from '$lib/termix/host-metadata';
 
 export interface HostInput {
 	name?: unknown;
@@ -58,7 +59,11 @@ export class HostService {
 
 	async update(userId: string, id: string, input: HostInput): Promise<HostRecord> {
 		const current = await this.get(userId, id);
-		const validated = validateHostInput({ ...current, ...input });
+		const validated = validateHostInput({
+			...current,
+			...input,
+			metadata: mergeHostMetadata(current.metadata, input.metadata)
+		});
 		await this.assertWorkspaceOwner(userId, current.workspaceId);
 		await this.assertWorkspaceOwner(userId, validated.workspaceId);
 		await this.assertCredentialMatchesScope(userId, validated.credentialId, validated.workspaceId);
@@ -144,7 +149,7 @@ export function validateHostInput(
 		folder: asNullableString(input.folder),
 		tags: [...new Set(tags)],
 		notes: asNullableString(input.notes),
-		metadata: isRecord(input.metadata) ? input.metadata : {}
+		metadata: normalizeHostMetadata(input.metadata)
 	};
 }
 
@@ -154,6 +159,20 @@ function asTrimmedString(value: unknown): string | null {
 
 function asNullableString(value: unknown): string | null {
 	return asTrimmedString(value);
+}
+
+function mergeHostMetadata(existing: unknown, incoming: unknown): Record<string, unknown> {
+	const current = isRecord(existing) ? existing : {};
+	const patch = isRecord(incoming) ? incoming : {};
+	const merged = { ...current, ...patch };
+
+	for (const key of ['terminalPreferences', 'sshJumpHost', 'ftps']) {
+		if (isRecord(current[key]) && isRecord(patch[key])) {
+			merged[key] = { ...current[key], ...patch[key] };
+		}
+	}
+
+	return merged;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

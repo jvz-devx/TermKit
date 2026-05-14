@@ -258,6 +258,36 @@ const checks = [
 		status: 'local',
 		evidence:
 			'npm test covers acceptance-audit V4 rows while missing Microsoft tenant/browser proof remains external-blocked'
+	},
+	{
+		name: 'V5 SSH terminal preferences, snippets, jump hosts, and host-key UX',
+		status: 'local',
+		evidence:
+			'npm test covers V5 terminal preference/snippet repositories, jump-host routing for SSH/SFTP/tunnels, host-key enrollment, and npm run smoke:postgres verifies migration compatibility'
+	},
+	{
+		name: 'V5 terminal session recording controls, capture, and retention cleanup',
+		status: 'local',
+		evidence:
+			'npm test covers disabled-by-default browser recording helpers, asciicast capture output, local retention cleanup, and npm run check validates explicit terminal controls'
+	},
+	{
+		name: 'V5 SFTP file-manager bookmarks and transfer power tools',
+		status: 'local',
+		evidence:
+			'npm test covers V5 file bookmark repository support, recursive transfer limits, transfer state helpers, and npm run smoke:app-protocols verifies SFTP workspace flows'
+	},
+	{
+		name: 'V5 FTP and FTPS mode settings plus runtime TLS behavior',
+		status: 'local',
+		evidence:
+			'npm test covers V5 FTPS host settings, explicit/implicit TLS options, structured failures, and npm run smoke:postgres verifies ftps_mode plus ftps_host_settings'
+	},
+	{
+		name: 'V5 RDP operator controls and host settings',
+		status: 'local',
+		evidence:
+			'npm test covers V5 RDP host settings, operator-control helpers, audio gateway capability, and npm run smoke:app-protocols verifies the RDP launch boundary'
 	}
 ];
 
@@ -265,13 +295,13 @@ for (const check of checks) {
 	console.log(`${label(check.status)} ${check.name} - ${check.evidence}`);
 }
 
-const blocked = checks.filter((check) => check.status === 'blocked');
+const blocked = checks.filter((check) => check.status === 'blocked' || check.status === 'pending');
 const externalBlocked = checks.filter((check) => check.status === 'external-blocked');
 if (blocked.length > 0) {
 	console.log('');
 	printProofFileState();
 	console.log(
-		`acceptance audit: ${blocked.length} requirement(s) still need external env or manual proof`
+		`acceptance audit: ${blocked.length} requirement(s) still need implementation, external env, or manual proof`
 	);
 	process.exitCode = 2;
 } else {
@@ -289,6 +319,7 @@ if (blocked.length > 0) {
 function label(status) {
 	if (status === 'local') return '[local]';
 	if (status === 'available') return '[proof-ready]';
+	if (status === 'pending') return '[pending]';
 	if (status === 'manual') return '[manual]';
 	if (status === 'external-blocked') return '[external-blocked]';
 	return '[blocked]';

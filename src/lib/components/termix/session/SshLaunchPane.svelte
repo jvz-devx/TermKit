@@ -49,6 +49,15 @@
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 		return `${protocol}//${window.location.host}${path}`;
 	}
+
+	let welcome = $derived([
+		`$ ssh ${host.hostname}`,
+		host.sshJumpHost.enabled && host.sshJumpHost.hostId
+			? `Using jump host ${host.sshJumpHost.hostId}`
+			: 'Direct SSH target',
+		'Attaching live SSH session...',
+		''
+	]);
 </script>
 
 {#if error}
@@ -58,8 +67,9 @@
 		title={launch.session.title}
 		subtitle={`${launch.session.username ?? 'user'}@${launch.session.hostname}`}
 		websocketUrl={toWebSocketUrl(launch.liveWebsocketPath)}
-		welcome={[`$ ssh ${launch.session.hostname}`, 'Attaching live SSH session...', '']}
+		{welcome}
 		{fontSize}
+		preferences={host.terminalPreferences}
 		{onConnectionStateChange}
 	/>
 {:else}

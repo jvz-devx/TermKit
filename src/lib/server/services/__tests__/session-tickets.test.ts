@@ -192,7 +192,7 @@ describe('SessionTicketService', () => {
 
 		await hosts.update('user-1', host.id, { metadata: { domain: 'LAB' } });
 
-		expect(snapshot.host.metadata).toEqual({ domain: 'ACME' });
+		expect(snapshot.host.metadata).toEqual(expect.objectContaining({ domain: 'ACME' }));
 		await expect(tickets.consume(created.ticket)).rejects.toBeInstanceOf(TicketInvalidError);
 	});
 

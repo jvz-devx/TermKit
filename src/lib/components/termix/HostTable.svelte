@@ -200,7 +200,7 @@
 				Searchable connection inventory for protocol launches.
 			</p>
 		</div>
-		<HostDialog {credentials} onSaved={() => hostsQuery.refresh()} />
+		<HostDialog {credentials} {hosts} onSaved={() => hostsQuery.refresh()} />
 	</div>
 
 	<div class="flex gap-2">
@@ -354,7 +354,7 @@
 									>
 										<Play class="size-4" />
 									</Button>
-									<HostDialog {credentials} {host} onSaved={() => hostsQuery.refresh()} />
+									<HostDialog {credentials} {hosts} {host} onSaved={() => hostsQuery.refresh()} />
 									<Button
 										size="icon"
 										variant="ghost"

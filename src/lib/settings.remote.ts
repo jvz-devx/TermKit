@@ -3,11 +3,12 @@ import {
 	settingsService,
 	type BasicAppSettings,
 	type BasicAppSettingsInput,
-	type RdpClipboardPolicy
+	type RdpClipboardPolicy,
+	type RdpPerformancePreset
 } from '$lib/server/services/settings';
 import { ServiceUnauthorizedError } from '$lib/server/services/errors';
 
-export type { BasicAppSettings, BasicAppSettingsInput, RdpClipboardPolicy };
+export type { BasicAppSettings, BasicAppSettingsInput, RdpClipboardPolicy, RdpPerformancePreset };
 
 export const getAppSettings = query(async () => {
 	requireRemoteUser();

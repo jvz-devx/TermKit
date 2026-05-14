@@ -1,103 +1,368 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
+		Ban,
+		Bookmark,
+		BookmarkPlus,
 		Download,
-		File,
+		File as FileIcon,
+		FileSymlink,
 		Folder,
+		FolderDown,
 		FolderPlus,
+		Link,
+		MoveRight,
 		Pencil,
 		RefreshCw,
+		RotateCcw,
 		Save,
+		Search,
 		Trash2,
-		Upload
+		Upload,
+		X
 	} from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
+	import { Progress } from '$lib/components/ui/progress';
 	import * as Table from '$lib/components/ui/table';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import StatePanel from '../StatePanel.svelte';
+	import {
+		assertRecursiveUploadItemsWithinLimits,
+		basename,
+		countRecursiveUploadEntry,
+		countRecursiveUploadFile,
+		createTransferProgress,
+		createRecursiveUploadLimitState,
+		dirname,
+		entryTypeLabel,
+		fileTransferLimits,
+		filterRemoteEntries,
+		formatDuration,
+		formatSize,
+		formatThroughput,
+		isDownloadableFile,
+		joinPath,
+		normalizePath,
+		normalizeTarget,
+		parentPath,
+		selectedEntries,
+		selectionSummary,
+		setVisibleSelection,
+		toggleSelectedPath,
+		transferPercent,
+		updateTransferProgress,
+		type RemoteEntry,
+		type RecursiveUploadLimitState,
+		type TransferProgress
+	} from './file-manager-state';
 
-	type SftpEntry = {
-		name: string;
+	type ApiBase = 'sftp' | 'ftp';
+
+	type BookmarkEntry = {
+		id: string;
 		path: string;
-		type: 'directory' | 'file' | 'symlink' | 'other';
-		size: number;
-		mtime: string;
+		label: string;
+		createdAt: string;
 	};
 
-	const sftpUploadMaxBytes = 50 * 1024 * 1024;
+	type UploadItem = {
+		file: globalThis.File;
+		relativePath: string;
+		directories: string[];
+	};
+
+	type PendingRecursive =
+		| {
+				kind: 'upload';
+				items: UploadItem[];
+				directoryCount: number;
+				totalBytes: number;
+		  }
+		| {
+				kind: 'download';
+				entries: RemoteEntry[];
+		  };
+
+	type WebKitFileSystemEntry = {
+		name: string;
+		fullPath: string;
+		isFile: boolean;
+		isDirectory: boolean;
+	};
+
+	type WebKitFileSystemFileEntry = WebKitFileSystemEntry & {
+		file: (
+			success: (file: globalThis.File) => void,
+			failure: (error: DOMException) => void
+		) => void;
+	};
+
+	type WebKitFileSystemDirectoryEntry = WebKitFileSystemEntry & {
+		createReader: () => {
+			readEntries: (
+				success: (entries: WebKitFileSystemEntry[]) => void,
+				failure: (error: DOMException) => void
+			) => void;
+		};
+	};
 
 	let {
 		hostId,
 		initialPath = '/',
 		apiBase = 'sftp',
 		label = 'SFTP'
-	}: { hostId: string; initialPath?: string; apiBase?: 'sftp' | 'ftp'; label?: string } = $props();
+	}: { hostId: string; initialPath?: string; apiBase?: ApiBase; label?: string } = $props();
 
 	let path = $state('/');
-	let entries = $state<SftpEntry[]>([]);
-	let selected = $state<SftpEntry | null>(null);
-	let deleteTarget = $state<SftpEntry | null>(null);
+	let entries = $state<RemoteEntry[]>([]);
+	let selected = $state<RemoteEntry | null>(null);
+	let selectedPaths = $state<string[]>([]);
 	let deleteDialogOpen = $state(false);
+	let recursiveDialogOpen = $state(false);
+	let pendingRecursive = $state<PendingRecursive | null>(null);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let newFolderName = $state('');
 	let renamePath = $state('');
+	let searchQuery = $state('');
+	let remoteSearchResults = $state<RemoteEntry[]>([]);
+	let remoteSearching = $state(false);
+	let bookmarks = $state<BookmarkEntry[]>([]);
 	let textPath = $state<string | null>(null);
 	let textValue = $state('');
 	let textDirty = $state(false);
+	let dragging = $state(false);
+	let transfer = $state<TransferProgress | null>(null);
+	let lastRetry = $state<(() => Promise<void>) | null>(null);
 	let fileInput: HTMLInputElement;
+	let activeAbort = $state<(() => void) | null>(null);
+	let transferCancelled = false;
+
+	let visibleEntries = $derived(filterRemoteEntries(entries, searchQuery));
+	let selectedEntryList = $derived(selectedEntries(entries, selectedPaths));
+	let selection = $derived(selectionSummary(visibleEntries, selectedPaths));
+	let selectedDirectoryCount = $derived(
+		selectedEntryList.filter((entry) => entry.type === 'directory').length
+	);
+	let selectedTotalBytes = $derived(
+		selectedEntryList.reduce((total, entry) => total + (entry.type === 'file' ? entry.size : 0), 0)
+	);
+
+	function apiUrl(route: string) {
+		return `/api/${apiBase}/${encodeURIComponent(hostId)}${route}`;
+	}
 
 	async function loadDirectory(nextPath = path) {
 		loading = true;
 		error = null;
+		lastRetry = () => loadDirectory(nextPath);
+		const controller = new AbortController();
+		activeAbort = () => controller.abort();
 
 		try {
 			const response = await fetch(
-				`/api/${apiBase}/${encodeURIComponent(hostId)}/list?path=${encodeURIComponent(nextPath)}`
+				apiUrl(`/list?path=${encodeURIComponent(normalizePath(nextPath))}`),
+				{ signal: controller.signal }
 			);
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.error ?? 'Could not list directory');
-			path = nextPath;
+			path = body.path ?? normalizePath(nextPath);
 			entries = body.entries;
 			selected = null;
+			selectedPaths = [];
+			renamePath = '';
+			lastRetry = null;
 		} catch (caught) {
+			if (isAbortError(caught)) return;
 			error = caught instanceof Error ? caught.message : 'Could not list directory';
 		} finally {
+			if (activeAbort) activeAbort = null;
 			loading = false;
 		}
 	}
 
-	async function uploadFile() {
-		const file = fileInput.files?.[0];
-		if (!file) return;
-		if (file.size > sftpUploadMaxBytes) {
-			error = `File exceeds the ${formatSize(sftpUploadMaxBytes)} upload limit`;
-			fileInput.value = '';
+	async function listDirectory(remotePath: string): Promise<RemoteEntry[]> {
+		const response = await fetch(
+			apiUrl(`/list?path=${encodeURIComponent(normalizePath(remotePath))}`)
+		);
+		const body = await response.json();
+		if (!response.ok) throw new Error(body.error ?? 'Could not list directory');
+		return body.entries;
+	}
+
+	async function uploadFromPicker() {
+		const files = Array.from(fileInput.files ?? []);
+		fileInput.value = '';
+		await queueUploads(files.map((file) => ({ file, relativePath: file.name, directories: [] })));
+	}
+
+	async function queueUploads(items: UploadItem[]) {
+		if (!items.length) return;
+		const oversized = items.find((item) => item.file.size > fileTransferLimits.uploadMaxBytes);
+		if (oversized) {
+			error = `${oversized.relativePath} exceeds the ${formatSize(fileTransferLimits.uploadMaxBytes)} upload limit`;
+			lastRetry = null;
 			return;
 		}
 
-		const form = new FormData();
-		form.append('file', file);
-		const remotePath = joinPath(path, file.name);
-		loading = true;
+		const totalBytes = items.reduce((total, item) => total + item.file.size, 0);
+		const directories = new Set(items.flatMap((item) => item.directories));
+		const hasRecursivePayload = directories.size > 0;
+		if (hasRecursivePayload) {
+			try {
+				assertRecursiveUploadItemsWithinLimits(
+					items.map((item) => ({
+						size: item.file.size,
+						directories: item.directories
+					}))
+				);
+			} catch (caught) {
+				error = caught instanceof Error ? caught.message : 'Recursive upload exceeds limits';
+				lastRetry = null;
+				return;
+			}
+			pendingRecursive = {
+				kind: 'upload',
+				items,
+				directoryCount: directories.size,
+				totalBytes
+			};
+			recursiveDialogOpen = true;
+			return;
+		}
+
+		await uploadItems(items);
+	}
+
+	async function uploadItems(items: UploadItem[]) {
+		const hasRecursivePayload = items.some((item) => item.directories.length > 0);
+		if (hasRecursivePayload) {
+			try {
+				assertRecursiveUploadItemsWithinLimits(
+					items.map((item) => ({
+						size: item.file.size,
+						directories: item.directories
+					}))
+				);
+			} catch (caught) {
+				error = caught instanceof Error ? caught.message : 'Recursive upload exceeds limits';
+				lastRetry = null;
+				return;
+			}
+		}
+
+		transferCancelled = false;
 		error = null;
+		lastRetry = () => uploadItems(items);
+		const totalBytes = items.reduce((total, item) => total + item.file.size, 0);
+		let completedBytes = 0;
+		let completedItems = 0;
+		transfer = createTransferProgress({
+			kind: 'upload',
+			label: `Uploading ${items.length} item${items.length === 1 ? '' : 's'}`,
+			totalBytes,
+			totalItems: items.length
+		});
 
 		try {
-			const response = await fetch(
-				`/api/${apiBase}/${encodeURIComponent(hostId)}/upload?path=${encodeURIComponent(remotePath)}`,
-				{ method: 'POST', body: form }
-			);
-			const body = await response.json().catch(() => ({}));
-			if (!response.ok) throw new Error(body.error ?? 'Could not upload file');
-			fileInput.value = '';
+			await ensureUploadDirectories(items);
+			for (const item of items) {
+				assertTransferActive();
+				transfer = updateTransferProgress(transfer, {
+					currentName: item.relativePath,
+					completedBytes,
+					completedItems
+				});
+				await uploadOne(item, (loaded) => {
+					if (!transfer) return;
+					transfer = updateTransferProgress(transfer, {
+						completedBytes: completedBytes + loaded,
+						completedItems,
+						currentName: item.relativePath
+					});
+				});
+				completedBytes += item.file.size;
+				completedItems += 1;
+				transfer = updateTransferProgress(transfer, {
+					completedBytes,
+					completedItems,
+					currentName: item.relativePath
+				});
+			}
+			if (transfer) transfer = updateTransferProgress(transfer, { status: 'complete' });
+			lastRetry = null;
 			await loadDirectory(path);
 		} catch (caught) {
+			if (isAbortError(caught)) {
+				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
+				return;
+			}
 			error = caught instanceof Error ? caught.message : 'Could not upload file';
+			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
 		} finally {
-			loading = false;
+			activeAbort = null;
 		}
+	}
+
+	async function ensureUploadDirectories(items: UploadItem[]) {
+		const directories = [...new Set(items.flatMap((item) => item.directories))].sort(
+			(left, right) => left.split('/').length - right.split('/').length
+		);
+
+		for (const directory of directories) {
+			assertTransferActive();
+			await request(
+				'/mkdir',
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ path: joinPath(path, directory) })
+				},
+				'Could not create upload directory',
+				true
+			).catch(() => null);
+		}
+	}
+
+	function uploadOne(item: UploadItem, onProgress: (loaded: number) => void): Promise<void> {
+		return new Promise((resolve, reject) => {
+			const xhr = new XMLHttpRequest();
+			const remotePath = joinPath(path, item.relativePath);
+			activeAbort = () => {
+				transferCancelled = true;
+				xhr.abort();
+			};
+
+			xhr.upload.onprogress = (event) => {
+				if (event.lengthComputable) onProgress(event.loaded);
+			};
+			xhr.onload = () => {
+				activeAbort = null;
+				if (xhr.status >= 200 && xhr.status < 300) {
+					onProgress(item.file.size);
+					resolve();
+					return;
+				}
+				reject(new Error(responseError(xhr.responseText, 'Could not upload file')));
+			};
+			xhr.onerror = () => {
+				activeAbort = null;
+				reject(new Error('Could not upload file'));
+			};
+			xhr.onabort = () => {
+				activeAbort = null;
+				reject(new DOMException('Transfer cancelled', 'AbortError'));
+			};
+
+			const form = new FormData();
+			form.append('file', item.file);
+			xhr.open('POST', apiUrl(`/upload?path=${encodeURIComponent(remotePath)}`));
+			xhr.send(form);
+		});
 	}
 
 	async function createFolder() {
@@ -111,48 +376,324 @@
 	}
 
 	async function renameSelected() {
-		if (!selected || !renamePath.trim()) return;
-		await mutate(
-			'/rename',
-			{ from: selected.path, to: normalizeTarget(renamePath.trim()) },
-			'Could not rename path'
-		);
+		if (!selectedEntryList.length || !renamePath.trim()) return;
+		const entriesToMove = selectedEntryList.length ? selectedEntryList : selected ? [selected] : [];
+		if (!entriesToMove.length) return;
+		await moveEntries(entriesToMove, renamePath.trim());
+	}
+
+	async function moveEntries(entriesToMove: RemoteEntry[], target: string) {
+		transferCancelled = false;
+		error = null;
+		lastRetry = () => moveEntries(entriesToMove, target);
+		transfer = createTransferProgress({
+			kind: 'move',
+			label: `Moving ${entriesToMove.length} item${entriesToMove.length === 1 ? '' : 's'}`,
+			totalItems: entriesToMove.length
+		});
+
+		try {
+			for (let index = 0; index < entriesToMove.length; index += 1) {
+				assertTransferActive();
+				const entry = entriesToMove[index];
+				const to =
+					entriesToMove.length === 1
+						? normalizeTarget(target, path)
+						: joinPath(normalizeTarget(target, path), entry.name);
+				if (transfer) {
+					transfer = updateTransferProgress(transfer, {
+						currentName: entry.name,
+						completedItems: index
+					});
+				}
+				await request(
+					'/rename',
+					{
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ from: entry.path, to })
+					},
+					'Could not rename path'
+				);
+			}
+			if (transfer) {
+				transfer = updateTransferProgress(transfer, {
+					completedItems: entriesToMove.length,
+					status: 'complete'
+				});
+			}
+			lastRetry = null;
+			await loadDirectory(path);
+		} catch (caught) {
+			if (isAbortError(caught)) {
+				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
+				return;
+			}
+			error = caught instanceof Error ? caught.message : 'Could not rename path';
+			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
+		}
 	}
 
 	function requestDeleteSelected() {
-		if (!selected) return;
-		deleteTarget = selected;
+		if (!selectedEntryList.length && selected) selectedPaths = [selected.path];
+		if (!selectedEntryList.length && !selected) return;
 		deleteDialogOpen = true;
 	}
 
 	async function deleteSelected() {
-		if (!deleteTarget) return;
-		const target = deleteTarget;
-		const deleted = await request(
-			`/delete?path=${encodeURIComponent(target.path)}`,
-			{ method: 'DELETE' },
-			'Could not delete path'
-		);
-		if (deleted) {
+		const entriesToDelete = selectedEntryList.length
+			? selectedEntryList
+			: selected
+				? [selected]
+				: [];
+		if (!entriesToDelete.length) return;
+		transferCancelled = false;
+		error = null;
+		lastRetry = () => deleteSelected();
+		transfer = createTransferProgress({
+			kind: 'delete',
+			label: `Deleting ${entriesToDelete.length} item${entriesToDelete.length === 1 ? '' : 's'}`,
+			totalItems: entriesToDelete.length
+		});
+
+		try {
+			for (let index = 0; index < entriesToDelete.length; index += 1) {
+				assertTransferActive();
+				const entry = entriesToDelete[index];
+				if (transfer) {
+					transfer = updateTransferProgress(transfer, {
+						currentName: entry.name,
+						completedItems: index
+					});
+				}
+				await request(
+					`/delete?path=${encodeURIComponent(entry.path)}`,
+					{ method: 'DELETE' },
+					'Could not delete path'
+				);
+			}
 			deleteDialogOpen = false;
-			deleteTarget = null;
+			selectedPaths = [];
+			selected = null;
+			if (transfer) {
+				transfer = updateTransferProgress(transfer, {
+					completedItems: entriesToDelete.length,
+					status: 'complete'
+				});
+			}
+			lastRetry = null;
 			await loadDirectory(path);
+		} catch (caught) {
+			if (isAbortError(caught)) {
+				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
+				return;
+			}
+			error = caught instanceof Error ? caught.message : 'Could not delete path';
+			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
 		}
+	}
+
+	async function downloadSelected() {
+		const entriesToDownload = selectedEntryList.length
+			? selectedEntryList
+			: selected
+				? [selected]
+				: [];
+		if (!entriesToDownload.length) return;
+		const directories = entriesToDownload.filter((entry) => entry.type === 'directory');
+		const files = entriesToDownload.filter(isDownloadableFile);
+
+		if (directories.length) {
+			pendingRecursive = { kind: 'download', entries: entriesToDownload };
+			recursiveDialogOpen = true;
+			return;
+		}
+
+		await downloadFiles(files);
+	}
+
+	async function downloadRecursive(entriesToDownload: RemoteEntry[]) {
+		transferCancelled = false;
+		error = null;
+		lastRetry = () => downloadRecursive(entriesToDownload);
+		transfer = createTransferProgress({
+			kind: 'download',
+			label: 'Preparing recursive download',
+			totalItems: fileTransferLimits.recursiveMaxFiles
+		});
+
+		try {
+			const files = entriesToDownload.filter(isDownloadableFile);
+			const queue = entriesToDownload
+				.filter((entry) => entry.type === 'directory')
+				.map((entry) => entry.path);
+			let scanned = 0;
+
+			while (queue.length) {
+				assertTransferActive();
+				if (scanned >= fileTransferLimits.recursiveMaxEntries) {
+					throw new Error(
+						`Recursive download is limited to ${fileTransferLimits.recursiveMaxEntries} scanned entries`
+					);
+				}
+				const directory = queue.shift();
+				if (!directory) continue;
+				const children = await listDirectory(directory);
+				for (const child of children) {
+					scanned += 1;
+					if (child.type === 'directory') queue.push(child.path);
+					if (isDownloadableFile(child)) files.push(child);
+					if (files.length > fileTransferLimits.recursiveMaxFiles) {
+						throw new Error(
+							`Recursive download is limited to ${fileTransferLimits.recursiveMaxFiles} files`
+						);
+					}
+				}
+				if (transfer) {
+					transfer = updateTransferProgress(transfer, {
+						completedItems: Math.min(scanned, fileTransferLimits.recursiveMaxFiles),
+						currentName: directory
+					});
+				}
+			}
+
+			await downloadFiles(files);
+			lastRetry = null;
+		} catch (caught) {
+			if (isAbortError(caught)) {
+				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
+				return;
+			}
+			error = caught instanceof Error ? caught.message : 'Could not prepare recursive download';
+			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
+		}
+	}
+
+	async function downloadFiles(files: RemoteEntry[]) {
+		if (!files.length) return;
+		transferCancelled = false;
+		error = null;
+		lastRetry = () => downloadFiles(files);
+		const totalBytes = files.reduce((total, entry) => total + Math.max(0, entry.size), 0);
+		let completedBytes = 0;
+		let completedItems = 0;
+		const controller = new AbortController();
+		activeAbort = () => {
+			transferCancelled = true;
+			controller.abort();
+		};
+		transfer = createTransferProgress({
+			kind: 'download',
+			label: `Downloading ${files.length} file${files.length === 1 ? '' : 's'}`,
+			totalBytes,
+			totalItems: files.length
+		});
+
+		try {
+			for (const entry of files) {
+				assertTransferActive();
+				transfer = updateTransferProgress(transfer, {
+					completedBytes,
+					completedItems,
+					currentName: entry.name
+				});
+				const blob = await fetchDownloadBlob(entry, controller.signal, (bytes) => {
+					completedBytes += bytes;
+					if (transfer) {
+						transfer = updateTransferProgress(transfer, {
+							completedBytes,
+							completedItems,
+							currentName: entry.name
+						});
+					}
+				});
+				saveDownloadedBlob(entry, blob);
+				completedItems += 1;
+				if (entry.size > 0 && completedBytes < totalBytes) {
+					completedBytes = Math.max(completedBytes, Math.min(totalBytes, completedBytes));
+				}
+				transfer = updateTransferProgress(transfer, {
+					completedBytes,
+					completedItems,
+					currentName: entry.name
+				});
+			}
+			transfer = updateTransferProgress(transfer, {
+				completedBytes: totalBytes || completedBytes,
+				completedItems: files.length,
+				currentName: null,
+				status: 'complete'
+			});
+			lastRetry = null;
+		} catch (caught) {
+			if (isAbortError(caught)) {
+				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
+				return;
+			}
+			error = caught instanceof Error ? caught.message : 'Could not download file';
+			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
+		} finally {
+			activeAbort = null;
+		}
+	}
+
+	async function fetchDownloadBlob(
+		entry: RemoteEntry,
+		signal: AbortSignal,
+		onProgress: (bytes: number) => void
+	): Promise<Blob> {
+		const response = await fetch(downloadUrl(entry), { signal });
+		if (!response.ok) {
+			const body = await response.json().catch(() => ({}));
+			throw new Error(body.error ?? `Could not download ${entry.name}`);
+		}
+
+		if (!response.body) {
+			const blob = await response.blob();
+			onProgress(blob.size);
+			return blob;
+		}
+
+		const reader = response.body.getReader();
+		const chunks: ArrayBuffer[] = [];
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (value) {
+				chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+				onProgress(value.byteLength);
+			}
+		}
+		return new Blob(chunks, {
+			type: response.headers.get('content-type') ?? 'application/octet-stream'
+		});
+	}
+
+	function saveDownloadedBlob(entry: RemoteEntry, blob: Blob) {
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement('a');
+		anchor.href = url;
+		anchor.download = entry.name;
+		anchor.rel = 'noopener';
+		document.body.append(anchor);
+		anchor.click();
+		anchor.remove();
+		URL.revokeObjectURL(url);
 	}
 
 	async function openText(entry = selected) {
 		if (!entry || entry.type !== 'file') return;
 		loading = true;
 		error = null;
+		lastRetry = () => openText(entry);
 		try {
-			const response = await fetch(
-				`/api/${apiBase}/${encodeURIComponent(hostId)}/text?path=${encodeURIComponent(entry.path)}`
-			);
+			const response = await fetch(apiUrl(`/text?path=${encodeURIComponent(entry.path)}`));
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.error ?? 'Could not read text file');
 			textPath = body.path;
 			textValue = body.text;
 			textDirty = false;
+			lastRetry = null;
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not read text file';
 		} finally {
@@ -191,28 +732,59 @@
 		return succeeded;
 	}
 
-	async function request(route: string, init: RequestInit, fallback: string) {
+	async function request(
+		route: string,
+		init: RequestInit,
+		fallback: string,
+		ignoreFailure = false
+	) {
 		loading = true;
 		error = null;
+		const controller = new AbortController();
+		activeAbort = () => {
+			transferCancelled = true;
+			controller.abort();
+		};
 		try {
-			const response = await fetch(`/api/${apiBase}/${encodeURIComponent(hostId)}${route}`, init);
+			const response = await fetch(apiUrl(route), { ...init, signal: controller.signal });
 			const body = await response.json().catch(() => ({}));
-			if (!response.ok) throw new Error(body.error ?? fallback);
+			if (!response.ok) {
+				if (ignoreFailure) return false;
+				throw new Error(body.error ?? fallback);
+			}
 			return true;
 		} catch (caught) {
+			if (isAbortError(caught)) throw caught;
+			if (ignoreFailure) return false;
 			error = caught instanceof Error ? caught.message : fallback;
 			return false;
 		} finally {
+			activeAbort = null;
 			loading = false;
 		}
 	}
 
-	function selectEntry(entry: SftpEntry) {
+	function selectEntry(entry: RemoteEntry) {
 		selected = entry;
+		selectedPaths = [entry.path];
 		renamePath = entry.path;
 	}
 
-	function activateEntry(entry: SftpEntry) {
+	function toggleEntry(entry: RemoteEntry, checked: boolean) {
+		selectedPaths = toggleSelectedPath(selectedPaths, entry.path, checked);
+		selected = checked
+			? entry
+			: (entries.find((candidate) => selectedPaths.includes(candidate.path)) ?? null);
+		renamePath = selected?.path ?? '';
+	}
+
+	function toggleVisible(checked: boolean) {
+		selectedPaths = setVisibleSelection(selectedPaths, visibleEntries, checked);
+		selected = entries.find((entry) => selectedPaths.includes(entry.path)) ?? null;
+		renamePath = selected?.path ?? '';
+	}
+
+	function activateEntry(entry: RemoteEntry) {
 		selectEntry(entry);
 		if (entry.type === 'directory') {
 			void loadDirectory(entry.path);
@@ -221,37 +793,305 @@
 		if (entry.type === 'file') void openText(entry);
 	}
 
-	function downloadUrl(entry: SftpEntry) {
-		return `/api/${apiBase}/${encodeURIComponent(hostId)}/download?path=${encodeURIComponent(entry.path)}`;
+	function downloadUrl(entry: RemoteEntry) {
+		return apiUrl(`/download?path=${encodeURIComponent(entry.path)}`);
 	}
 
-	function formatSize(size: number) {
-		if (size < 1024) return `${size} B`;
-		if (size < 1024 * 1024) return `${Math.round(size / 102.4) / 10} KB`;
-		return `${Math.round(size / 1024 / 102.4) / 10} MB`;
+	function formatModified(entry: RemoteEntry) {
+		if (!entry.mtime) return entry.rawModifiedAt ?? '-';
+		const date = new Date(entry.mtime);
+		return Number.isNaN(date.getTime()) ? (entry.rawModifiedAt ?? '-') : date.toLocaleString();
 	}
 
-	function parentPath() {
-		if (path === '/') return '/';
-		const parent = path.replace(/\/$/, '').split('/').slice(0, -1).join('/');
-		return parent || '/';
+	function modeLabel(entry: RemoteEntry) {
+		if (typeof entry.mode !== 'number') return null;
+		return `0${(entry.mode & 0o777).toString(8)}`;
 	}
 
-	function joinPath(directory: string, name: string) {
-		return `${directory.replace(/\/$/, '')}/${name}`.replace(/^\/\//, '/');
+	function symlinkTarget(entry: RemoteEntry) {
+		if (entry.type !== 'symlink') return null;
+		return entry.link ?? entry.longname ?? null;
 	}
 
-	function normalizeTarget(value: string) {
-		return value.startsWith('/') ? value : joinPath(path, value);
+	async function runRemoteSearch() {
+		const query = searchQuery.trim();
+		if (!query) return;
+		remoteSearching = true;
+		error = null;
+		lastRetry = () => runRemoteSearch();
+		const matches: RemoteEntry[] = [];
+		const queue = [path];
+		let scannedEntries = 0;
+		let scannedDirectories = 0;
+		transferCancelled = false;
+		transfer = createTransferProgress({
+			kind: 'search',
+			label: `Searching ${path}`,
+			totalItems: fileTransferLimits.remoteSearchMaxEntries
+		});
+
+		try {
+			while (queue.length) {
+				assertTransferActive();
+				if (scannedDirectories >= fileTransferLimits.remoteSearchMaxDirectories) break;
+				const directory = queue.shift();
+				if (!directory) continue;
+				scannedDirectories += 1;
+				const children = await listDirectory(directory);
+				for (const child of children) {
+					scannedEntries += 1;
+					if (filterRemoteEntries([child], query).length) matches.push(child);
+					if (child.type === 'directory') queue.push(child.path);
+					if (scannedEntries >= fileTransferLimits.remoteSearchMaxEntries) break;
+				}
+				if (transfer) {
+					transfer = updateTransferProgress(transfer, {
+						completedItems: Math.min(scannedEntries, fileTransferLimits.remoteSearchMaxEntries),
+						currentName: directory
+					});
+				}
+				if (scannedEntries >= fileTransferLimits.remoteSearchMaxEntries) break;
+			}
+			remoteSearchResults = matches;
+			if (transfer) {
+				transfer = updateTransferProgress(transfer, {
+					label: `Found ${matches.length} result${matches.length === 1 ? '' : 's'}`,
+					completedItems: scannedEntries,
+					totalItems: scannedEntries,
+					status: 'complete'
+				});
+			}
+			lastRetry = null;
+		} catch (caught) {
+			if (isAbortError(caught)) {
+				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
+				return;
+			}
+			error = caught instanceof Error ? caught.message : 'Could not search remote path';
+			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
+		} finally {
+			remoteSearching = false;
+		}
+	}
+
+	async function openSearchResult(entry: RemoteEntry) {
+		await loadDirectory(entry.type === 'directory' ? entry.path : dirname(entry.path));
+		selected = entry;
+		selectedPaths = [entry.path];
+		renamePath = entry.path;
+	}
+
+	function addBookmark() {
+		const normalized = normalizePath(path);
+		if (bookmarks.some((bookmark) => bookmark.path === normalized)) return;
+		saveBookmarks([
+			...bookmarks,
+			{
+				id: crypto.randomUUID(),
+				path: normalized,
+				label: normalized === '/' ? '/' : basename(normalized),
+				createdAt: new Date().toISOString()
+			}
+		]);
+	}
+
+	function removeBookmark(id: string) {
+		saveBookmarks(bookmarks.filter((bookmark) => bookmark.id !== id));
+	}
+
+	function saveBookmarks(next: BookmarkEntry[]) {
+		bookmarks = next;
+		localStorage.setItem(bookmarkStorageKey(), JSON.stringify(next));
+	}
+
+	function bookmarkStorageKey() {
+		return `termixkit:file-manager:${apiBase}:${hostId}:bookmarks`;
+	}
+
+	function loadBookmarks() {
+		try {
+			const raw = localStorage.getItem(bookmarkStorageKey());
+			if (!raw) return;
+			const parsed = JSON.parse(raw);
+			if (Array.isArray(parsed)) bookmarks = parsed.filter(isBookmarkEntry);
+		} catch {
+			bookmarks = [];
+		}
+	}
+
+	function isBookmarkEntry(value: unknown): value is BookmarkEntry {
+		if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+		const candidate = value as Partial<BookmarkEntry>;
+		return (
+			typeof candidate.id === 'string' &&
+			typeof candidate.path === 'string' &&
+			typeof candidate.label === 'string' &&
+			typeof candidate.createdAt === 'string'
+		);
+	}
+
+	async function handleDrop(event: DragEvent) {
+		event.preventDefault();
+		dragging = false;
+		try {
+			const items = await droppedUploadItems(event.dataTransfer);
+			await queueUploads(items);
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Could not prepare dropped upload';
+			lastRetry = null;
+		}
+	}
+
+	async function droppedUploadItems(dataTransfer: DataTransfer | null): Promise<UploadItem[]> {
+		if (!dataTransfer) return [];
+		const transferItems = Array.from(dataTransfer.items ?? []);
+		if (!transferItems.length) {
+			return Array.from(dataTransfer.files ?? []).map((file) => ({
+				file,
+				relativePath: file.name,
+				directories: []
+			}));
+		}
+
+		const uploads: UploadItem[] = [];
+		let recursiveScan = createRecursiveUploadLimitState();
+		for (const item of transferItems) {
+			const entry = (
+				item as DataTransferItem & {
+					webkitGetAsEntry?: () => WebKitFileSystemEntry | null;
+				}
+			).webkitGetAsEntry?.();
+			if (entry?.isDirectory) {
+				recursiveScan = await collectEntryUploads(entry, uploads, recursiveScan);
+				continue;
+			}
+			if (entry?.isFile) {
+				const file = await fileFromEntry(entry as unknown as WebKitFileSystemFileEntry);
+				uploads.push({ file, relativePath: file.name, directories: [] });
+				continue;
+			}
+			const file = item.getAsFile();
+			if (file) uploads.push({ file, relativePath: file.name, directories: [] });
+		}
+		return uploads;
+	}
+
+	async function collectEntryUploads(
+		entry: WebKitFileSystemEntry,
+		uploads: UploadItem[],
+		scan: RecursiveUploadLimitState
+	): Promise<RecursiveUploadLimitState> {
+		let nextScan = countRecursiveUploadEntry(scan);
+		if (entry.isFile) {
+			const file = await fileFromEntry(entry as WebKitFileSystemFileEntry);
+			const relativePath = entry.fullPath.replace(/^\/+/, '') || file.name;
+			nextScan = countRecursiveUploadFile(nextScan, file.size);
+			uploads.push({
+				file,
+				relativePath,
+				directories: directoryPrefixes(relativePath)
+			});
+			return nextScan;
+		}
+		if (!entry.isDirectory) return nextScan;
+		const children = await readDirectoryEntries(entry as WebKitFileSystemDirectoryEntry);
+		for (const child of children) {
+			nextScan = await collectEntryUploads(child, uploads, nextScan);
+		}
+		return nextScan;
+	}
+
+	function fileFromEntry(entry: WebKitFileSystemFileEntry): Promise<globalThis.File> {
+		return new Promise((resolve, reject) => entry.file(resolve, reject));
+	}
+
+	function readDirectoryEntries(
+		entry: WebKitFileSystemDirectoryEntry
+	): Promise<WebKitFileSystemEntry[]> {
+		const reader = entry.createReader();
+		const entries: WebKitFileSystemEntry[] = [];
+
+		return new Promise((resolve, reject) => {
+			function readBatch() {
+				reader.readEntries((batch) => {
+					if (!batch.length) {
+						resolve(entries);
+						return;
+					}
+					entries.push(...batch);
+					readBatch();
+				}, reject);
+			}
+			readBatch();
+		});
+	}
+
+	function directoryPrefixes(relativePath: string) {
+		const parts = relativePath.split('/').filter(Boolean);
+		const prefixes: string[] = [];
+		for (let index = 1; index < parts.length; index += 1) {
+			prefixes.push(parts.slice(0, index).join('/'));
+		}
+		return prefixes;
+	}
+
+	function confirmRecursiveAction() {
+		const pending = pendingRecursive;
+		recursiveDialogOpen = false;
+		pendingRecursive = null;
+		if (!pending) return;
+		if (pending.kind === 'upload') {
+			void uploadItems(pending.items);
+			return;
+		}
+		void downloadRecursive(pending.entries);
+	}
+
+	function cancelActiveOperation() {
+		transferCancelled = true;
+		activeAbort?.();
+		if (transfer?.status === 'running') {
+			transfer = updateTransferProgress(transfer, { status: 'cancelled' });
+		}
+		loading = false;
+		remoteSearching = false;
+	}
+
+	function assertTransferActive() {
+		if (transferCancelled) throw new DOMException('Transfer cancelled', 'AbortError');
+	}
+
+	function isAbortError(caught: unknown) {
+		return caught instanceof DOMException && caught.name === 'AbortError';
+	}
+
+	function responseError(responseText: string, fallback: string) {
+		try {
+			const body = JSON.parse(responseText);
+			return typeof body.error === 'string' ? body.error : fallback;
+		} catch {
+			return fallback;
+		}
 	}
 
 	onMount(() => {
-		path = initialPath;
-		void loadDirectory(initialPath);
+		path = normalizePath(initialPath);
+		loadBookmarks();
+		void loadDirectory(path);
 	});
 </script>
 
-<div class="grid h-full min-h-[480px] grid-rows-[auto_1fr] overflow-hidden rounded-md border">
+<div
+	class={`grid h-full min-h-[560px] grid-rows-[auto_1fr] overflow-hidden rounded-md border transition-colors ${dragging ? 'border-primary bg-primary/5' : ''}`}
+	role="region"
+	aria-label={`${label} file manager`}
+	ondragover={(event) => {
+		event.preventDefault();
+		dragging = true;
+	}}
+	ondragleave={() => (dragging = false)}
+	ondrop={handleDrop}
+>
 	<div class="space-y-2 border-b bg-muted/20 p-2">
 		<div class="flex flex-wrap items-center gap-2">
 			<Input
@@ -260,22 +1100,79 @@
 				bind:value={path}
 				onkeydown={(event) => event.key === 'Enter' && loadDirectory()}
 			/>
-			<Button size="sm" variant="outline" onclick={() => loadDirectory(parentPath())}>Parent</Button
+			<Button
+				size="icon-sm"
+				variant="outline"
+				aria-label="Parent directory"
+				onclick={() => loadDirectory(parentPath(path))}
 			>
+				<FolderDown class="size-4" />
+			</Button>
 			<Button size="icon-sm" variant="outline" aria-label="Refresh" onclick={() => loadDirectory()}>
 				<RefreshCw class="size-4" />
+			</Button>
+			<Button
+				size="icon-sm"
+				variant="outline"
+				aria-label="Bookmark current path"
+				onclick={addBookmark}
+			>
+				<BookmarkPlus class="size-4" />
 			</Button>
 			<input
 				bind:this={fileInput}
 				type="file"
+				multiple
 				class="sr-only"
-				aria-label="Upload file"
-				onchange={uploadFile}
+				aria-label="Upload files"
+				onchange={uploadFromPicker}
 			/>
 			<Button size="sm" variant="outline" onclick={() => fileInput.click()}>
 				<Upload class="size-4" />Upload
 			</Button>
+			{#if activeAbort || transfer?.status === 'running' || remoteSearching}
+				<Button size="sm" variant="destructive" onclick={cancelActiveOperation}>
+					<Ban class="size-4" />Cancel
+				</Button>
+			{/if}
+			{#if lastRetry && error}
+				<Button size="sm" variant="secondary" onclick={() => lastRetry?.()}>
+					<RotateCcw class="size-4" />Retry
+				</Button>
+			{/if}
 		</div>
+
+		<div class="flex flex-wrap items-center gap-2">
+			<Input
+				aria-label="Remote search"
+				class="h-8 min-w-48 flex-1"
+				placeholder="Filter current directory or search remote tree"
+				bind:value={searchQuery}
+				onkeydown={(event) => event.key === 'Enter' && runRemoteSearch()}
+			/>
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={!searchQuery.trim() || remoteSearching}
+				onclick={runRemoteSearch}
+			>
+				<Search class="size-4" />Tree search
+			</Button>
+			{#if searchQuery}
+				<Button
+					size="icon-sm"
+					variant="ghost"
+					aria-label="Clear search"
+					onclick={() => {
+						searchQuery = '';
+						remoteSearchResults = [];
+					}}
+				>
+					<X class="size-4" />
+				</Button>
+			{/if}
+		</div>
+
 		<div class="flex flex-wrap items-center gap-2">
 			<Input
 				aria-label="New folder name"
@@ -288,20 +1185,28 @@
 				<FolderPlus class="size-4" />
 			</Button>
 			<Input
-				aria-label="Rename or move selected path"
+				aria-label="Rename or move target path"
 				class="h-8 min-w-48 flex-1 font-mono text-xs"
-				placeholder="select an entry to rename or move"
+				placeholder={selectedPaths.length > 1
+					? 'target directory for selected items'
+					: 'select an entry to rename or move'}
 				bind:value={renamePath}
-				disabled={!selected}
+				disabled={!selectedEntryList.length && !selected}
 			/>
 			<Button
 				size="icon-sm"
 				variant="outline"
-				aria-label="Rename or move selected path"
-				disabled={!selected || !renamePath.trim()}
+				aria-label={selectedPaths.length > 1
+					? 'Move selected paths'
+					: 'Rename or move selected path'}
+				disabled={(!selectedEntryList.length && !selected) || !renamePath.trim()}
 				onclick={renameSelected}
 			>
-				<Pencil class="size-4" />
+				{#if selectedPaths.length > 1}
+					<MoveRight class="size-4" />
+				{:else}
+					<Pencil class="size-4" />
+				{/if}
 			</Button>
 			<Button
 				size="icon-sm"
@@ -310,70 +1215,214 @@
 				disabled={!selected || selected.type !== 'file'}
 				onclick={() => openText()}
 			>
-				<File class="size-4" />
+				<FileIcon class="size-4" />
+			</Button>
+			<Button
+				size="icon-sm"
+				variant="outline"
+				aria-label="Download selected paths"
+				disabled={!selectedEntryList.length && !selected}
+				onclick={downloadSelected}
+			>
+				<Download class="size-4" />
 			</Button>
 			<Button
 				size="icon-sm"
 				variant="destructive"
-				aria-label="Delete selected path"
-				disabled={!selected}
+				aria-label="Delete selected paths"
+				disabled={!selectedEntryList.length && !selected}
 				onclick={requestDeleteSelected}
 			>
 				<Trash2 class="size-4" />
 			</Button>
+			{#if selection.count}
+				<Badge variant="secondary">{selection.count} selected</Badge>
+				<Badge variant="outline">{formatSize(selectedTotalBytes)}</Badge>
+			{/if}
 		</div>
+
+		{#if transfer}
+			<div class="rounded-md border bg-background p-2">
+				<div class="mb-1 flex items-center justify-between gap-3 text-xs">
+					<div class="min-w-0 truncate">
+						<span class="font-medium">{transfer.label}</span>
+						{#if transfer.currentName}
+							<span class="text-muted-foreground"> · {transfer.currentName}</span>
+						{/if}
+					</div>
+					<div class="shrink-0 font-mono text-muted-foreground">
+						{transferPercent(transfer)}% · {formatThroughput(transfer.throughputBytesPerSecond)} · {formatDuration(
+							transfer.remainingMs
+						)}
+					</div>
+				</div>
+				<Progress value={transferPercent(transfer)} />
+				<div class="mt-1 flex justify-between text-[11px] text-muted-foreground">
+					<span
+						>{transfer.completedItems}/{transfer.totalItems || transfer.completedItems} items</span
+					>
+					<span>{formatSize(transfer.completedBytes)}/{formatSize(transfer.totalBytes)}</span>
+				</div>
+			</div>
+		{/if}
 	</div>
 
-	<div class="grid min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
+	<div class="grid min-h-0 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_360px]">
+		<aside class="min-h-0 border-b p-2 lg:border-r lg:border-b-0">
+			<div class="mb-2 flex items-center justify-between">
+				<div class="text-xs font-medium text-muted-foreground">Bookmarks</div>
+				<Bookmark class="size-3.5 text-muted-foreground" />
+			</div>
+			<div class="space-y-1">
+				{#each bookmarks as bookmark (bookmark.id)}
+					<div class="flex items-center gap-1">
+						<Button
+							size="xs"
+							variant={bookmark.path === path ? 'secondary' : 'ghost'}
+							class="min-w-0 flex-1 justify-start font-mono"
+							title={bookmark.path}
+							onclick={() => loadDirectory(bookmark.path)}
+						>
+							<span class="truncate">{bookmark.label}</span>
+						</Button>
+						<Button
+							size="icon-xs"
+							variant="ghost"
+							aria-label={`Remove bookmark ${bookmark.path}`}
+							onclick={() => removeBookmark(bookmark.id)}
+						>
+							<X class="size-3" />
+						</Button>
+					</div>
+				{:else}
+					<div class="rounded-md border border-dashed p-2 text-xs text-muted-foreground">
+						No bookmarks for this host.
+					</div>
+				{/each}
+			</div>
+
+			{#if remoteSearchResults.length}
+				<div class="mt-4 border-t pt-3">
+					<div class="mb-2 text-xs font-medium text-muted-foreground">
+						Search results ({remoteSearchResults.length})
+					</div>
+					<div class="max-h-52 space-y-1 overflow-auto">
+						{#each remoteSearchResults as result (result.path)}
+							<Button
+								size="xs"
+								variant="ghost"
+								class="w-full justify-start font-mono"
+								title={result.path}
+								onclick={() => openSearchResult(result)}
+							>
+								{#if result.type === 'directory'}
+									<Folder class="size-3.5 text-amber-500" />
+								{:else if result.type === 'symlink'}
+									<FileSymlink class="size-3.5 text-sky-500" />
+								{:else}
+									<FileIcon class="size-3.5 text-muted-foreground" />
+								{/if}
+								<span class="truncate">{result.path}</span>
+							</Button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+		</aside>
+
 		<div class="relative min-h-0 overflow-auto">
+			{#if dragging}
+				<div
+					class="pointer-events-none absolute inset-3 z-20 grid place-items-center rounded-md border-2 border-dashed border-primary bg-background/85 text-sm font-medium"
+				>
+					Drop files or folders to upload into {path}
+				</div>
+			{/if}
+
 			<Table.Root>
 				<Table.Header class="sticky top-0 z-10 bg-background">
 					<Table.Row>
+						<Table.Head class="w-10">
+							<Checkbox
+								aria-label="Select visible entries"
+								checked={selection.allVisible}
+								indeterminate={selection.someVisible}
+								onclick={(event) => {
+									event.stopPropagation();
+									toggleVisible(!selection.allVisible);
+								}}
+							/>
+						</Table.Head>
 						<Table.Head>Name</Table.Head>
+						<Table.Head class="w-28">Type</Table.Head>
 						<Table.Head class="w-28">Size</Table.Head>
 						<Table.Head class="w-44">Modified</Table.Head>
-						<Table.Head class="w-12" aria-label="Actions"></Table.Head>
+						<Table.Head class="w-20" aria-label="Actions"></Table.Head>
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
-					{#each entries as entry (entry.path)}
+					{#each visibleEntries as entry (entry.path)}
 						<Table.Row
-							data-selected={selected?.path === entry.path}
+							data-selected={selected?.path === entry.path || selectedPaths.includes(entry.path)}
 							onclick={() => selectEntry(entry)}
 						>
 							<Table.Cell>
-								{#if entry.type === 'directory'}
-									<Button
-										variant="ghost"
-										size="sm"
-										class="justify-start px-1 font-normal"
-										onclick={(event) => (event.stopPropagation(), activateEntry(entry))}
+								<Checkbox
+									aria-label={`Select ${entry.name}`}
+									checked={selectedPaths.includes(entry.path)}
+									onclick={(event) => {
+										event.stopPropagation();
+										toggleEntry(entry, !selectedPaths.includes(entry.path));
+									}}
+								/>
+							</Table.Cell>
+							<Table.Cell>
+								<Button
+									variant="ghost"
+									size="sm"
+									class="max-w-full justify-start px-1 font-normal"
+									title={entry.path}
+									onclick={(event) => (event.stopPropagation(), activateEntry(entry))}
+								>
+									{#if entry.type === 'directory'}
+										<Folder class="size-4 text-amber-500" />
+									{:else if entry.type === 'symlink'}
+										<FileSymlink class="size-4 text-sky-500" />
+									{:else}
+										<FileIcon class="size-4 text-muted-foreground" />
+									{/if}
+									<span class="truncate">{entry.name}</span>
+								</Button>
+								{#if symlinkTarget(entry)}
+									<div
+										class="mt-1 flex items-center gap-1 pl-1 font-mono text-[11px] text-muted-foreground"
 									>
-										<Folder class="size-4 text-amber-500" />{entry.name}
-									</Button>
-								{:else}
-									<Button
-										variant="ghost"
-										size="sm"
-										class="justify-start px-1 font-normal"
-										onclick={(event) => (event.stopPropagation(), activateEntry(entry))}
-									>
-										<File class="size-4 text-muted-foreground" />{entry.name}
-									</Button>
+										<Link class="size-3" />
+										<span class="truncate">{symlinkTarget(entry)}</span>
+									</div>
 								{/if}
+							</Table.Cell>
+							<Table.Cell>
+								<Badge variant={entry.type === 'symlink' ? 'outline' : 'secondary'}>
+									{entryTypeLabel(entry)}
+								</Badge>
 							</Table.Cell>
 							<Table.Cell class="font-mono text-xs text-muted-foreground">
 								{entry.type === 'directory' ? '-' : formatSize(entry.size)}
+								{#if modeLabel(entry)}
+									<div>{modeLabel(entry)}</div>
+								{/if}
 							</Table.Cell>
 							<Table.Cell class="font-mono text-xs text-muted-foreground">
-								{new Date(entry.mtime).toLocaleString()}
+								{formatModified(entry)}
 							</Table.Cell>
 							<Table.Cell>
-								{#if entry.type === 'file'}
+								{#if isDownloadableFile(entry)}
 									<Button
 										size="icon-sm"
 										variant="ghost"
 										href={downloadUrl(entry)}
+										download={entry.name}
 										aria-label={`Download ${entry.name}`}
 										onclick={(event) => event.stopPropagation()}
 									>
@@ -384,8 +1433,8 @@
 						</Table.Row>
 					{:else}
 						<Table.Row>
-							<Table.Cell colspan={4} class="h-24 text-center text-muted-foreground">
-								No entries.
+							<Table.Cell colspan={6} class="h-24 text-center text-muted-foreground">
+								{searchQuery ? 'No matching entries.' : 'No entries.'}
 							</Table.Cell>
 						</Table.Row>
 					{/each}
@@ -430,12 +1479,15 @@
 	<AlertDialog.Root bind:open={deleteDialogOpen}>
 		<AlertDialog.Content>
 			<AlertDialog.Header>
-				<AlertDialog.Title>Delete remote path?</AlertDialog.Title>
+				<AlertDialog.Title>Delete remote paths?</AlertDialog.Title>
 				<AlertDialog.Description>
-					{#if deleteTarget}
-						This permanently deletes {deleteTarget.path} from the remote host.
-					{:else}
-						This permanently deletes the selected remote path.
+					This permanently deletes {selectedEntryList.length || 1} selected path{(selectedEntryList.length ||
+						1) === 1
+						? ''
+						: 's'} from the remote host.
+					{#if selectedDirectoryCount}
+						Directory removal uses the remote server empty-directory operation; non-empty
+						directories may fail.
 					{/if}
 				</AlertDialog.Description>
 			</AlertDialog.Header>
@@ -443,13 +1495,54 @@
 				<AlertDialog.Cancel disabled={loading}>Cancel</AlertDialog.Cancel>
 				<AlertDialog.Action
 					variant="destructive"
-					disabled={!deleteTarget || loading}
+					disabled={loading}
 					onclick={(event) => {
 						event.preventDefault();
 						void deleteSelected();
 					}}
 				>
-					{loading ? 'Deleting...' : 'Delete path'}
+					{loading ? 'Deleting...' : 'Delete selected'}
+				</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
+
+	<AlertDialog.Root bind:open={recursiveDialogOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>
+					{pendingRecursive?.kind === 'upload'
+						? 'Upload folder contents?'
+						: 'Download folder contents?'}
+				</AlertDialog.Title>
+				<AlertDialog.Description>
+					{#if pendingRecursive?.kind === 'upload'}
+						This will create up to {pendingRecursive.directoryCount} remote folder{pendingRecursive.directoryCount ===
+						1
+							? ''
+							: 's'} and upload {pendingRecursive.items.length} file{pendingRecursive.items
+							.length === 1
+							? ''
+							: 's'} ({formatSize(pendingRecursive.totalBytes)}). Per-file uploads are limited to {formatSize(
+							fileTransferLimits.uploadMaxBytes
+						)}; recursive uploads are capped at {fileTransferLimits.recursiveMaxFiles} files, {fileTransferLimits.recursiveMaxEntries}
+						scanned entries, and {formatSize(fileTransferLimits.recursiveMaxBytes)} total.
+					{:else}
+						This will walk selected folders and start individual file downloads. Recursive downloads
+						are capped at {fileTransferLimits.recursiveMaxFiles} files and {fileTransferLimits.recursiveMaxEntries}
+						scanned entries.
+					{/if}
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+				<AlertDialog.Action
+					onclick={(event) => {
+						event.preventDefault();
+						confirmRecursiveAction();
+					}}
+				>
+					Continue
 				</AlertDialog.Action>
 			</AlertDialog.Footer>
 		</AlertDialog.Content>

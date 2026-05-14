@@ -29,6 +29,7 @@ import type {
 	HostProtocol
 } from '$lib/server/services/types';
 import type { ConsumedTicket, Credential, Protocol, TicketConsumer } from '$lib/server/protocols';
+import { toSshJumpHostConfig } from '$lib/termix/host-metadata';
 
 export class SessionTicketConsumer implements TicketConsumer {
 	constructor(
@@ -71,7 +72,8 @@ export class SessionTicketConsumer implements TicketConsumer {
 					host: snapshot.host.hostname,
 					port: snapshot.host.port,
 					username: snapshot.host.username ?? credential?.username,
-					credential: credential ?? undefined
+					credential: credential ?? undefined,
+					jumpHost: toSshJumpHostConfig(snapshot.host.metadata.sshJumpHost) ?? undefined
 				},
 				metadata: {
 					...snapshot.host.metadata,
@@ -136,7 +138,8 @@ export class LiveSshAttachTicketConsumer {
 						host: host.hostname,
 						port: host.port,
 						username: host.username ?? credential?.username,
-						credential: credential ?? undefined
+						credential: credential ?? undefined,
+						jumpHost: toSshJumpHostConfig(host.metadata.sshJumpHost) ?? undefined
 					},
 					metadata: {
 						...host.metadata,

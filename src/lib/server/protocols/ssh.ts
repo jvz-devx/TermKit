@@ -1,15 +1,15 @@
 import { Client, type ClientChannel } from 'ssh2';
-import { buildTrustedSshConnectConfig, type SshHostKeyTrustError } from './ssh-host-trust';
+import { connectTrustedSsh } from './ssh-connect';
+import { type SshHostKeyTrustError } from './ssh-host-trust';
 import type { ProtocolAdapter } from './types';
 import { parseTerminalControlFrame, rawDataToBuffer, type TerminalSize } from './tcp';
 
 export function createSshAdapter(): ProtocolAdapter {
 	return {
 		protocol: 'ssh',
-		handle(socket, ticket) {
-			const connection = new Client();
+		async handle(socket, ticket) {
+			let connection: Client | null = null;
 			const credential = ticket.target.credential;
-			const username = credential?.username ?? ticket.target.username;
 			let terminalSize: TerminalSize = { cols: 80, rows: 24 };
 			let shellStream: ClientChannel | undefined;
 			let hostKeyTrustError: SshHostKeyTrustError | undefined;
@@ -31,65 +31,64 @@ export function createSshAdapter(): ProtocolAdapter {
 
 				shellStream?.write(rawDataToBuffer(data));
 			});
-			socket.on('close', () => connection.end());
-			socket.on('error', () => connection.end());
+			socket.on('close', () => connection?.end());
+			socket.on('error', () => connection?.end());
 
-			connection
-				.on('ready', () => {
-					connection.shell(
-						{
-							term: 'xterm-256color',
-							cols: terminalSize.cols,
-							rows: terminalSize.rows,
-							width: 0,
-							height: 0
-						},
-						(error, stream) => {
-							if (error) {
-								socket.close(1011, 'ssh shell failed');
-								connection.end();
-								return;
-							}
-
-							shellStream = stream;
-							stream.on('data', (chunk: Buffer) => {
-								if (socket.readyState === socket.OPEN) socket.send(chunk);
-							});
-							stream.on('close', () => {
-								if (socket.readyState === socket.OPEN) socket.close(1000, 'ssh shell closed');
-							});
-						}
-					);
-				})
-				.on('error', () =>
-					socket.close(
-						1011,
-						hostKeyTrustError ? 'ssh host key not trusted' : 'ssh connection failed'
-					)
-				);
-
-			connection.connect(
-				buildTrustedSshConnectConfig(
-					{
-						host: ticket.target.host,
-						port: ticket.target.port,
-						username,
-						password: credential?.kind === 'password' ? credential.password : undefined,
-						privateKey: credential?.kind === 'ssh_key' ? credential.privateKey : undefined,
-						passphrase: credential?.kind === 'ssh_key' ? credential.passphrase : undefined
-					},
+			try {
+				connection = await connectTrustedSsh(
 					{
 						userId: ticket.userId,
 						hostId: ticket.hostId,
-						hostname: ticket.target.host,
-						port: ticket.target.port
+						...ticket.target,
+						credential,
+						username: credential?.username ?? ticket.target.username
 					},
 					{
-						onFailure(error) {
+						onHostKeyTrustFailure(error) {
 							hostKeyTrustError = error;
 						}
 					}
-				)
+				);
+			} catch {
+				if (socket.readyState === socket.OPEN) {
+					socket.close(
+						1011,
+						hostKeyTrustError ? 'ssh host key not trusted' : 'ssh connection failed'
+					);
+				}
+				return;
+			}
+
+			connection.on('error', () => {
+				socket.close(
+					1011,
+					hostKeyTrustError ? 'ssh host key not trusted' : 'ssh connection failed'
+				);
+			});
+
+			connection.shell(
+				{
+					term: 'xterm-256color',
+					cols: terminalSize.cols,
+					rows: terminalSize.rows,
+					width: 0,
+					height: 0
+				},
+				(error, stream) => {
+					if (error) {
+						socket.close(1011, 'ssh shell failed');
+						connection?.end();
+						return;
+					}
+
+					shellStream = stream;
+					stream.on('data', (chunk: Buffer) => {
+						if (socket.readyState === socket.OPEN) socket.send(chunk);
+					});
+					stream.on('close', () => {
+						if (socket.readyState === socket.OPEN) socket.close(1000, 'ssh shell closed');
+					});
+				}
 			);
 		}
 	};

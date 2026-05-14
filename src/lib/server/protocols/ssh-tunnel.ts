@@ -1,11 +1,11 @@
-import { Client, type ClientChannel, type ConnectConfig } from 'ssh2';
+import { type Client, type ClientChannel } from 'ssh2';
 import type { RawData, WebSocket } from 'ws';
 import { ServicePayloadTooLargeError, ServiceValidationError } from '$lib/server/services/errors';
 import type {
 	SshTunnelFailureCode,
 	SshTunnelSessionRecord
 } from '$lib/server/services/ssh-tunnels';
-import { buildTrustedSshConnectConfig, type SshHostKeyTrustError } from './ssh-host-trust';
+import { connectTrustedSsh } from './ssh-connect';
 import { resolveSftpTarget, type SftpTarget } from './sftp';
 
 const maxTunnelRequestBytes = 25 * 1024 * 1024;
@@ -239,53 +239,18 @@ function hostHeader(host: string, port: number): string {
 	return defaultHttpPort ? formattedHost : `${formattedHost}:${port}`;
 }
 
-function connectSsh(target: SshTunnelConnectTarget): Promise<Client> {
-	const connection = new Client();
-	const credential = target.credential;
-	let hostKeyTrustError: SshHostKeyTrustError | undefined;
-	const config: ConnectConfig = buildTrustedSshConnectConfig(
-		{
-			host: target.host,
-			port: target.port,
-			username: credential?.username ?? target.username,
-			password: credential?.kind === 'password' ? credential.password : undefined,
-			privateKey: credential?.kind === 'ssh_key' ? credential.privateKey : undefined,
-			passphrase: credential?.kind === 'ssh_key' ? credential.passphrase : undefined
-		},
-		{
-			userId: target.userId,
-			hostId: target.hostId,
-			hostname: target.host,
-			port: target.port
-		},
-		{
-			onFailure(error) {
-				hostKeyTrustError = error;
-			}
+async function connectSsh(target: SshTunnelConnectTarget): Promise<Client> {
+	try {
+		return await connectTrustedSsh(target);
+	} catch (error) {
+		const sshError = error as Error & { level?: string; name?: string };
+		if (sshError.name === 'SshHostKeyTrustError') {
+			throw new SshTunnelProxyError('ssh_host_key_untrusted');
 		}
-	);
-
-	return new Promise((resolve, reject) => {
-		const cleanup = () => {
-			connection.off('ready', onReady);
-			connection.off('error', onError);
-		};
-		const onReady = () => {
-			cleanup();
-			resolve(connection);
-		};
-		const onError = (error: Error & { level?: string }) => {
-			cleanup();
-			if (hostKeyTrustError) reject(new SshTunnelProxyError('ssh_host_key_untrusted'));
-			else if (error.level === 'client-authentication')
-				reject(new SshTunnelProxyError('ssh_auth_failed'));
-			else reject(new SshTunnelProxyError('ssh_connection_failed', error.message));
-		};
-
-		connection.once('ready', onReady);
-		connection.once('error', onError);
-		connection.connect(config);
-	});
+		if (sshError.level === 'client-authentication')
+			throw new SshTunnelProxyError('ssh_auth_failed');
+		throw new SshTunnelProxyError('ssh_connection_failed', sshError.message);
+	}
 }
 
 function openForwardChannel(

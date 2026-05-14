@@ -1,5 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { listFtpDirectory, resolveFtpTarget, validateFtpPath } from '$lib/server/protocols/ftp';
+import { listFtpDirectory, runRecordedFtpAction, validateFtpPath } from '$lib/server/protocols/ftp';
 import { requireParam, requireUser, serviceJson } from '../../../_helpers';
 
 export const GET: RequestHandler = async (event) => {
@@ -7,8 +7,13 @@ export const GET: RequestHandler = async (event) => {
 		const userId = requireUser(event);
 		const hostId = requireParam(event.params.hostId, 'hostId');
 		const path = validateFtpPath(event.url.searchParams.get('path') ?? '/');
-		const target = await resolveFtpTarget(userId, hostId);
-		const entries = await listFtpDirectory(target, path);
+		const entries = await runRecordedFtpAction(
+			userId,
+			hostId,
+			'list',
+			(target) => listFtpDirectory(target, path),
+			{ path }
+		);
 
 		return json({ path, entries });
 	} catch (error) {

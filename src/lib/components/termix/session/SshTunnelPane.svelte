@@ -126,6 +126,13 @@
 	class="relative grid h-full min-h-[480px] grid-rows-[auto_1fr] overflow-hidden rounded-md border"
 >
 	<div class="grid gap-3 border-b bg-muted/20 p-3 xl:grid-cols-[1fr_auto]">
+		{#if host.sshJumpHost.enabled && host.sshJumpHost.hostId}
+			<div
+				class="rounded-md border bg-background/70 px-3 py-2 text-xs text-muted-foreground xl:col-span-2"
+			>
+				SSH tunnel metadata uses jump host <span class="font-mono">{host.sshJumpHost.hostId}</span>.
+			</div>
+		{/if}
 		<div class="grid gap-3 sm:grid-cols-[1fr_1fr_8rem]">
 			<div class="space-y-1.5">
 				<Label for="ssh-tunnel-name">Name</Label>

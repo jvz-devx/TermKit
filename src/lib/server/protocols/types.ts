@@ -1,4 +1,5 @@
 import type { WebSocket } from 'ws';
+import type { SshJumpHostConfig } from '$lib/termix/host-metadata';
 
 export type Protocol = 'ssh' | 'vnc' | 'telnet' | 'rdp';
 
@@ -20,6 +21,7 @@ export type TicketTarget = {
 	port: number;
 	username?: string;
 	credential?: Credential;
+	jumpHost?: SshJumpHostConfig;
 };
 
 export type ConsumedTicket = {

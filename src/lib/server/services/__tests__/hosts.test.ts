@@ -101,4 +101,50 @@ describe('HostService', () => {
 			issues: ['credentialId must reference an existing credential owned by the user']
 		});
 	});
+
+	it('merges host metadata on update so imported and FTPS settings are preserved', async () => {
+		const service = new HostService(new InMemoryTermixServicesRepository());
+		const host = await service.create('user-1', {
+			name: 'Imported FTPS',
+			protocol: 'ftps',
+			hostname: 'files.example.test',
+			port: 21,
+			metadata: {
+				domain: 'CORP',
+				source: { provider: 'microsoft', tenantId: 'tenant-1' },
+				ftpsMode: 'implicit',
+				ftps: {
+					mode: 'implicit',
+					rejectUnauthorized: false,
+					certificateHostname: 'edge.example.test'
+				}
+			}
+		});
+
+		const updated = await service.update('user-1', host.id, {
+			name: 'Renamed FTPS',
+			metadata: {
+				terminalPreferences: {
+					scrollback: 10_000
+				},
+				ftps: {
+					mode: 'explicit'
+				}
+			}
+		});
+
+		expect(updated.metadata).toMatchObject({
+			domain: 'CORP',
+			source: { provider: 'microsoft', tenantId: 'tenant-1' },
+			ftpsMode: 'implicit',
+			ftps: {
+				mode: 'explicit',
+				rejectUnauthorized: false,
+				certificateHostname: 'edge.example.test'
+			},
+			terminalPreferences: {
+				scrollback: 10_000
+			}
+		});
+	});
 });

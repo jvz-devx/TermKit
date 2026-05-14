@@ -1,11 +1,5 @@
 import posixPath from 'node:path/posix';
-import {
-	Client,
-	type ConnectConfig,
-	type FileEntryWithStats,
-	type SFTPWrapper,
-	type Stats
-} from 'ssh2';
+import { type Client, type FileEntryWithStats, type SFTPWrapper, type Stats } from 'ssh2';
 import { ServiceNotFoundError, ServiceValidationError } from '$lib/server/services/errors';
 import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
 import {
@@ -18,8 +12,9 @@ import type {
 	CredentialRecord,
 	TermixServicesRepository
 } from '$lib/server/services/types';
-import { buildTrustedSshConnectConfig, type SshHostKeyTrustError } from './ssh-host-trust';
+import { connectTrustedSsh } from './ssh-connect';
 import type { Credential, TicketTarget } from './types';
+import { toSshJumpHostConfig } from '$lib/termix/host-metadata';
 
 export type SftpEntry = {
 	name: string;
@@ -80,7 +75,8 @@ export async function resolveSftpTarget(
 		host: host.hostname,
 		port: host.port,
 		username,
-		credential: credential ? decryptCredential(credential, crypto) : undefined
+		credential: credential ? decryptCredential(credential, crypto) : undefined,
+		jumpHost: toSshJumpHostConfig(host.metadata.sshJumpHost) ?? undefined
 	};
 }
 
@@ -164,48 +160,7 @@ async function withSftp<T>(
 }
 
 function connectSsh(target: SftpTarget): Promise<Client> {
-	const connection = new Client();
-	let hostKeyTrustError: SshHostKeyTrustError | undefined;
-	const config: ConnectConfig = buildTrustedSshConnectConfig(
-		{
-			host: target.host,
-			port: target.port,
-			username: target.credential?.username ?? target.username,
-			password: target.credential?.kind === 'password' ? target.credential.password : undefined,
-			privateKey: target.credential?.kind === 'ssh_key' ? target.credential.privateKey : undefined,
-			passphrase: target.credential?.kind === 'ssh_key' ? target.credential.passphrase : undefined
-		},
-		{
-			userId: target.userId,
-			hostId: target.hostId,
-			hostname: target.host,
-			port: target.port
-		},
-		{
-			onFailure(error) {
-				hostKeyTrustError = error;
-			}
-		}
-	);
-
-	return new Promise((resolve, reject) => {
-		const cleanup = () => {
-			connection.off('ready', onReady);
-			connection.off('error', onError);
-		};
-		const onReady = () => {
-			cleanup();
-			resolve(connection);
-		};
-		const onError = (error: Error) => {
-			cleanup();
-			reject(hostKeyTrustError ?? error);
-		};
-
-		connection.once('ready', onReady);
-		connection.once('error', onError);
-		connection.connect(config);
-	});
+	return connectTrustedSsh(target);
 }
 
 function openSftp(connection: Client): Promise<SFTPWrapper> {

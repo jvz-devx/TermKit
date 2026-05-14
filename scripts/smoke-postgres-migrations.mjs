@@ -13,15 +13,21 @@ const password = `termixkit-smoke-${randomBytes(18).toString('base64url')}`;
 const containerName = `termixkit-postgres-migration-smoke-${process.pid}-${Date.now().toString(36)}`;
 const expectedTables = [
 	'auth_identities',
+	'command_snippets',
 	'connection_sessions',
 	'credentials',
+	'file_bookmarks',
+	'ftps_host_settings',
 	'hosts',
 	'import_jobs',
+	'rdp_host_settings',
 	'session_tickets',
 	'sessions',
 	'settings',
 	'ssh_attach_tickets',
 	'ssh_live_sessions',
+	'terminal_preferences',
+	'terminal_recordings',
 	'users'
 ];
 
@@ -233,6 +239,71 @@ async function verifyMigratedSchema(url) {
 		if (sshAttachTicketSessionForeignKey?.confdeltype !== 'c') {
 			throw new Error(
 				'Migration did not create cascading SSH attach ticket live-session foreign key.'
+			);
+		}
+
+		const [terminalRecordingStatus] = await sql`
+			select exists (
+				select 1
+				from pg_type
+				where typname = 'terminal_recording_status'
+			) as exists
+		`;
+
+		if (!terminalRecordingStatus?.exists) {
+			throw new Error('Migration did not create terminal_recording_status enum.');
+		}
+
+		const [ftpsMode] = await sql`
+			select exists (
+				select 1
+				from pg_type
+				where typname = 'ftps_mode'
+			) as exists
+		`;
+
+		if (!ftpsMode?.exists) {
+			throw new Error('Migration did not create ftps_mode enum.');
+		}
+
+		const [fileTransferProtocol] = await sql`
+			select exists (
+				select 1
+				from pg_type
+				where typname = 'file_transfer_protocol'
+			) as exists
+		`;
+
+		if (!fileTransferProtocol?.exists) {
+			throw new Error('Migration did not create file_transfer_protocol enum.');
+		}
+
+		const v5UniqueIndexes = [
+			'terminal_preferences_user_host_unique',
+			'file_bookmarks_user_host_path_unique',
+			'ftps_host_settings_user_host_unique',
+			'rdp_host_settings_user_host_unique'
+		];
+
+		for (const indexName of v5UniqueIndexes) {
+			const [row] = await sql`
+				select to_regclass(${`public.${indexName}`}) as index_name
+			`;
+
+			if (!row?.index_name) {
+				throw new Error(`Migration did not create ${indexName}.`);
+			}
+		}
+
+		const [recordingConnectionSessionForeignKey] = await sql`
+			select confdeltype
+			from pg_constraint
+			where conname = 'terminal_recordings_connection_session_id_connection_sessions_id_fk'
+		`;
+
+		if (recordingConnectionSessionForeignKey?.confdeltype !== 'n') {
+			throw new Error(
+				'Migration did not create set-null terminal recording connection-session foreign key.'
 			);
 		}
 	} finally {

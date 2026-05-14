@@ -4,6 +4,7 @@ import { DELETE as DELETE_PATH } from '../../../routes/api/ftp/[hostId]/delete/+
 import { GET as DOWNLOAD } from '../../../routes/api/ftp/[hostId]/download/+server';
 import { GET as LIST } from '../../../routes/api/ftp/[hostId]/list/+server';
 import { POST as MKDIR } from '../../../routes/api/ftp/[hostId]/mkdir/+server';
+import { POST as MOVE } from '../../../routes/api/ftp/[hostId]/move/+server';
 import { POST as RENAME } from '../../../routes/api/ftp/[hostId]/rename/+server';
 import { GET as READ_TEXT, PUT as WRITE_TEXT } from '../../../routes/api/ftp/[hostId]/text/+server';
 import { POST as UPLOAD } from '../../../routes/api/ftp/[hostId]/upload/+server';
@@ -19,6 +20,7 @@ describe('FTP route auth', () => {
 		],
 		['mkdir', MKDIR, new Request('http://localhost/api/ftp/host-1/mkdir', { method: 'POST' })],
 		['rename', RENAME, new Request('http://localhost/api/ftp/host-1/rename', { method: 'POST' })],
+		['move', MOVE, new Request('http://localhost/api/ftp/host-1/move', { method: 'POST' })],
 		[
 			'delete',
 			DELETE_PATH,

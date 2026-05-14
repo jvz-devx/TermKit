@@ -18,6 +18,7 @@ TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. The 
 - V3 milestone 3: RDP clipboard controls, file clipboard transfer states, and session workspace polish.
 - V3 milestone 4: central admin panel for users, workspaces, live sessions, connection history, and settings.
 - V4 milestone 1: admin visibility for active SSH tunnels, FTP/FTPS activity, and structured protocol failure reasons.
+- V5 terminal and transfer polish: terminal preferences, snippets, browser-side recording controls, file-manager transfer power tools, FTPS modes, and RDP host settings.
 
 ## Application Navigation
 
@@ -44,9 +45,26 @@ V2 adds app-owned live SSH sessions behind `/ws/ssh/live/:ticket`. Remote functi
 
 The session workspace has an SSH tab strip for opening, renaming, reattaching, and closing live SSH sessions. Metadata is stored in Postgres through `ssh_live_sessions` and `ssh_attach_tickets`, but SSH processes and terminal output are not persisted. A live SSH tab can survive browser refreshes and reconnects while the TermixKit app process stays up; it does not survive app or container restart. Startup marks old metadata as `stale`, detached sessions expire after the default two-hour idle window, attach tickets default to 60 seconds, and each user is limited to 10 live SSH sessions. Recently ended or failed live SSH rows stay visible briefly so the workspace can show terminal states before the user dismisses them. VNC and Telnet continue to use the V1 launch-ticket websocket behavior; RDP launches through the Devolutions Gateway bootstrap and `/gateway` proxy; SFTP uses authenticated file-manager API routes plus a `connection_sessions` lifecycle row for the workspace launch.
 
-## RDP Clipboard
+## RDP Operator Controls
 
-The settings page controls RDP clipboard policy separately for text payloads, file payloads, client-to-remote direction, remote-to-client direction, and file size limit. The RDP session pane shows whether automatic clipboard sync is on, restricted, or disabled. When file clipboard is enabled and the RDP session is connected, users can copy a local file into the remote clipboard or save the current remote clipboard payload back to the browser clipboard; the pane shows copying, saving, complete, and failed states and enforces the configured MiB limit before sending local file data.
+The settings page controls RDP clipboard policy separately for text payloads, file payloads, client-to-remote direction, remote-to-client direction, and file size limit. It also stores the default RDP quality preset and whether sessions should request audio redirection when the deployment and IronRDP support it. The RDP session pane includes operator controls for Ctrl+Alt+Del, Windows key, reconnect, local disconnect, fullscreen, focus, resize, display scale, and quality preset changes. Presets currently tune the supported desktop-size and resize behavior; frame/update knobs are only surfaced once the IronRDP API exposes them.
+
+When file clipboard is enabled and the RDP session is connected, users can copy a local file into the remote clipboard or save the current remote clipboard payload back to the browser clipboard. The pane shows direction, size, state, and failure feedback without inspecting or logging clipboard payload contents. Multi-monitor and audio controls degrade to explicit readiness states when the current IronRDP/Gateway integration only exposes the single-monitor, no-audio path.
+
+## V5 Protocol Polish
+
+V5 adds checked-in migration support, isolated service repositories, and workspace UI/runtime polish for SSH, file-manager, FTP/FTPS, and RDP workflows. The new durable tables are:
+
+- `terminal_preferences`: per-user, per-host terminal font, theme, scrollback, title, and initial size preferences.
+- `command_snippets`: per-user snippets that can optionally scope to a workspace or host.
+- `terminal_recordings`: recording metadata only, with status, storage key, retention timestamp, and optional connection/live-session references. Terminal output is not stored in normal connection metadata.
+- `file_bookmarks`: per-user, per-host remote directory bookmarks for SFTP, FTP, and FTPS file managers.
+- `ftps_host_settings`: explicit or implicit FTPS mode plus certificate-validation metadata.
+- `rdp_host_settings`: per-host display, clipboard, audio, gateway, and extension metadata for RDP operator controls.
+
+The `src/lib/server/services/v5-resources.ts` repository is intentionally UI-neutral so route and remote-function code can share the same migration contract.
+
+Terminal recording is disabled by default and must be started explicitly from an active terminal. Recordings are captured in the browser as asciicast `.cast` files, downloaded on stop, and tracked only as local browser metadata with retention cleanup; terminal output is not stored in normal connection metadata.
 
 ## Microsoft Entra Login
 
@@ -172,6 +190,7 @@ Do not commit real values for any secret.
 - `GATEWAY_URL`: internal Devolutions Gateway URL, defaulting to `http://gateway:7171` in Compose. Production startup requires an absolute `http://` or `https://` URL.
 - `GATEWAY_PUBLIC_URL`: browser-reachable app proxy URL used by IronRDP, defaulting to `https://localhost:3000/gateway` in Compose. Production requires `https://`, requires the exact `/gateway` app proxy mount, and rejects internal Compose names such as `https://gateway`; direct local Compose can use `http://localhost:3000/gateway` only with `TERMIXKIT_INSECURE_LOCAL_HTTP=1`.
 - `GATEWAY_PROVISIONER_KEY`: deployment guard for RDP Gateway provisioning. Production startup requires this value before accepting traffic. Compose keeps Devolutions Gateway internal-only, enables its standalone webapp token endpoint, and relies on TermixKit app authentication plus the `/gateway` proxy as the public boundary.
+- `TERMIXKIT_RDP_DISABLE_AUDIO`: set to `1` or `true` to force browser RDP sessions to report audio redirection as deployment-disabled even if future IronRDP/Gateway releases expose audio support. `TERMIXKIT_RDP_AUDIO_REDIRECTION=0` is accepted as a legacy equivalent.
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`: local Compose database settings.
 - `DEVOLUTIONS_GATEWAY_TAG`: Gateway container tag. The Compose file currently pins `2026.1.1` by default.
 

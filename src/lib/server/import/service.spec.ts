@@ -146,11 +146,13 @@ describe('ImportService', () => {
 		const [host] = await repository.listHosts('user-1');
 
 		expect(result.job.status).toBe('completed');
-		expect(host?.metadata).toEqual({
-			domain: 'ACME',
-			sourceUserId: 'source-user-1',
-			sourceUserEmail: 'owner@example.test'
-		});
+		expect(host?.metadata).toEqual(
+			expect.objectContaining({
+				domain: 'ACME',
+				sourceUserId: 'source-user-1',
+				sourceUserEmail: 'owner@example.test'
+			})
+		);
 	});
 
 	it('surfaces top-level source account rows as import warnings', async () => {

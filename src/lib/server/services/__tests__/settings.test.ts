@@ -30,6 +30,8 @@ describe('SettingsService', () => {
 				remoteToClient: false,
 				fileTransferSizeLimitMiB: '64'
 			},
+			rdpPerformancePreset: 'performance',
+			rdpAudioRedirection: true,
 			rememberLastActiveTab: true
 		});
 
@@ -44,6 +46,8 @@ describe('SettingsService', () => {
 				remoteToClient: false,
 				fileTransferSizeLimitMiB: 64
 			},
+			rdpPerformancePreset: 'performance',
+			rdpAudioRedirection: true,
 			rememberLastActiveTab: true
 		});
 		await expect(repository.getSetting(BASIC_APP_SETTINGS_KEY)).resolves.toEqual(saved);
@@ -63,6 +67,8 @@ describe('SettingsService', () => {
 					remoteToClient: 'no',
 					fileTransferSizeLimitMiB: 0
 				},
+				rdpPerformancePreset: 'fast',
+				rdpAudioRedirection: 'yes',
 				rememberLastActiveTab: null
 			})
 		).toThrow(ServiceValidationError);
@@ -81,6 +87,8 @@ describe('SettingsService', () => {
 					remoteToClient: true,
 					fileTransferSizeLimitMiB: 16
 				},
+				rdpPerformancePreset: 'balanced',
+				rdpAudioRedirection: false,
 				rememberLastActiveTab: true
 			}).rdpClipboard
 		).toEqual({
@@ -114,6 +122,19 @@ describe('SettingsService', () => {
 				remoteToClient: false
 			}
 		});
+	});
+
+	it('falls back when stored RDP operator settings are malformed', async () => {
+		const repository = new InMemorySettingsRepository();
+		await repository.upsertSetting(BASIC_APP_SETTINGS_KEY, {
+			...DEFAULT_BASIC_APP_SETTINGS,
+			rdpPerformancePreset: 'ultra',
+			rdpAudioRedirection: 'enabled'
+		});
+
+		const service = new SettingsService(repository);
+
+		await expect(service.getBasicAppSettings()).resolves.toEqual(DEFAULT_BASIC_APP_SETTINGS);
 	});
 
 	it('maps legacy disabled clipboard sync to a disabled RDP clipboard policy', async () => {

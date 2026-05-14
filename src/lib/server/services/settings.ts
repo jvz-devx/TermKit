@@ -8,6 +8,9 @@ const ticketTtlMinimumSeconds = 10;
 const ticketTtlMaximumSeconds = 300;
 const rdpClipboardFileTransferMinimumMiB = 1;
 const rdpClipboardFileTransferMaximumMiB = 1024;
+const rdpPerformancePresets = ['balanced', 'performance', 'quality'] as const;
+
+export type RdpPerformancePreset = (typeof rdpPerformancePresets)[number];
 
 export type RdpClipboardPolicy = {
 	text: boolean;
@@ -22,6 +25,8 @@ export type BasicAppSettings = {
 	terminalFontSize: number;
 	clipboardSync: boolean;
 	rdpClipboard: RdpClipboardPolicy;
+	rdpPerformancePreset: RdpPerformancePreset;
+	rdpAudioRedirection: boolean;
 	rememberLastActiveTab: boolean;
 };
 
@@ -38,6 +43,8 @@ export const DEFAULT_BASIC_APP_SETTINGS: BasicAppSettings = {
 		remoteToClient: true,
 		fileTransferSizeLimitMiB: 16
 	},
+	rdpPerformancePreset: 'balanced',
+	rdpAudioRedirection: false,
 	rememberLastActiveTab: true
 };
 
@@ -121,6 +128,8 @@ export function validateBasicAppSettingsInput(input: BasicAppSettingsInput): Bas
 	const terminalFontSize = asInteger(input.terminalFontSize);
 	const clipboardSync = asBoolean(input.clipboardSync);
 	const rdpClipboard = validateRdpClipboardPolicyInput(input.rdpClipboard, issues);
+	const rdpPerformancePreset = asRdpPerformancePreset(input.rdpPerformancePreset);
+	const rdpAudioRedirection = asBoolean(input.rdpAudioRedirection);
 	const rememberLastActiveTab = asBoolean(input.rememberLastActiveTab);
 
 	if (
@@ -139,6 +148,14 @@ export function validateBasicAppSettingsInput(input: BasicAppSettingsInput): Bas
 		issues.push('clipboardSync must be a boolean');
 	}
 
+	if (rdpPerformancePreset === null) {
+		issues.push('rdpPerformancePreset must be balanced, performance, or quality');
+	}
+
+	if (rdpAudioRedirection === null) {
+		issues.push('rdpAudioRedirection must be a boolean');
+	}
+
 	if (rememberLastActiveTab === null) {
 		issues.push('rememberLastActiveTab must be a boolean');
 	}
@@ -150,6 +167,8 @@ export function validateBasicAppSettingsInput(input: BasicAppSettingsInput): Bas
 		terminalFontSize: terminalFontSize!,
 		clipboardSync: clipboardSync!,
 		rdpClipboard: normalizeRdpClipboardPolicyDirections(rdpClipboard!),
+		rdpPerformancePreset: rdpPerformancePreset!,
+		rdpAudioRedirection: rdpAudioRedirection!,
 		rememberLastActiveTab: rememberLastActiveTab!
 	};
 }
@@ -170,6 +189,13 @@ function normalizeStoredSettings(value: unknown): BasicAppSettings {
 			asStoredInteger(value.terminalFontSize, 8, 32) ?? DEFAULT_BASIC_APP_SETTINGS.terminalFontSize,
 		clipboardSync: legacyClipboardSync,
 		rdpClipboard: normalizeStoredRdpClipboardPolicy(value.rdpClipboard, legacyClipboardSync),
+		rdpPerformancePreset:
+			asRdpPerformancePreset(value.rdpPerformancePreset) ??
+			DEFAULT_BASIC_APP_SETTINGS.rdpPerformancePreset,
+		rdpAudioRedirection:
+			typeof value.rdpAudioRedirection === 'boolean'
+				? value.rdpAudioRedirection
+				: DEFAULT_BASIC_APP_SETTINGS.rdpAudioRedirection,
 		rememberLastActiveTab:
 			typeof value.rememberLastActiveTab === 'boolean'
 				? value.rememberLastActiveTab
@@ -284,6 +310,12 @@ function asInteger(value: unknown): number | null {
 
 function asBoolean(value: unknown): boolean | null {
 	return typeof value === 'boolean' ? value : null;
+}
+
+function asRdpPerformancePreset(value: unknown): RdpPerformancePreset | null {
+	return rdpPerformancePresets.includes(value as RdpPerformancePreset)
+		? (value as RdpPerformancePreset)
+		: null;
 }
 
 function asStoredInteger(value: unknown, minimum: number, maximum: number): number | null {

@@ -206,6 +206,17 @@ export function readSshHostKeyTrustPolicy(
 	};
 }
 
+export function getSshHostKeyPin(
+	identity: SshHostKeyTrustIdentity,
+	store: SshHostKeyTrustStore = getDefaultTrustStore()
+): SshHostKeyPin | null {
+	return store.get(identity);
+}
+
+export function getDefaultSshHostKeyTrustStore(): SshHostKeyTrustStore {
+	return getDefaultTrustStore();
+}
+
 function getDefaultTrustStore(): SshHostKeyTrustStore {
 	defaultTrustStore ??= new JsonFileSshHostKeyTrustStore();
 	return defaultTrustStore;

@@ -22,6 +22,13 @@ export interface ConnectionSessionLifecycleRecorder {
 	markActive(id: string, now?: Date): Promise<ConnectionSessionRecord | null>;
 	end(id: string, now?: Date): Promise<ConnectionSessionRecord | null>;
 	fail(id: string, errorCode: string, now?: Date): Promise<ConnectionSessionRecord | null>;
+	failWithDetails?(
+		id: string,
+		errorCode: string,
+		errorMessage: string,
+		errorDetails?: Record<string, unknown>,
+		now?: Date
+	): Promise<ConnectionSessionRecord | null>;
 }
 
 export class ConnectionSessionService implements ConnectionSessionLifecycleRecorder {
@@ -97,6 +104,25 @@ export class ConnectionSessionService implements ConnectionSessionLifecycleRecor
 			status: 'failed',
 			endedAt: now,
 			errorCode,
+			errorMessage: null,
+			errorDetails: null,
+			updatedAt: now
+		});
+	}
+
+	failWithDetails(
+		id: string,
+		errorCode: string,
+		errorMessage: string,
+		errorDetails: Record<string, unknown> = {},
+		now = new Date()
+	): Promise<ConnectionSessionRecord | null> {
+		return this.repository.updateConnectionSession(id, {
+			status: 'failed',
+			endedAt: now,
+			errorCode,
+			errorMessage,
+			errorDetails,
 			updatedAt: now
 		});
 	}
@@ -109,6 +135,18 @@ export class ConnectionSessionService implements ConnectionSessionLifecycleRecor
 	): Promise<ConnectionSessionRecord | null> {
 		if (!(await this.isOwnedByUser(userId, id))) return null;
 		return this.fail(id, errorCode, now);
+	}
+
+	async failForUserWithDetails(
+		userId: string,
+		id: string,
+		errorCode: string,
+		errorMessage: string,
+		errorDetails: Record<string, unknown> = {},
+		now = new Date()
+	): Promise<ConnectionSessionRecord | null> {
+		if (!(await this.isOwnedByUser(userId, id))) return null;
+		return this.failWithDetails(id, errorCode, errorMessage, errorDetails, now);
 	}
 
 	private async isOwnedByUser(userId: string, id: string): Promise<boolean> {

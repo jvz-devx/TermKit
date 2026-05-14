@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import {
 	readFtpTextFile,
-	resolveFtpTarget,
+	runRecordedFtpAction,
 	validateFtpPath,
 	writeFtpTextFile
 } from '$lib/server/protocols/ftp';
@@ -13,8 +13,13 @@ export const GET: RequestHandler = async (event) => {
 		const userId = requireUser(event);
 		const hostId = requireParam(event.params.hostId, 'hostId');
 		const path = validateFtpPath(event.url.searchParams.get('path'));
-		const target = await resolveFtpTarget(userId, hostId);
-		const text = await readFtpTextFile(target, path);
+		const text = await runRecordedFtpAction(
+			userId,
+			hostId,
+			'read_text',
+			(target) => readFtpTextFile(target, path),
+			{ path }
+		);
 
 		return json({ path, text });
 	} catch (error) {
@@ -32,8 +37,13 @@ export const PUT: RequestHandler = async (event) => {
 			throw new ServiceValidationError(['text is required']);
 		}
 
-		const target = await resolveFtpTarget(userId, hostId);
-		await writeFtpTextFile(target, path, input.text);
+		await runRecordedFtpAction(
+			userId,
+			hostId,
+			'write_text',
+			(target) => writeFtpTextFile(target, path, input.text as string),
+			{ path }
+		);
 
 		return json({ path, size: Buffer.byteLength(input.text, 'utf8') });
 	} catch (error) {

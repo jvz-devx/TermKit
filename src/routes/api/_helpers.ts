@@ -61,8 +61,11 @@ export function serviceJson(error: unknown): Response {
 	const status = getStatus(error);
 	const message = error instanceof Error ? error.message : 'Unexpected error';
 	const issues = isIssueError(error) ? error.issues : undefined;
+	const code = readString(error, 'code');
+	const category = readString(error, 'category');
+	const details = readRecord(error, 'details');
 
-	return json({ error: message, issues }, { status });
+	return json({ error: message, issues, code, category, details }, { status });
 }
 
 function getStatus(error: unknown): number {
@@ -80,6 +83,18 @@ function isIssueError(error: unknown): error is { issues: string[] } {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
+}
+
+function readString(value: unknown, key: string): string | undefined {
+	if (!isRecord(value)) return undefined;
+	const field = value[key];
+	return typeof field === 'string' ? field : undefined;
+}
+
+function readRecord(value: unknown, key: string): Record<string, unknown> | undefined {
+	if (!isRecord(value)) return undefined;
+	const field = value[key];
+	return isRecord(field) ? field : undefined;
 }
 
 function formatBytes(bytes: number): string {

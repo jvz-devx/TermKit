@@ -65,6 +65,26 @@ describe('RDP Gateway bootstrap', () => {
 		).not.toThrow();
 	});
 
+	it('lets deployments disable RDP audio redirection readiness', () => {
+		expect(
+			loadRdpGatewayConfig({
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test/gateway',
+				GATEWAY_PROVISIONER_KEY: 'shared-key',
+				TERMIXKIT_RDP_DISABLE_AUDIO: '1'
+			}).audioRedirectionEnabled
+		).toBe(false);
+
+		expect(
+			loadRdpGatewayConfig({
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test/gateway',
+				GATEWAY_PROVISIONER_KEY: 'shared-key',
+				TERMIXKIT_RDP_AUDIO_REDIRECTION: '0'
+			}).audioRedirectionEnabled
+		).toBe(false);
+	});
+
 	it('rejects invalid internal Gateway URLs', () => {
 		expect(() =>
 			loadRdpGatewayConfig({
@@ -84,7 +104,7 @@ describe('RDP Gateway bootstrap', () => {
 	});
 
 	it('provisions a Devolutions Gateway app token and RDP association token', async () => {
-		expect.assertions(9);
+		expect.assertions(10);
 		const calls: Array<{ url: string; init?: RequestInit }> = [];
 		const bootstrapper = new RdpGatewayBootstrapper(
 			loadRdpGatewayConfig({
@@ -118,6 +138,11 @@ describe('RDP Gateway bootstrap', () => {
 			kind: 'password',
 			username: 'rdp-user',
 			serverHeld: true
+		});
+		expect(bootstrap.features).toEqual({
+			audioRedirection: true,
+			audioRedirectionDisabledByEnv: false,
+			multiMonitor: false
 		});
 		expect(JSON.stringify(bootstrap)).not.toContain('secret');
 		expect(calls).toHaveLength(2);

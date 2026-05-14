@@ -6,8 +6,14 @@ import {
 	connectionProtocol,
 	connectionSessions,
 	credentials,
+	commandSnippets,
+	fileBookmarks,
+	fileTransferProtocol,
+	ftpsHostSettings,
+	ftpsMode,
 	hostProtocol,
 	hosts,
+	rdpHostSettings,
 	sessionTickets,
 	sessions,
 	sshAttachTickets,
@@ -16,6 +22,9 @@ import {
 	sshTunnelSessions,
 	sshTunnelSessionStatus,
 	sshLiveSessionStatus,
+	terminalPreferences,
+	terminalRecordingStatus,
+	terminalRecordings,
 	workspaceLayouts,
 	users
 } from './schema';
@@ -73,8 +82,31 @@ describe('core schema', () => {
 		]);
 	});
 
+	it('defines the V5 terminal recording status enum values', () => {
+		expect.assertions(1);
+
+		expect(terminalRecordingStatus.enumValues).toEqual([
+			'recording',
+			'completed',
+			'failed',
+			'expired'
+		]);
+	});
+
+	it('defines the V5 FTPS mode enum values', () => {
+		expect.assertions(1);
+
+		expect(ftpsMode.enumValues).toEqual(['explicit', 'implicit']);
+	});
+
+	it('defines the V5 file transfer protocol enum values', () => {
+		expect.assertions(1);
+
+		expect(fileTransferProtocol.enumValues).toEqual(['sftp', 'ftp', 'ftps']);
+	});
+
 	it('uses the expected core table names', () => {
-		expect.assertions(12);
+		expect.assertions(18);
 
 		expect(getTableName(users)).toBe('users');
 		expect(getTableName(authIdentities)).toBe('auth_identities');
@@ -88,5 +120,11 @@ describe('core schema', () => {
 		expect(getTableName(workspaceLayouts)).toBe('workspace_layouts');
 		expect(getTableName(sshLiveSessions)).toBe('ssh_live_sessions');
 		expect(getTableName(sshAttachTickets)).toBe('ssh_attach_tickets');
+		expect(getTableName(terminalPreferences)).toBe('terminal_preferences');
+		expect(getTableName(commandSnippets)).toBe('command_snippets');
+		expect(getTableName(terminalRecordings)).toBe('terminal_recordings');
+		expect(getTableName(fileBookmarks)).toBe('file_bookmarks');
+		expect(getTableName(ftpsHostSettings)).toBe('ftps_host_settings');
+		expect(getTableName(rdpHostSettings)).toBe('rdp_host_settings');
 	});
 });

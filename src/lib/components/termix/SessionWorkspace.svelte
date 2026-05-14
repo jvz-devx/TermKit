@@ -33,10 +33,12 @@
 	import FtpLaunchPane from './session/FtpLaunchPane.svelte';
 	import SftpLaunchPane from './session/SftpLaunchPane.svelte';
 	import SessionHostLauncher from './session/SessionHostLauncher.svelte';
+	import SshHostKeyTrustPanel from './session/SshHostKeyTrustPanel.svelte';
 	import SshLaunchPane from './session/SshLaunchPane.svelte';
 	import SshTunnelPane from './session/SshTunnelPane.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
 	import VncLaunchPane from './session/VncLaunchPane.svelte';
+	import { terminalFontSize } from '$lib/termix/host-metadata';
 	import {
 		normalizeSessionLayout,
 		removeSessionPane,
@@ -79,6 +81,8 @@
 			remoteToClient: true,
 			fileTransferSizeLimitMiB: 16
 		},
+		rdpPerformancePreset: 'balanced',
+		rdpAudioRedirection: false,
 		rememberLastActiveTab: true
 	};
 	const lastProtocolStoragePrefix = 'termixkit:last-protocol:';
@@ -570,6 +574,17 @@
 		return `${protocol}//${window.location.host}${path}`;
 	}
 
+	function sshWelcome(host: HostSummary, hostname: string) {
+		return [
+			`$ ssh ${hostname}`,
+			host.sshJumpHost.enabled && host.sshJumpHost.hostId
+				? `Using jump host ${host.sshJumpHost.hostId}`
+				: 'Direct SSH target',
+			'Attaching live SSH session...',
+			''
+		];
+	}
+
 	function sessionPauseKey(hostId: string, protocol: string) {
 		return `termix-session:${hostId}:${protocol}`;
 	}
@@ -767,17 +782,18 @@
 									detail="Preparing attach ticket."
 								/>
 							{:else if liveSshAttach && liveSshAttach.session.hostId === paneHost.id}
+								<SshHostKeyTrustPanel host={paneHost} onEnrolled={reconnect} />
 								{#key `ssh-live:${liveSshAttach.session.id}:${liveSshAttach.liveTicket}:${reconnectNonce}`}
 									<TerminalPane
 										title={liveSshAttach.session.title}
 										subtitle={`${liveSshAttach.session.username ?? 'user'}@${liveSshAttach.session.hostname}`}
 										websocketUrl={toWebSocketUrl(liveSshAttach.liveWebsocketPath)}
-										welcome={[
-											`$ ssh ${liveSshAttach.session.hostname}`,
-											'Attaching live SSH session...',
-											''
-										]}
-										fontSize={appSettings.terminalFontSize}
+										welcome={sshWelcome(paneHost, liveSshAttach.session.hostname)}
+										fontSize={terminalFontSize(
+											paneHost.terminalPreferences,
+											appSettings.terminalFontSize
+										)}
+										preferences={paneHost.terminalPreferences}
 										onConnectionStateChange={handleLiveSshTerminalState}
 									/>
 								{/key}
@@ -800,10 +816,14 @@
 									detail="Existing live sessions are idle."
 								/>
 							{:else if browser}
+								<SshHostKeyTrustPanel host={paneHost} onEnrolled={reconnect} />
 								{#key `ssh:${paneHost.id}:${pane.id}:${reconnectNonce}`}
 									<SshLaunchPane
 										host={paneHost}
-										fontSize={appSettings.terminalFontSize}
+										fontSize={terminalFontSize(
+											paneHost.terminalPreferences,
+											appSettings.terminalFontSize
+										)}
 										onLaunch={handleLiveSshLaunch}
 										onConnectionStateChange={handleLiveSshTerminalState}
 									/>
@@ -812,6 +832,14 @@
 						</div>
 					{:else if pane.kind === 'sftp'}
 						<div class="min-h-0 flex-1 p-3">
+							{#if paneHost.sshJumpHost.enabled && paneHost.sshJumpHost.hostId}
+								<div
+									class="mb-2 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+								>
+									SFTP metadata uses jump host
+									<span class="font-mono">{paneHost.sshJumpHost.hostId}</span>.
+								</div>
+							{/if}
 							{#if browser}
 								{#key `sftp:${paneHost.id}:${pane.id}:${reconnectNonce}`}
 									<SftpLaunchPane hostId={paneHost.id} />
@@ -839,6 +867,8 @@
 									onReconnect={reconnect}
 									clipboardSync={appSettings.clipboardSync}
 									clipboardPolicy={appSettings.rdpClipboard}
+									performancePreset={appSettings.rdpPerformancePreset}
+									audioRedirection={appSettings.rdpAudioRedirection}
 								/>
 							{:else if browser}
 								{#key `rdp:${paneHost.id}:${pane.id}:${reconnectNonce}`}
@@ -847,6 +877,8 @@
 										onReconnect={reconnect}
 										clipboardSync={appSettings.clipboardSync}
 										clipboardPolicy={appSettings.rdpClipboard}
+										performancePreset={appSettings.rdpPerformancePreset}
+										audioRedirection={appSettings.rdpAudioRedirection}
 									/>
 								{/key}
 							{/if}

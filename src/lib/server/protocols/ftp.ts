@@ -1,8 +1,12 @@
 import posixPath from 'node:path/posix';
-import { Readable, Writable } from 'node:stream';
+import { Readable, Transform, Writable } from 'node:stream';
 import { Client, FileType, type AccessOptions, type FileInfo } from 'basic-ftp';
 import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
 import { credentialSecretContext } from '$lib/server/services/credentials';
+import {
+	connectionSessionService,
+	type ConnectionSessionLifecycleRecorder
+} from '$lib/server/services/connection-sessions';
 import {
 	ServiceNotFoundError,
 	ServicePayloadTooLargeError,
@@ -14,9 +18,24 @@ import type {
 	CredentialRecord,
 	TermixServicesRepository
 } from '$lib/server/services/types';
+import { normalizeFtpsHostMetadata, type FtpsHostMetadata } from '$lib/termix/host-metadata';
 
 export type FtpProtocol = 'ftp' | 'ftps';
+export type FtpsMode = 'explicit' | 'implicit';
+export type FtpSecureMode = 'plain' | FtpsMode;
+export type FtpActionName =
+	| 'list'
+	| 'download'
+	| 'upload'
+	| 'mkdir'
+	| 'rename'
+	| 'move'
+	| 'delete'
+	| 'read_text'
+	| 'write_text';
+
 export const maxFtpDownloadBytes = 50 * 1024 * 1024;
+export const maxFtpUploadBytes = 50 * 1024 * 1024;
 
 export type FtpEntry = {
 	name: string;
@@ -40,6 +59,8 @@ export type FtpTarget = {
 	username: string;
 	password: string;
 	secure: AccessOptions['secure'];
+	secureMode: FtpSecureMode;
+	secureOptions?: AccessOptions['secureOptions'];
 };
 
 export type FtpClientLike = {
@@ -55,6 +76,44 @@ export type FtpClientLike = {
 };
 
 export type FtpClientFactory = () => FtpClientLike;
+
+export type FtpFailureCategory =
+	| 'validation'
+	| 'payload'
+	| 'authentication'
+	| 'authorization'
+	| 'not_found'
+	| 'tls'
+	| 'network'
+	| 'timeout'
+	| 'protocol'
+	| 'server';
+
+export type FtpFailure = {
+	code: string;
+	category: FtpFailureCategory;
+	message: string;
+	status: number;
+	details: Record<string, unknown>;
+};
+
+export class FtpOperationError extends Error {
+	readonly status: number;
+	readonly code: string;
+	readonly category: FtpFailureCategory;
+	readonly issues: string[];
+	readonly details: Record<string, unknown>;
+
+	constructor(failure: FtpFailure) {
+		super(failure.message);
+		this.name = 'FtpOperationError';
+		this.status = failure.status;
+		this.code = failure.code;
+		this.category = failure.category;
+		this.issues = [failure.message];
+		this.details = failure.details;
+	}
+}
 
 export function createFtpClient(): FtpClientLike {
 	return new Client(30_000, { allowSeparateTransferHost: false });
@@ -106,6 +165,13 @@ export async function resolveFtpTarget(
 		throw new ServiceValidationError(['Host username or credential username is required']);
 	}
 
+	const secure = resolveSecureMode(protocol, host.metadata);
+	const secureOptions = secure.access
+		? {
+				servername: secure.certificateHostname ?? host.hostname,
+				rejectUnauthorized: secure.rejectUnauthorized
+			}
+		: undefined;
 	return {
 		userId,
 		hostId,
@@ -114,7 +180,9 @@ export async function resolveFtpTarget(
 		port: host.port,
 		username,
 		password: decryptPasswordCredential(credential, crypto),
-		secure: resolveSecureMode(protocol, host.metadata)
+		secure: secure.access,
+		secureMode: secure.mode,
+		...(secureOptions ? { secureOptions } : {})
 	};
 }
 
@@ -145,6 +213,40 @@ export async function readFtpFile(
 ): Promise<Buffer> {
 	const remotePath = validateFtpPath(path);
 	return withFtp(target, clientFactory, (client) => downloadToBuffer(client, remotePath, maxBytes));
+}
+
+export async function streamFtpFile(
+	target: FtpTarget,
+	path: string,
+	clientFactory: FtpClientFactory = createFtpClient,
+	maxBytes = maxFtpDownloadBytes
+): Promise<{ body: ReadableStream<Uint8Array>; done: Promise<void> }> {
+	const remotePath = validateFtpPath(path);
+	const client = clientFactory();
+
+	try {
+		await accessFtpTarget(client, target);
+	} catch (error) {
+		client.close();
+		throw error;
+	}
+
+	const stream = createLimitedDownloadStream(maxBytes);
+	const done = client
+		.downloadTo(stream, remotePath)
+		.catch((error) => {
+			stream.destroy(error instanceof Error ? error : new Error('FTP download failed'));
+			throw error;
+		})
+		.finally(() => {
+			client.close();
+		})
+		.then(() => undefined);
+
+	return {
+		body: Readable.toWeb(stream) as ReadableStream<Uint8Array>,
+		done
+	};
 }
 
 export async function writeFtpFile(
@@ -217,6 +319,76 @@ export async function deleteFtpPath(
 	});
 }
 
+export async function runRecordedFtpAction<T>(
+	userId: string,
+	hostId: string,
+	action: FtpActionName,
+	operation: (target: FtpTarget) => Promise<T>,
+	options: {
+		path?: string;
+		target?: FtpTarget;
+		lifecycle?: ConnectionSessionLifecycleRecorder;
+	} = {}
+): Promise<T> {
+	const target = options.target ?? (await resolveFtpTarget(userId, hostId));
+	const lifecycle = options.lifecycle ?? connectionSessionService;
+	const session = await lifecycle.start({ userId, hostId, protocol: target.protocol });
+
+	try {
+		await lifecycle.markActive(session.id);
+		const result = await operation(target);
+		await lifecycle.end(session.id).catch(() => null);
+		return result;
+	} catch (error) {
+		const failure = classifyFtpFailure(error, { action, target, path: options.path });
+		await failLifecycle(lifecycle, session.id, failure).catch(() => null);
+		throw toFtpOperationError(error, failure);
+	}
+}
+
+export async function openRecordedFtpDownload(
+	userId: string,
+	hostId: string,
+	path: string,
+	options: {
+		target?: FtpTarget;
+		lifecycle?: ConnectionSessionLifecycleRecorder;
+		clientFactory?: FtpClientFactory;
+		maxBytes?: number;
+	} = {}
+): Promise<{ path: string; body: ReadableStream<Uint8Array>; done: Promise<void> }> {
+	const remotePath = validateFtpPath(path);
+	const target = options.target ?? (await resolveFtpTarget(userId, hostId));
+	const lifecycle = options.lifecycle ?? connectionSessionService;
+	const session = await lifecycle.start({ userId, hostId, protocol: target.protocol });
+
+	try {
+		await lifecycle.markActive(session.id);
+		const download = await streamFtpFile(
+			target,
+			remotePath,
+			options.clientFactory,
+			options.maxBytes ?? maxFtpDownloadBytes
+		);
+		const done = download.done
+			.then(() => lifecycle.end(session.id).then(() => undefined))
+			.catch(async (error) => {
+				const failure = classifyFtpFailure(error, {
+					action: 'download',
+					target,
+					path: remotePath
+				});
+				await failLifecycle(lifecycle, session.id, failure).catch(() => null);
+				throw error;
+			});
+		return { path: remotePath, body: download.body, done };
+	} catch (error) {
+		const failure = classifyFtpFailure(error, { action: 'download', target, path: remotePath });
+		await failLifecycle(lifecycle, session.id, failure).catch(() => null);
+		throw toFtpOperationError(error, failure);
+	}
+}
+
 async function withFtp<T>(
 	target: FtpTarget,
 	clientFactory: FtpClientFactory,
@@ -224,18 +396,32 @@ async function withFtp<T>(
 ): Promise<T> {
 	const client = clientFactory();
 	try {
-		await client.access({
-			host: target.host,
-			port: target.port,
-			user: target.username,
-			password: target.password,
-			secure: target.secure,
-			secureOptions: target.secure ? { servername: target.host } : undefined
-		});
+		await accessFtpTarget(client, target);
 		return await operation(client);
 	} finally {
 		client.close();
 	}
+}
+
+function accessFtpTarget(client: FtpClientLike, target: FtpTarget): Promise<unknown> {
+	return client.access({
+		host: target.host,
+		port: target.port,
+		user: target.username,
+		password: target.password,
+		secure: target.secure,
+		secureOptions: target.secure ? target.secureOptions : undefined
+	});
+}
+
+function failLifecycle(
+	lifecycle: ConnectionSessionLifecycleRecorder,
+	sessionId: string,
+	failure: FtpFailure
+): Promise<unknown> {
+	return lifecycle.failWithDetails
+		? lifecycle.failWithDetails(sessionId, failure.code, failure.message, failure.details)
+		: lifecycle.fail(sessionId, failure.code);
 }
 
 async function downloadToBuffer(
@@ -263,6 +449,21 @@ async function downloadToBuffer(
 	await client.downloadTo(destination, path);
 	if (limitError) throw limitError;
 	return Buffer.concat(chunks);
+}
+
+function createLimitedDownloadStream(maxBytes: number): Transform {
+	let totalBytes = 0;
+	return new Transform({
+		transform(chunk: Buffer | string, _encoding, callback) {
+			const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+			totalBytes += buffer.byteLength;
+			if (totalBytes > maxBytes) {
+				callback(new ServicePayloadTooLargeError('FTP download exceeds the 50 MiB limit'));
+				return;
+			}
+			callback(null, buffer);
+		}
+	});
 }
 
 async function findFtpEntry(client: FtpClientLike, path: string): Promise<FileInfo> {
@@ -318,11 +519,230 @@ function decryptPasswordCredential(credential: CredentialRecord, crypto: Credent
 function resolveSecureMode(
 	protocol: FtpProtocol,
 	metadata: Record<string, unknown>
-): AccessOptions['secure'] {
-	if (protocol === 'ftp') return false;
-	return metadata.ftpsMode === 'implicit' ? 'implicit' : true;
+): {
+	access: AccessOptions['secure'];
+	mode: FtpSecureMode;
+	rejectUnauthorized?: boolean;
+	certificateHostname?: string | null;
+} {
+	if (protocol === 'ftp') return { access: false, mode: 'plain' };
+
+	const settings = resolveFtpsHostSettings(metadata);
+
+	if (settings.mode === 'explicit') {
+		return {
+			access: true,
+			mode: settings.mode,
+			rejectUnauthorized: settings.rejectUnauthorized,
+			certificateHostname: settings.certificateHostname
+		};
+	}
+	if (settings.mode === 'implicit') {
+		return {
+			access: 'implicit',
+			mode: settings.mode,
+			rejectUnauthorized: settings.rejectUnauthorized,
+			certificateHostname: settings.certificateHostname
+		};
+	}
+
+	throw new ServiceValidationError(['ftpsMode must be explicit or implicit']);
+}
+
+function resolveFtpsHostSettings(metadata: Record<string, unknown>): FtpsHostMetadata {
+	const raw = isRecord(metadata.ftps) ? metadata.ftps : metadata;
+	const mode = raw.mode ?? raw.ftpsMode ?? metadata.ftpsMode;
+
+	if (mode !== undefined && mode !== 'explicit' && mode !== 'implicit') {
+		throw new ServiceValidationError(['ftpsMode must be explicit or implicit']);
+	}
+
+	return normalizeFtpsHostMetadata(metadata.ftps, metadata);
 }
 
 function isFtpProtocol(protocol: string): protocol is FtpProtocol {
 	return protocol === 'ftp' || protocol === 'ftps';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toFtpOperationError(error: unknown, failure: FtpFailure): Error {
+	if (
+		error instanceof ServiceValidationError ||
+		error instanceof ServiceNotFoundError ||
+		error instanceof ServicePayloadTooLargeError
+	) {
+		return error;
+	}
+	return new FtpOperationError(failure);
+}
+
+export function classifyFtpFailure(
+	error: unknown,
+	context: {
+		action?: FtpActionName;
+		target?: Pick<FtpTarget, 'protocol' | 'secureMode'>;
+		path?: string;
+	} = {}
+): FtpFailure {
+	const remoteCode = readNumber(error, 'code');
+	const nodeCode = readString(error, 'code');
+	const message = error instanceof Error ? error.message : String(error);
+	const normalizedMessage = message.toLowerCase();
+	const details = compactDetails({
+		action: context.action,
+		path: context.path,
+		protocol: context.target?.protocol,
+		ftpsMode: context.target?.secureMode,
+		remoteCode,
+		nodeCode,
+		name: error instanceof Error ? error.name : undefined
+	});
+
+	if (error instanceof ServiceValidationError) {
+		return {
+			code: 'ftp_validation_failed',
+			category: 'validation',
+			message: error.message,
+			status: error.status,
+			details
+		};
+	}
+	if (error instanceof ServicePayloadTooLargeError) {
+		return {
+			code: 'ftp_payload_too_large',
+			category: 'payload',
+			message: error.message,
+			status: error.status,
+			details
+		};
+	}
+	if (error instanceof ServiceNotFoundError) {
+		return {
+			code: 'ftp_path_not_found',
+			category: 'not_found',
+			message: error.message,
+			status: error.status,
+			details
+		};
+	}
+
+	if (isTlsCertificateError(nodeCode, normalizedMessage)) {
+		return {
+			code: 'ftp_tls_certificate_invalid',
+			category: 'tls',
+			message: 'FTPS certificate validation failed',
+			status: 502,
+			details
+		};
+	}
+
+	if (nodeCode === 'ENOTFOUND' || nodeCode === 'EAI_AGAIN') {
+		return {
+			code: 'ftp_dns_failed',
+			category: 'network',
+			message: 'FTP host could not be resolved',
+			status: 502,
+			details
+		};
+	}
+	if (nodeCode === 'ECONNREFUSED') {
+		return {
+			code: 'ftp_connection_refused',
+			category: 'network',
+			message: 'FTP connection was refused',
+			status: 502,
+			details
+		};
+	}
+	if (nodeCode === 'ETIMEDOUT' || normalizedMessage.includes('timed out')) {
+		return {
+			code: 'ftp_connection_timeout',
+			category: 'timeout',
+			message: 'FTP connection timed out',
+			status: 504,
+			details
+		};
+	}
+	if (nodeCode === 'ECONNRESET' || normalizedMessage.includes('connection reset')) {
+		return {
+			code: 'ftp_connection_reset',
+			category: 'network',
+			message: 'FTP connection was reset',
+			status: 502,
+			details
+		};
+	}
+
+	if (remoteCode === 530 || normalizedMessage.includes('login incorrect')) {
+		return {
+			code: 'ftp_auth_failed',
+			category: 'authentication',
+			message: 'FTP authentication failed',
+			status: 502,
+			details
+		};
+	}
+	if (remoteCode === 550 && /not found|no such|unavailable/.test(normalizedMessage)) {
+		return {
+			code: 'ftp_path_not_found',
+			category: 'not_found',
+			message: 'FTP path was not found',
+			status: 404,
+			details
+		};
+	}
+	if (remoteCode === 550 || remoteCode === 553 || normalizedMessage.includes('permission denied')) {
+		return {
+			code: 'ftp_permission_denied',
+			category: 'authorization',
+			message: 'FTP permission denied',
+			status: 403,
+			details
+		};
+	}
+
+	return {
+		code: 'ftp_operation_failed',
+		category: 'server',
+		message: 'FTP operation failed',
+		status: 502,
+		details
+	};
+}
+
+function isTlsCertificateError(code: string | undefined, message: string): boolean {
+	return (
+		code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+		code === 'SELF_SIGNED_CERT_IN_CHAIN' ||
+		code === 'CERT_HAS_EXPIRED' ||
+		code === 'ERR_TLS_CERT_ALTNAME_INVALID' ||
+		code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+		code === 'CERT_SIGNATURE_FAILURE' ||
+		message.includes('certificate') ||
+		message.includes('self signed')
+	);
+}
+
+function compactDetails(input: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(input).filter((entry): entry is [string, string | number] => {
+			const value = entry[1];
+			return typeof value === 'string' || typeof value === 'number';
+		})
+	);
+}
+
+function readString(value: unknown, key: string): string | undefined {
+	if (!isRecord(value)) return undefined;
+	const field = value[key];
+	return typeof field === 'string' ? field : undefined;
+}
+
+function readNumber(value: unknown, key: string): number | undefined {
+	if (!isRecord(value)) return undefined;
+	const field = value[key];
+	return typeof field === 'number' ? field : undefined;
 }

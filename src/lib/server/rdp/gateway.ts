@@ -9,6 +9,7 @@ export type RdpGatewayConfig = {
 	provisionerSubject: string;
 	provisionerKey: string;
 	sessionLifetimeSeconds: number;
+	audioRedirectionEnabled: boolean;
 	desktop: {
 		width: number;
 		height: number;
@@ -39,6 +40,11 @@ export type RdpGatewayBootstrap = {
 		username: string | null;
 		serverHeld: true;
 	} | null;
+	features: {
+		audioRedirection: boolean;
+		audioRedirectionDisabledByEnv: boolean;
+		multiMonitor: boolean;
+	};
 };
 
 export class RdpGatewayConfigurationError extends Error {
@@ -101,7 +107,12 @@ export class RdpGatewayBootstrapper {
 				username: ticket.target.username ?? credentialHint?.username ?? null,
 				domain: readStringMetadata(ticket.metadata, 'domain')
 			},
-			credentialHint
+			credentialHint,
+			features: {
+				audioRedirection: this.config.audioRedirectionEnabled,
+				audioRedirectionDisabledByEnv: !this.config.audioRedirectionEnabled,
+				multiMonitor: false
+			}
 		};
 	}
 
@@ -206,6 +217,9 @@ export function loadRdpGatewayConfig(
 		7200,
 		60
 	);
+	const audioRedirectionEnabled =
+		!isEnabled(env.TERMIXKIT_RDP_DISABLE_AUDIO) &&
+		!isExplicitFalse(env.TERMIXKIT_RDP_AUDIO_REDIRECTION);
 	const width = readPositiveInteger(env.GATEWAY_RDP_WIDTH, 640, 7680, 1440);
 	const height = readPositiveInteger(env.GATEWAY_RDP_HEIGHT, 480, 4320, 900);
 	const issues: string[] = [];
@@ -234,6 +248,7 @@ export function loadRdpGatewayConfig(
 		provisionerSubject,
 		provisionerKey: provisionerKey!,
 		sessionLifetimeSeconds,
+		audioRedirectionEnabled,
 		desktop: {
 			width,
 			height
@@ -332,6 +347,10 @@ function validateGatewayPublicUrl(
 
 function isEnabled(value: string | undefined): boolean {
 	return value === '1' || value?.toLowerCase() === 'true';
+}
+
+function isExplicitFalse(value: string | undefined): boolean {
+	return value === '0' || value?.toLowerCase() === 'false';
 }
 
 function isInternalGatewayHostname(hostname: string): boolean {

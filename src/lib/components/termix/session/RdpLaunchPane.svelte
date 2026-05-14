@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { RdpClipboardPolicy } from '$lib/settings.remote';
+	import type { RdpClipboardPolicy, RdpPerformancePreset } from '$lib/settings.remote';
 	import { createSessionLaunch, type SessionLaunch } from '$lib/termix.remote';
 	import RdpPane from './RdpPane.svelte';
 
@@ -8,12 +8,16 @@
 		hostId,
 		onReconnect,
 		clipboardSync = true,
-		clipboardPolicy
+		clipboardPolicy,
+		performancePreset = 'balanced',
+		audioRedirection = false
 	}: {
 		hostId: string;
 		onReconnect: () => void;
 		clipboardSync?: boolean;
 		clipboardPolicy?: RdpClipboardPolicy;
+		performancePreset?: RdpPerformancePreset;
+		audioRedirection?: boolean;
 	} = $props();
 
 	let launch = $state<SessionLaunch | null>(null);
@@ -61,5 +65,7 @@
 		onSavedPasswordStaged={scrubParentLaunchPassword}
 		{clipboardSync}
 		{clipboardPolicy}
+		{performancePreset}
+		{audioRedirection}
 	/>
 {/key}

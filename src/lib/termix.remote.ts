@@ -25,6 +25,11 @@ import {
 	type SshTunnelSessionRecord
 } from '$lib/server/services/ssh-tunnels';
 import { liveSshManager } from '$lib/server/ssh-live/manager';
+import {
+	enrollSshHostKey as enrollSshHostKeyForUser,
+	getSshHostKeyTrustSummary,
+	type SshHostKeyTrustSummary
+} from '$lib/server/protocols/ssh-host-key-enrollment';
 import type {
 	ConnectionHistoryRecord,
 	ConnectionProtocol,
@@ -34,8 +39,15 @@ import type {
 	HostRecord,
 	SshLiveSessionRecord
 } from '$lib/server/services/types';
+import {
+	normalizeHostMetadata,
+	type FtpsHostMetadata,
+	type SshJumpHostMetadata,
+	type TerminalPreferences
+} from '$lib/termix/host-metadata';
 
 export type { RdpLaunchCredentials };
+export type { SshHostKeyTrustSummary };
 
 export type HostSummary = {
 	id: string;
@@ -49,6 +61,11 @@ export type HostSummary = {
 	folder: string | null;
 	tags: string[];
 	notes: string | null;
+	metadata: Record<string, unknown>;
+	terminalPreferences: TerminalPreferences;
+	sshJumpHost: SshJumpHostMetadata;
+	ftps: FtpsHostMetadata;
+	hostKeyTrust: SshHostKeyTrustSummary | null;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -74,6 +91,7 @@ export type HostMutationInput = {
 	folder?: unknown;
 	tags?: unknown;
 	notes?: unknown;
+	metadata?: unknown;
 };
 
 export type CredentialMutationInput = {
@@ -200,23 +218,7 @@ export const listHosts = query(async () => {
 	);
 
 	return hosts
-		.map(
-			(host): HostSummary => ({
-				id: host.id,
-				name: host.name,
-				protocol: host.protocol,
-				hostname: host.hostname,
-				port: host.port,
-				username: host.username,
-				credentialId: host.credentialId,
-				credentialName: host.credentialId ? (credentialNames.get(host.credentialId) ?? null) : null,
-				folder: host.folder,
-				tags: host.tags,
-				notes: host.notes,
-				createdAt: host.createdAt.toISOString(),
-				updatedAt: host.updatedAt.toISOString()
-			})
-		)
+		.map((host): HostSummary => toHostSummary(host, credentialNames.get(host.credentialId ?? '')))
 		.sort((left, right) => left.name.localeCompare(right.name));
 });
 
@@ -315,21 +317,34 @@ export const saveHost = command<HostMutationInput, HostSummary>('unchecked', asy
 	void listCredentials().refresh();
 
 	return {
-		id: host.id,
-		name: host.name,
-		protocol: host.protocol,
-		hostname: host.hostname,
-		port: host.port,
-		username: host.username,
-		credentialId: host.credentialId,
-		credentialName: null,
-		folder: host.folder,
-		tags: host.tags,
-		notes: host.notes,
-		createdAt: host.createdAt.toISOString(),
-		updatedAt: host.updatedAt.toISOString()
+		...toHostSummary(host, null),
+		credentialName: null
 	};
 });
+
+export const inspectSshHostKeyTrust = command<unknown, SshHostKeyTrustSummary>(
+	'unchecked',
+	async (hostId) => {
+		const userId = requireRemoteUser();
+		if (typeof hostId !== 'string' || !hostId) {
+			throw new ServiceValidationError(['hostId is required']);
+		}
+		return getSshHostKeyTrustSummary(userId, hostId);
+	}
+);
+
+export const enrollSshHostKey = command<unknown, SshHostKeyTrustSummary>(
+	'unchecked',
+	async (hostId) => {
+		const userId = requireRemoteUser();
+		if (typeof hostId !== 'string' || !hostId) {
+			throw new ServiceValidationError(['hostId is required']);
+		}
+		const trust = await enrollSshHostKeyForUser(userId, hostId);
+		void listHosts().refresh();
+		return trust;
+	}
+);
 
 export const deleteHost = command<string, void>('unchecked', async (id) => {
 	const userId = requireRemoteUser();
@@ -726,6 +741,30 @@ function toConnectionHistorySummary(record: ConnectionHistoryRecord): Connection
 		durationMs: record.durationMs,
 		status: record.status,
 		errorReason: record.errorReason
+	};
+}
+
+function toHostSummary(host: HostRecord, credentialName: string | null | undefined): HostSummary {
+	const metadata = normalizeHostMetadata(host.metadata);
+	return {
+		id: host.id,
+		name: host.name,
+		protocol: host.protocol,
+		hostname: host.hostname,
+		port: host.port,
+		username: host.username,
+		credentialId: host.credentialId,
+		credentialName: host.credentialId ? (credentialName ?? null) : null,
+		folder: host.folder,
+		tags: host.tags,
+		notes: host.notes,
+		metadata,
+		terminalPreferences: metadata.terminalPreferences,
+		sshJumpHost: metadata.sshJumpHost,
+		ftps: metadata.ftps,
+		hostKeyTrust: null,
+		createdAt: host.createdAt.toISOString(),
+		updatedAt: host.updatedAt.toISOString()
 	};
 }
 

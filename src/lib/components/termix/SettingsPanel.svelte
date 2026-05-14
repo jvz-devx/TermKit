@@ -13,12 +13,15 @@
 	import * as Card from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import * as NativeSelect from '$lib/components/ui/native-select';
 	import { Switch } from '$lib/components/ui/switch';
+	import { rdpDisplayPresets } from '$lib/components/termix/session/rdp-operator-controls';
 	import {
 		getAppSettings,
 		saveAppSettings,
 		type BasicAppSettings,
-		type BasicAppSettingsInput
+		type BasicAppSettingsInput,
+		type RdpPerformancePreset
 	} from '$lib/settings.remote';
 
 	type SettingsForm = {
@@ -30,6 +33,8 @@
 		rdpClipboardClientToRemote: boolean;
 		rdpClipboardRemoteToClient: boolean;
 		rdpClipboardFileTransferSizeLimitMiB: number;
+		rdpPerformancePreset: RdpPerformancePreset;
+		rdpAudioRedirection: boolean;
 		rememberLastActiveTab: boolean;
 	};
 
@@ -64,6 +69,8 @@
 			rdpClipboardClientToRemote: rdpClipboard?.clientToRemote ?? settings?.clipboardSync ?? true,
 			rdpClipboardRemoteToClient: rdpClipboard?.remoteToClient ?? settings?.clipboardSync ?? true,
 			rdpClipboardFileTransferSizeLimitMiB: rdpClipboard?.fileTransferSizeLimitMiB ?? 16,
+			rdpPerformancePreset: settings?.rdpPerformancePreset ?? 'balanced',
+			rdpAudioRedirection: settings?.rdpAudioRedirection ?? false,
 			rememberLastActiveTab: settings?.rememberLastActiveTab ?? true
 		};
 	}
@@ -148,6 +155,8 @@
 				remoteToClient: payloadEnabled ? settings.rdpClipboardRemoteToClient : false,
 				fileTransferSizeLimitMiB: settings.rdpClipboardFileTransferSizeLimitMiB
 			},
+			rdpPerformancePreset: settings.rdpPerformancePreset,
+			rdpAudioRedirection: settings.rdpAudioRedirection,
 			rememberLastActiveTab: settings.rememberLastActiveTab
 		};
 	}
@@ -332,6 +341,36 @@
 				<Card.Description>Feature flags shared by supported connection panes.</Card.Description>
 			</Card.Header>
 			<Card.Content class="space-y-4">
+				<div class="grid gap-2 sm:max-w-xs">
+					<Label for="rdp-performance-preset">RDP quality preset</Label>
+					<NativeSelect.Root
+						id="rdp-performance-preset"
+						class="w-full"
+						bind:value={form.rdpPerformancePreset}
+					>
+						<NativeSelect.Option value="balanced">
+							{rdpDisplayPresets.balanced.label}
+						</NativeSelect.Option>
+						<NativeSelect.Option value="performance">
+							{rdpDisplayPresets.performance.label}
+						</NativeSelect.Option>
+						<NativeSelect.Option value="quality"
+							>{rdpDisplayPresets.quality.label}</NativeSelect.Option
+						>
+					</NativeSelect.Root>
+					<p class="text-xs text-muted-foreground">
+						{rdpDisplayPresets[form.rdpPerformancePreset].detail}
+					</p>
+				</div>
+				<label class="flex items-center justify-between gap-4 text-sm">
+					<span>
+						<span class="block font-medium">RDP audio redirection</span>
+						<span class="text-muted-foreground"
+							>Request remote audio when the deployment and client support it.</span
+						>
+					</span>
+					<Switch bind:checked={form.rdpAudioRedirection} aria-label="RDP audio redirection" />
+				</label>
 				<label class="flex items-center justify-between gap-4 text-sm">
 					<span>
 						<span class="block font-medium">Remember last active tab per host</span>

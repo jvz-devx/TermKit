@@ -4,6 +4,7 @@ import {
 	buildTrustedSshConnectConfig,
 	type SshHostKeyTrustError
 } from '../protocols/ssh-host-trust';
+import { connectTrustedSsh } from '../protocols/ssh-connect';
 import type { ConsumedTicket } from '../protocols/types';
 import { parseTerminalControlFrame, rawDataToBuffer, type TerminalSize } from '../protocols/tcp';
 import type { SshAttachTicket } from './types';
@@ -193,7 +194,7 @@ export class LiveSshSession {
 	status: LiveSshStatus = 'starting';
 
 	private readonly ticket: ConsumedTicket;
-	private readonly client: LiveSshClient;
+	private client: LiveSshClient;
 	private readonly scrollbackBytes: number;
 	private readonly onClose: (event: LiveSshCloseEvent) => void;
 	private readonly scrollback: Buffer[] = [];
@@ -273,6 +274,11 @@ export class LiveSshSession {
 	}
 
 	private start(): void {
+		if (this.ticket.target.jumpHost) {
+			void this.startWithJumpHost();
+			return;
+		}
+
 		this.client
 			.on('ready', () => {
 				this.openShell();
@@ -292,6 +298,49 @@ export class LiveSshSession {
 			});
 
 		this.client.connect(this.connectConfig());
+	}
+
+	private async startWithJumpHost(): Promise<void> {
+		try {
+			const client = await connectTrustedSsh(
+				{
+					userId: this.ticket.userId,
+					hostId: this.ticket.hostId,
+					...this.ticket.target
+				},
+				{
+					onHostKeyTrustFailure: (error) => {
+						this.hostKeyTrustError = error;
+					}
+				}
+			);
+			if (this.closed) {
+				client.end();
+				return;
+			}
+			this.client = client as unknown as LiveSshClient;
+			this.client
+				.on('error', () => {
+					this.closeSocket(
+						1011,
+						this.hostKeyTrustError ? 'ssh host key not trusted' : 'ssh connection failed'
+					);
+					this.finish('connection_error');
+				})
+				.on('close', () => {
+					this.finish('remote');
+				})
+				.on('end', () => {
+					this.finish('remote');
+				});
+			this.openShell();
+		} catch {
+			this.closeSocket(
+				1011,
+				this.hostKeyTrustError ? 'ssh host key not trusted' : 'ssh connection failed'
+			);
+			this.finish('connection_error');
+		}
 	}
 
 	private openShell(): void {

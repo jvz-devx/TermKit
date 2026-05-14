@@ -5,16 +5,24 @@ import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
 import { CredentialService } from '$lib/server/services/credentials';
 import { ServicePayloadTooLargeError, ServiceValidationError } from '$lib/server/services/errors';
 import { InMemoryTermixServicesRepository } from '$lib/server/services/repository';
+import type { StartConnectionSessionInput } from '$lib/server/services/connection-sessions';
 import type { CredentialRecord, HostRecord } from '$lib/server/services/types';
 import {
+	classifyFtpFailure,
 	createFtpDirectory,
 	deleteFtpPath,
+	FtpOperationError,
 	listFtpDirectory,
+	openRecordedFtpDownload,
 	readFtpFile,
 	renameFtpPath,
 	resolveFtpTarget,
+	runRecordedFtpAction,
+	streamFtpFile,
 	validateFtpPath,
 	writeFtpFile,
+	readFtpTextFile,
+	writeFtpTextFile,
 	type FtpClientLike,
 	type FtpTarget
 } from './ftp';
@@ -61,7 +69,8 @@ describe('FTP target resolution', () => {
 			port: 21,
 			username: 'credential-user',
 			password: 'saved-password',
-			secure: false
+			secure: false,
+			secureMode: 'plain'
 		});
 	});
 
@@ -76,7 +85,7 @@ describe('FTP target resolution', () => {
 
 		await expect(
 			resolveFtpTarget('user-1', 'host-1', explicit.repository, explicit.crypto)
-		).resolves.toMatchObject({ protocol: 'ftps', secure: true });
+		).resolves.toMatchObject({ protocol: 'ftps', secure: true, secureMode: 'explicit' });
 
 		const implicit = await createEncryptedCredential({
 			kind: 'password',
@@ -92,7 +101,55 @@ describe('FTP target resolution', () => {
 
 		await expect(
 			resolveFtpTarget('user-1', 'host-1', implicit.repository, implicit.crypto)
-		).resolves.toMatchObject({ protocol: 'ftps', secure: 'implicit' });
+		).resolves.toMatchObject({ protocol: 'ftps', secure: 'implicit', secureMode: 'implicit' });
+	});
+
+	it('passes FTPS certificate policy metadata into TLS access options', async () => {
+		const { repository, crypto, credential } = await createEncryptedCredential({
+			kind: 'password',
+			secret: 'saved-password'
+		});
+		await repository.createHost(
+			testHost({
+				credentialId: credential.id,
+				protocol: 'ftps',
+				metadata: {
+					ftps: {
+						mode: 'implicit',
+						rejectUnauthorized: false,
+						certificateHostname: 'edge.example.test'
+					}
+				}
+			})
+		);
+
+		await expect(resolveFtpTarget('user-1', 'host-1', repository, crypto)).resolves.toMatchObject({
+			protocol: 'ftps',
+			secure: 'implicit',
+			secureMode: 'implicit',
+			secureOptions: {
+				servername: 'edge.example.test',
+				rejectUnauthorized: false
+			}
+		});
+	});
+
+	it('rejects invalid FTPS mode metadata instead of silently downgrading settings', async () => {
+		const { repository, crypto, credential } = await createEncryptedCredential({
+			kind: 'password',
+			secret: 'saved-password'
+		});
+		await repository.createHost(
+			testHost({
+				credentialId: credential.id,
+				protocol: 'ftps',
+				metadata: { ftps: { mode: 'disabled' } }
+			})
+		);
+
+		await expect(resolveFtpTarget('user-1', 'host-1', repository, crypto)).rejects.toMatchObject({
+			issues: ['ftpsMode must be explicit or implicit']
+		});
 	});
 
 	it('rejects SSH key credentials', async () => {
@@ -115,7 +172,14 @@ describe('FTP file operations', () => {
 			fileInfo('app', FileType.Directory)
 		]);
 
-		const entries = await listFtpDirectory(testTarget({ secure: true }), '/srv', () => client);
+		const entries = await listFtpDirectory(
+			testTarget({
+				secure: true,
+				secureOptions: { servername: 'files.example.test', rejectUnauthorized: true }
+			}),
+			'/srv',
+			() => client
+		);
 
 		expect(client.accessOptions).toMatchObject({
 			host: 'files.example.test',
@@ -123,7 +187,7 @@ describe('FTP file operations', () => {
 			user: 'ops',
 			password: 'secret',
 			secure: true,
-			secureOptions: { servername: 'files.example.test' }
+			secureOptions: { servername: 'files.example.test', rejectUnauthorized: true }
 		});
 		expect(client.closed).toBe(true);
 		expect(entries).toEqual([
@@ -152,6 +216,31 @@ describe('FTP file operations', () => {
 		expect(client.uploadedData).toEqual(Buffer.from('saved'));
 	});
 
+	it('streams downloads server-side while closing the FTP client after completion', async () => {
+		const client = new FakeFtpClient();
+		client.downloadData = Buffer.from('streamed');
+
+		const download = await streamFtpFile(testTarget(), '/tmp/message.txt', () => client);
+		const body = await new Response(download.body).arrayBuffer();
+		await download.done;
+
+		expect(Buffer.from(body)).toEqual(Buffer.from('streamed'));
+		expect(client.downloadedPath).toBe('/tmp/message.txt');
+		expect(client.closed).toBe(true);
+	});
+
+	it('reads and writes text files using UTF-8 buffers', async () => {
+		const client = new FakeFtpClient();
+		client.downloadData = Buffer.from('hello text', 'utf8');
+
+		await expect(readFtpTextFile(testTarget(), '/tmp/message.txt', () => client)).resolves.toBe(
+			'hello text'
+		);
+		await writeFtpTextFile(testTarget(), '/tmp/message.txt', 'saved text', () => client);
+
+		expect(client.uploadedData.toString('utf8')).toBe('saved text');
+	});
+
 	it('rejects oversized downloads before buffering unbounded data', async () => {
 		const client = new FakeFtpClient();
 		client.downloadData = Buffer.from('too-large');
@@ -177,6 +266,117 @@ describe('FTP file operations', () => {
 		expect(client.renamed).toEqual({ from: '/var/old.txt', to: '/var/new.txt' });
 		expect(client.removedPath).toBe('/var/old.txt');
 		expect(client.removedDirectory).toBe('/var/empty');
+	});
+});
+
+describe('FTP failures and recorded lifecycle', () => {
+	it('maps TLS certificate failures to stable public details', () => {
+		const error = Object.assign(new Error('self signed certificate'), {
+			code: 'DEPTH_ZERO_SELF_SIGNED_CERT'
+		});
+
+		expect(classifyFtpFailure(error, { action: 'list', target: testTarget() })).toMatchObject({
+			code: 'ftp_tls_certificate_invalid',
+			category: 'tls',
+			message: 'FTPS certificate validation failed',
+			status: 502,
+			details: {
+				action: 'list',
+				protocol: 'ftp',
+				ftpsMode: 'plain',
+				nodeCode: 'DEPTH_ZERO_SELF_SIGNED_CERT'
+			}
+		});
+	});
+
+	it('maps FTP response and network errors without leaking credentials', () => {
+		const auth = Object.assign(new Error('530 Login incorrect'), { code: 530 });
+		const refused = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+
+		expect(classifyFtpFailure(auth)).toMatchObject({
+			code: 'ftp_auth_failed',
+			category: 'authentication'
+		});
+		expect(classifyFtpFailure(refused)).toMatchObject({
+			code: 'ftp_connection_refused',
+			category: 'network'
+		});
+	});
+
+	it('records action lifecycle success and structured failures', async () => {
+		const lifecycle = new FakeLifecycleRecorder();
+
+		await expect(
+			runRecordedFtpAction('user-1', 'host-1', 'mkdir', async () => 'ok', {
+				lifecycle,
+				path: '/srv/new',
+				target: testTarget()
+			})
+		).resolves.toBe('ok');
+
+		expect(lifecycle.calls.map((call) => call.action)).toEqual(['start', 'active', 'end']);
+
+		await expect(
+			runRecordedFtpAction(
+				'user-1',
+				'host-1',
+				'delete',
+				async () => {
+					throw Object.assign(new Error('self signed certificate'), {
+						code: 'DEPTH_ZERO_SELF_SIGNED_CERT'
+					});
+				},
+				{ lifecycle, path: '/srv/secret.txt', target: testTarget() }
+			)
+		).rejects.toThrow(FtpOperationError);
+
+		expect(lifecycle.calls.at(-1)).toMatchObject({
+			action: 'fail',
+			errorCode: 'ftp_tls_certificate_invalid',
+			errorMessage: 'FTPS certificate validation failed',
+			errorDetails: expect.objectContaining({
+				action: 'delete',
+				path: '/srv/secret.txt',
+				nodeCode: 'DEPTH_ZERO_SELF_SIGNED_CERT'
+			})
+		});
+	});
+
+	it('records streamed download lifecycle after the transfer completes', async () => {
+		const lifecycle = new FakeLifecycleRecorder();
+		const client = new FakeFtpClient();
+		client.downloadData = Buffer.from('download body');
+
+		const download = await openRecordedFtpDownload('user-1', 'host-1', '/srv/file.txt', {
+			lifecycle,
+			target: testTarget(),
+			clientFactory: () => client
+		});
+
+		expect(lifecycle.calls.map((call) => call.action)).toEqual(['start', 'active']);
+		await new Response(download.body).arrayBuffer();
+		await download.done;
+
+		expect(lifecycle.calls.map((call) => call.action)).toEqual(['start', 'active', 'end']);
+	});
+
+	it('records streamed download failures after response creation', async () => {
+		const lifecycle = new FakeLifecycleRecorder();
+		const client = new FakeFtpClient();
+		client.downloadError = Object.assign(new Error('connect ECONNRESET'), { code: 'ECONNRESET' });
+
+		const download = await openRecordedFtpDownload('user-1', 'host-1', '/srv/file.txt', {
+			lifecycle,
+			target: testTarget(),
+			clientFactory: () => client
+		});
+
+		await expect(new Response(download.body).arrayBuffer()).rejects.toThrow();
+		await expect(download.done).rejects.toThrow();
+		expect(lifecycle.calls.at(-1)).toMatchObject({
+			action: 'fail',
+			errorCode: 'ftp_connection_reset'
+		});
 	});
 });
 
@@ -235,6 +435,7 @@ function testTarget(patch: Partial<FtpTarget> = {}): FtpTarget {
 		username: 'ops',
 		password: 'secret',
 		secure: false,
+		secureMode: 'plain',
 		...patch
 	};
 }
@@ -254,8 +455,10 @@ function fileInfo(
 
 class FakeFtpClient implements FtpClientLike {
 	accessOptions: AccessOptions | null = null;
+	accessError: Error | null = null;
 	closed = false;
 	downloadData = Buffer.alloc(0);
+	downloadError: Error | null = null;
 	downloadedPath: string | null = null;
 	uploadedPath: string | null = null;
 	uploadedData = Buffer.alloc(0);
@@ -268,6 +471,7 @@ class FakeFtpClient implements FtpClientLike {
 
 	async access(options: AccessOptions): Promise<void> {
 		this.accessOptions = options;
+		if (this.accessError) throw this.accessError;
 	}
 
 	async list(): Promise<FileInfo[]> {
@@ -276,6 +480,7 @@ class FakeFtpClient implements FtpClientLike {
 
 	async downloadTo(destination: Writable, fromRemotePath: string): Promise<void> {
 		this.downloadedPath = fromRemotePath;
+		if (this.downloadError) throw this.downloadError;
 		await new Promise<void>((resolve, reject) => {
 			destination.once('error', reject);
 			destination.end(this.downloadData, resolve);
@@ -309,5 +514,64 @@ class FakeFtpClient implements FtpClientLike {
 
 	close(): void {
 		this.closed = true;
+	}
+}
+
+type LifecycleCall =
+	| { action: 'start'; id: string; protocol: StartConnectionSessionInput['protocol'] }
+	| { action: 'active'; id: string }
+	| { action: 'end'; id: string }
+	| {
+			action: 'fail';
+			id: string;
+			errorCode: string;
+			errorMessage: string;
+			errorDetails: Record<string, unknown>;
+	  };
+
+class FakeLifecycleRecorder {
+	calls: LifecycleCall[] = [];
+	private nextId = 1;
+
+	async start(input: StartConnectionSessionInput) {
+		const id = `session-${this.nextId++}`;
+		this.calls.push({ action: 'start', id, protocol: input.protocol });
+		return {
+			id,
+			userId: 'user-1',
+			workspaceId: null,
+			hostId: 'host-1',
+			protocol: input.protocol,
+			status: 'starting' as const,
+			startedAt: new Date(),
+			endedAt: null,
+			errorCode: null,
+			updatedAt: new Date()
+		};
+	}
+
+	async markActive(id: string) {
+		this.calls.push({ action: 'active', id });
+		return null;
+	}
+
+	async end(id: string) {
+		this.calls.push({ action: 'end', id });
+		return null;
+	}
+
+	async failWithDetails(
+		id: string,
+		errorCode: string,
+		errorMessage: string,
+		errorDetails: Record<string, unknown>
+	) {
+		this.calls.push({ action: 'fail', id, errorCode, errorMessage, errorDetails });
+		return null;
+	}
+
+	async fail(id: string, errorCode: string) {
+		this.calls.push({ action: 'fail', id, errorCode, errorMessage: errorCode, errorDetails: {} });
+		return null;
 	}
 }

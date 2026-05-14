@@ -184,7 +184,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[external-blocked] V2 Microsoft interactive login acceptance');
 	});
 
-	it('accepts only recorder-shaped proof output for external acceptance', () => {
+	it('includes V5 terminal recording implementation evidence with valid external acceptance proofs', () => {
 		expect.hasAssertions();
 		const directory = tempDirectory();
 		const proofPath = writeAcceptanceProofFile(directory, validAcceptanceProofs());
@@ -200,6 +200,17 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain(
 			'[local] V4 connection history includes ssh_tunnel, ftp, ftps, and structured failure reasons'
 		);
+		expect(result.stdout).toContain(
+			'[local] V5 SSH terminal preferences, snippets, and recording metadata foundation'
+		);
+		expect(result.stdout).toContain(
+			'[local] V5 terminal session recording controls, capture, and retention cleanup'
+		);
+		expect(result.stdout).toContain(
+			'[local] V5 SFTP file-manager bookmarks and transfer polish schema'
+		);
+		expect(result.stdout).toContain('[local] V5 FTP and FTPS mode settings migration support');
+		expect(result.stdout).toContain('[local] V5 RDP operator settings migration support');
 		expect(result.stdout).toContain('acceptance audit: no blocked requirements detected');
 	});
 
@@ -268,7 +279,14 @@ describe('acceptance proof scripts', () => {
 			'[local] V4 acceptance audit rows preserve Microsoft external-blocked behavior'
 		);
 		expect(result.stdout).toContain(
-			'acceptance audit: repo-owned requirements passed; 2 external Microsoft proof item(s) remain blocked'
+			'[local] V5 SSH terminal preferences, snippets, and recording metadata foundation'
+		);
+		expect(result.stdout).toContain(
+			'[local] V5 terminal session recording controls, capture, and retention cleanup'
+		);
+		expect(result.stdout).toContain('[local] V5 RDP operator settings migration support');
+		expect(result.stdout).toContain(
+			'acceptance audit: repo-owned requirements passed; 2 external Microsoft proof item(s) remain blocked until tenant/test users are available'
 		);
 	});
 });
