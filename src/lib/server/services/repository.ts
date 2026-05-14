@@ -6,11 +6,19 @@ import {
 	credentials,
 	hosts,
 	sessionTickets,
+	users,
+	workspaces,
+	workspaceMemberships,
 	type credentials as credentialsTable,
 	type hosts as hostsTable,
-	type sessionTickets as sessionTicketsTable
+	type sessionTickets as sessionTicketsTable,
+	type users as usersTable,
+	type workspaces as workspacesTable,
+	type workspaceMemberships as workspaceMembershipsTable
 } from '../db/schema';
 import type {
+	ConnectionHistoryFilters,
+	ConnectionHistoryRecord,
 	ConnectionSessionPatch,
 	ConnectionSessionRecord,
 	CredentialRecord,
@@ -19,7 +27,9 @@ import type {
 	SshLiveSessionPatch,
 	SshLiveSessionRecord,
 	SessionTicketRecord,
-	TermixServicesRepository
+	TermixServicesRepository,
+	WorkspaceMembershipRecord,
+	WorkspaceRecord
 } from './types';
 
 type IntendedSshLiveSessionsTable = typeof connectionSessions & {
@@ -53,6 +63,9 @@ type ReturningUpdate = {
 type HostRow = typeof hostsTable.$inferSelect;
 type CredentialRow = typeof credentialsTable.$inferSelect;
 type SessionTicketRow = typeof sessionTicketsTable.$inferSelect;
+type UserRow = typeof usersTable.$inferSelect;
+type WorkspaceRow = typeof workspacesTable.$inferSelect;
+type WorkspaceMembershipRow = typeof workspaceMembershipsTable.$inferSelect;
 type ConnectionSessionRow = typeof connectionSessions.$inferSelect;
 type SshLiveSessionRow = SshLiveSessionRecord;
 type SshAttachTicketRow = SshAttachTicketRecord;
@@ -65,16 +78,182 @@ const intendedSchema = schema as unknown as {
 export class DrizzleTermixServicesRepository implements TermixServicesRepository {
 	constructor(private readonly database: TermixDb = db) {}
 
+	async listWorkspaces(userId: string): Promise<WorkspaceRecord[]> {
+		const memberships = await this.listUserWorkspaceMemberships(userId);
+		if (memberships.length === 0) return [];
+
+		const rows = await this.database
+			.select()
+			.from(workspaces)
+			.where(
+				inArray(
+					workspaces.id,
+					memberships.map((membership) => membership.workspaceId)
+				)
+			);
+
+		return rows.map(toWorkspaceRecord);
+	}
+
+	async getWorkspace(userId: string, id: string): Promise<WorkspaceRecord | null> {
+		const membership = await this.getWorkspaceMembership(id, userId);
+		if (!membership) return null;
+		return this.getWorkspaceById(id);
+	}
+
+	async getWorkspaceById(id: string): Promise<WorkspaceRecord | null> {
+		const [row] = await this.database
+			.select()
+			.from(workspaces)
+			.where(eq(workspaces.id, id))
+			.limit(1);
+
+		return row ? toWorkspaceRecord(row) : null;
+	}
+
+	async createWorkspace(workspace: WorkspaceRecord): Promise<WorkspaceRecord> {
+		const [row] = await this.database
+			.insert(workspaces)
+			.values({
+				id: workspace.id,
+				name: workspace.name,
+				metadata: workspace.metadata,
+				createdAt: workspace.createdAt,
+				updatedAt: workspace.updatedAt
+			})
+			.returning();
+
+		if (!row) throw new Error('Could not create workspace');
+		return toWorkspaceRecord(row);
+	}
+
+	async updateWorkspace(
+		id: string,
+		patch: Partial<WorkspaceRecord>
+	): Promise<WorkspaceRecord | null> {
+		const [row] = await this.database
+			.update(workspaces)
+			.set(workspacePatchToDb(patch))
+			.where(eq(workspaces.id, id))
+			.returning();
+
+		return row ? toWorkspaceRecord(row) : null;
+	}
+
+	async createWorkspaceMembership(
+		membership: WorkspaceMembershipRecord
+	): Promise<WorkspaceMembershipRecord> {
+		const [row] = await this.database
+			.insert(workspaceMemberships)
+			.values({
+				id: membership.id,
+				workspaceId: membership.workspaceId,
+				userId: membership.userId,
+				role: membership.role,
+				createdAt: membership.createdAt,
+				updatedAt: membership.updatedAt
+			})
+			.returning();
+
+		if (!row) throw new Error('Could not create workspace membership');
+		return toWorkspaceMembershipRecord(row);
+	}
+
+	async listWorkspaceMemberships(workspaceId: string): Promise<WorkspaceMembershipRecord[]> {
+		const rows = await this.database
+			.select()
+			.from(workspaceMemberships)
+			.where(eq(workspaceMemberships.workspaceId, workspaceId));
+
+		return rows.map(toWorkspaceMembershipRecord);
+	}
+
+	async listUserWorkspaceMemberships(userId: string): Promise<WorkspaceMembershipRecord[]> {
+		const rows = await this.database
+			.select()
+			.from(workspaceMemberships)
+			.where(eq(workspaceMemberships.userId, userId));
+
+		return rows.map(toWorkspaceMembershipRecord);
+	}
+
+	async getWorkspaceMembership(
+		workspaceId: string,
+		userId: string
+	): Promise<WorkspaceMembershipRecord | null> {
+		const [row] = await this.database
+			.select()
+			.from(workspaceMemberships)
+			.where(
+				and(
+					eq(workspaceMemberships.workspaceId, workspaceId),
+					eq(workspaceMemberships.userId, userId)
+				)
+			)
+			.limit(1);
+
+		return row ? toWorkspaceMembershipRecord(row) : null;
+	}
+
+	async updateWorkspaceMembership(
+		workspaceId: string,
+		userId: string,
+		patch: Partial<WorkspaceMembershipRecord>
+	): Promise<WorkspaceMembershipRecord | null> {
+		const [row] = await this.database
+			.update(workspaceMemberships)
+			.set(workspaceMembershipPatchToDb(patch))
+			.where(
+				and(
+					eq(workspaceMemberships.workspaceId, workspaceId),
+					eq(workspaceMemberships.userId, userId)
+				)
+			)
+			.returning();
+
+		return row ? toWorkspaceMembershipRecord(row) : null;
+	}
+
+	async deleteWorkspaceMembership(workspaceId: string, userId: string): Promise<boolean> {
+		const rows = await this.database
+			.delete(workspaceMemberships)
+			.where(
+				and(
+					eq(workspaceMemberships.workspaceId, workspaceId),
+					eq(workspaceMemberships.userId, userId)
+				)
+			)
+			.returning({ id: workspaceMemberships.id });
+
+		return rows.length > 0;
+	}
+
 	async listHosts(userId: string): Promise<HostRecord[]> {
-		const rows = await this.database.select().from(hosts).where(eq(hosts.userId, userId));
+		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
+		const scopeFilter =
+			workspaceIds.length > 0
+				? or(
+						and(eq(hosts.userId, userId), isNull(hosts.workspaceId)),
+						inArray(hosts.workspaceId, workspaceIds)
+					)
+				: and(eq(hosts.userId, userId), isNull(hosts.workspaceId));
+		const rows = await this.database.select().from(hosts).where(scopeFilter);
 		return rows.map(toHostRecord);
 	}
 
 	async getHost(userId: string, id: string): Promise<HostRecord | null> {
+		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
+		const scopeFilter =
+			workspaceIds.length > 0
+				? or(
+						and(eq(hosts.userId, userId), isNull(hosts.workspaceId)),
+						inArray(hosts.workspaceId, workspaceIds)
+					)
+				: and(eq(hosts.userId, userId), isNull(hosts.workspaceId));
 		const [row] = await this.database
 			.select()
 			.from(hosts)
-			.where(and(eq(hosts.id, id), eq(hosts.userId, userId)))
+			.where(and(eq(hosts.id, id), scopeFilter))
 			.limit(1);
 
 		return row ? toHostRecord(row) : null;
@@ -86,6 +265,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 			.values({
 				id: host.id,
 				userId: host.userId,
+				workspaceId: host.workspaceId,
 				name: host.name,
 				protocol: host.protocol,
 				hostname: host.hostname,
@@ -110,38 +290,55 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 		id: string,
 		patch: Partial<HostRecord>
 	): Promise<HostRecord | null> {
+		const existing = await this.getHost(userId, id);
+		if (!existing) return null;
 		const [row] = await this.database
 			.update(hosts)
 			.set(hostPatchToDb(patch))
-			.where(and(eq(hosts.id, id), eq(hosts.userId, userId)))
+			.where(eq(hosts.id, id))
 			.returning();
 
 		return row ? toHostRecord(row) : null;
 	}
 
 	async deleteHost(userId: string, id: string): Promise<boolean> {
+		const existing = await this.getHost(userId, id);
+		if (!existing) return false;
 		const rows = await this.database
 			.delete(hosts)
-			.where(and(eq(hosts.id, id), eq(hosts.userId, userId)))
+			.where(eq(hosts.id, id))
 			.returning({ id: hosts.id });
 
 		return rows.length > 0;
 	}
 
 	async listCredentials(userId: string): Promise<CredentialRecord[]> {
-		const rows = await this.database
-			.select()
-			.from(credentials)
-			.where(eq(credentials.userId, userId));
+		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
+		const scopeFilter =
+			workspaceIds.length > 0
+				? or(
+						and(eq(credentials.userId, userId), isNull(credentials.workspaceId)),
+						inArray(credentials.workspaceId, workspaceIds)
+					)
+				: and(eq(credentials.userId, userId), isNull(credentials.workspaceId));
+		const rows = await this.database.select().from(credentials).where(scopeFilter);
 
 		return rows.map(toCredentialRecord);
 	}
 
 	async getCredential(userId: string, id: string): Promise<CredentialRecord | null> {
+		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
+		const scopeFilter =
+			workspaceIds.length > 0
+				? or(
+						and(eq(credentials.userId, userId), isNull(credentials.workspaceId)),
+						inArray(credentials.workspaceId, workspaceIds)
+					)
+				: and(eq(credentials.userId, userId), isNull(credentials.workspaceId));
 		const [row] = await this.database
 			.select()
 			.from(credentials)
-			.where(and(eq(credentials.id, id), eq(credentials.userId, userId)))
+			.where(and(eq(credentials.id, id), scopeFilter))
 			.limit(1);
 
 		return row ? toCredentialRecord(row) : null;
@@ -153,6 +350,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 			.values({
 				id: credential.id,
 				userId: credential.userId,
+				workspaceId: credential.workspaceId,
 				name: credential.name,
 				kind: credential.kind,
 				username: credential.username,
@@ -173,19 +371,23 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 		id: string,
 		patch: Partial<CredentialRecord>
 	): Promise<CredentialRecord | null> {
+		const existing = await this.getCredential(userId, id);
+		if (!existing) return null;
 		const [row] = await this.database
 			.update(credentials)
 			.set(credentialPatchToDb(patch))
-			.where(and(eq(credentials.id, id), eq(credentials.userId, userId)))
+			.where(eq(credentials.id, id))
 			.returning();
 
 		return row ? toCredentialRecord(row) : null;
 	}
 
 	async deleteCredential(userId: string, id: string): Promise<boolean> {
+		const existing = await this.getCredential(userId, id);
+		if (!existing) return false;
 		const rows = await this.database
 			.delete(credentials)
-			.where(and(eq(credentials.id, id), eq(credentials.userId, userId)))
+			.where(eq(credentials.id, id))
 			.returning({ id: credentials.id });
 
 		return rows.length > 0;
@@ -239,6 +441,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 			.values({
 				id: session.id,
 				userId: session.userId,
+				workspaceId: session.workspaceId,
 				hostId: session.hostId,
 				protocol: session.protocol,
 				status: session.status,
@@ -274,6 +477,40 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 			.returning();
 
 		return row ? toConnectionSessionRecord(row) : null;
+	}
+
+	async listConnectionHistory(
+		userId: string,
+		filters: ConnectionHistoryFilters = {}
+	): Promise<ConnectionHistoryRecord[]> {
+		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
+		const scopeFilter =
+			workspaceIds.length > 0
+				? or(
+						and(eq(connectionSessions.userId, userId), isNull(connectionSessions.workspaceId)),
+						inArray(connectionSessions.workspaceId, workspaceIds)
+					)
+				: and(eq(connectionSessions.userId, userId), isNull(connectionSessions.workspaceId));
+		const rows = await this.database.select().from(connectionSessions).where(scopeFilter);
+		const filteredRows = rows.filter((row) => matchesConnectionHistoryFilters(row, filters));
+		const hostMap = await this.getHostMap(
+			filteredRows.flatMap((row) => (row.hostId ? [row.hostId] : []))
+		);
+		const workspaceMap = await this.getWorkspaceMap(
+			filteredRows.flatMap((row) => (row.workspaceId ? [row.workspaceId] : []))
+		);
+		const userMap = await this.getUserMap(filteredRows.map((row) => row.userId));
+
+		return filteredRows
+			.map((row) =>
+				toConnectionHistoryRecord(
+					row,
+					row.hostId ? (hostMap.get(row.hostId) ?? null) : null,
+					row.workspaceId ? (workspaceMap.get(row.workspaceId) ?? null) : null,
+					userMap.get(row.userId) ?? null
+				)
+			)
+			.sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime());
 	}
 
 	async listSshLiveSessions(userId: string): Promise<SshLiveSessionRecord[]> {
@@ -432,9 +669,40 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 
 		return row ? toSshAttachTicketRecord(row as unknown as SshAttachTicketRow) : null;
 	}
+
+	private async getAccessibleWorkspaceIds(userId: string): Promise<string[]> {
+		const memberships = await this.listUserWorkspaceMemberships(userId);
+		return memberships.map((membership) => membership.workspaceId);
+	}
+
+	private async getHostMap(hostIds: string[]): Promise<Map<string, HostRow>> {
+		const uniqueIds = [...new Set(hostIds)];
+		if (uniqueIds.length === 0) return new Map();
+		const rows = await this.database.select().from(hosts).where(inArray(hosts.id, uniqueIds));
+		return new Map(rows.map((row) => [row.id, row]));
+	}
+
+	private async getWorkspaceMap(workspaceIds: string[]): Promise<Map<string, WorkspaceRow>> {
+		const uniqueIds = [...new Set(workspaceIds)];
+		if (uniqueIds.length === 0) return new Map();
+		const rows = await this.database
+			.select()
+			.from(workspaces)
+			.where(inArray(workspaces.id, uniqueIds));
+		return new Map(rows.map((row) => [row.id, row]));
+	}
+
+	private async getUserMap(userIds: string[]): Promise<Map<string, UserRow>> {
+		const uniqueIds = [...new Set(userIds)];
+		if (uniqueIds.length === 0) return new Map();
+		const rows = await this.database.select().from(users).where(inArray(users.id, uniqueIds));
+		return new Map(rows.map((row) => [row.id, row]));
+	}
 }
 
 export class InMemoryTermixServicesRepository implements TermixServicesRepository {
+	private readonly workspaces = new Map<string, WorkspaceRecord>();
+	private readonly workspaceMemberships = new Map<string, WorkspaceMembershipRecord>();
 	private readonly hosts = new Map<string, HostRecord>();
 	private readonly credentials = new Map<string, CredentialRecord>();
 	private readonly tickets = new Map<string, SessionTicketRecord>();
@@ -442,13 +710,99 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	private readonly sshLiveSessions = new Map<string, SshLiveSessionRecord>();
 	private readonly sshAttachTickets = new Map<string, SshAttachTicketRecord>();
 
+	async listWorkspaces(userId: string): Promise<WorkspaceRecord[]> {
+		const workspaceIds = await this.accessibleWorkspaceIds(userId);
+		return workspaceIds
+			.map((workspaceId) => this.workspaces.get(workspaceId))
+			.filter((workspace): workspace is WorkspaceRecord => Boolean(workspace));
+	}
+
+	async getWorkspace(userId: string, id: string): Promise<WorkspaceRecord | null> {
+		const membership = await this.getWorkspaceMembership(id, userId);
+		return membership ? (this.workspaces.get(id) ?? null) : null;
+	}
+
+	async getWorkspaceById(id: string): Promise<WorkspaceRecord | null> {
+		return this.workspaces.get(id) ?? null;
+	}
+
+	async createWorkspace(workspace: WorkspaceRecord): Promise<WorkspaceRecord> {
+		this.workspaces.set(workspace.id, workspace);
+		return workspace;
+	}
+
+	async updateWorkspace(
+		id: string,
+		patch: Partial<WorkspaceRecord>
+	): Promise<WorkspaceRecord | null> {
+		const workspace = this.workspaces.get(id);
+		if (!workspace) return null;
+		const updated = { ...workspace, ...patch, id };
+		this.workspaces.set(id, updated);
+		return updated;
+	}
+
+	async createWorkspaceMembership(
+		membership: WorkspaceMembershipRecord
+	): Promise<WorkspaceMembershipRecord> {
+		this.workspaceMemberships.set(
+			workspaceMembershipKey(membership.workspaceId, membership.userId),
+			membership
+		);
+		return membership;
+	}
+
+	async listWorkspaceMemberships(workspaceId: string): Promise<WorkspaceMembershipRecord[]> {
+		return [...this.workspaceMemberships.values()].filter(
+			(membership) => membership.workspaceId === workspaceId
+		);
+	}
+
+	async listUserWorkspaceMemberships(userId: string): Promise<WorkspaceMembershipRecord[]> {
+		return [...this.workspaceMemberships.values()].filter(
+			(membership) => membership.userId === userId
+		);
+	}
+
+	async getWorkspaceMembership(
+		workspaceId: string,
+		userId: string
+	): Promise<WorkspaceMembershipRecord | null> {
+		return this.workspaceMemberships.get(workspaceMembershipKey(workspaceId, userId)) ?? null;
+	}
+
+	async updateWorkspaceMembership(
+		workspaceId: string,
+		userId: string,
+		patch: Partial<WorkspaceMembershipRecord>
+	): Promise<WorkspaceMembershipRecord | null> {
+		const membership = await this.getWorkspaceMembership(workspaceId, userId);
+		if (!membership) return null;
+
+		const updated = { ...membership, ...patch, workspaceId, userId };
+		this.workspaceMemberships.set(workspaceMembershipKey(workspaceId, userId), updated);
+		return updated;
+	}
+
+	async deleteWorkspaceMembership(workspaceId: string, userId: string): Promise<boolean> {
+		return this.workspaceMemberships.delete(workspaceMembershipKey(workspaceId, userId));
+	}
+
 	async listHosts(userId: string): Promise<HostRecord[]> {
-		return [...this.hosts.values()].filter((host) => host.userId === userId);
+		const workspaceIds = await this.accessibleWorkspaceIds(userId);
+		return [...this.hosts.values()].filter(
+			(host) =>
+				(host.userId === userId && host.workspaceId === null) ||
+				(host.workspaceId !== null && workspaceIds.includes(host.workspaceId))
+		);
 	}
 
 	async getHost(userId: string, id: string): Promise<HostRecord | null> {
 		const host = this.hosts.get(id);
-		return host?.userId === userId ? host : null;
+		if (!host) return null;
+		if (host.userId === userId && host.workspaceId === null) return host;
+		if (host.workspaceId && (await this.isWorkspaceMember(userId, host.workspaceId))) return host;
+		return null;
 	}
 
 	async createHost(host: HostRecord): Promise<HostRecord> {
@@ -476,12 +830,22 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	}
 
 	async listCredentials(userId: string): Promise<CredentialRecord[]> {
-		return [...this.credentials.values()].filter((credential) => credential.userId === userId);
+		const workspaceIds = await this.accessibleWorkspaceIds(userId);
+		return [...this.credentials.values()].filter(
+			(credential) =>
+				(credential.userId === userId && credential.workspaceId === null) ||
+				(credential.workspaceId !== null && workspaceIds.includes(credential.workspaceId))
+		);
 	}
 
 	async getCredential(userId: string, id: string): Promise<CredentialRecord | null> {
 		const credential = this.credentials.get(id);
-		return credential?.userId === userId ? credential : null;
+		if (!credential) return null;
+		if (credential.userId === userId && credential.workspaceId === null) return credential;
+		if (credential.workspaceId && (await this.isWorkspaceMember(userId, credential.workspaceId))) {
+			return credential;
+		}
+		return null;
 	}
 
 	async createCredential(credential: CredentialRecord): Promise<CredentialRecord> {
@@ -547,6 +911,29 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 
 	async getConnectionSession(id: string): Promise<ConnectionSessionRecord | null> {
 		return this.connectionSessions.get(id) ?? null;
+	}
+
+	async listConnectionHistory(
+		userId: string,
+		filters: ConnectionHistoryFilters = {}
+	): Promise<ConnectionHistoryRecord[]> {
+		const workspaceIds = await this.accessibleWorkspaceIds(userId);
+		return [...this.connectionSessions.values()]
+			.filter(
+				(session) =>
+					(session.userId === userId && session.workspaceId === null) ||
+					(session.workspaceId !== null && workspaceIds.includes(session.workspaceId))
+			)
+			.filter((session) => matchesConnectionHistoryFilters(session, filters))
+			.map((session) =>
+				toConnectionHistoryRecord(
+					session,
+					session.hostId ? (this.hosts.get(session.hostId) ?? null) : null,
+					session.workspaceId ? (this.workspaces.get(session.workspaceId) ?? null) : null,
+					null
+				)
+			)
+			.sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime());
 	}
 
 	async listSshLiveSessions(userId: string): Promise<SshLiveSessionRecord[]> {
@@ -658,12 +1045,23 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 		this.sshAttachTickets.set(ticketHash, consumed);
 		return consumed;
 	}
+
+	private async accessibleWorkspaceIds(userId: string): Promise<string[]> {
+		return (await this.listUserWorkspaceMemberships(userId)).map(
+			(membership) => membership.workspaceId
+		);
+	}
+
+	private async isWorkspaceMember(userId: string, workspaceId: string): Promise<boolean> {
+		return Boolean(await this.getWorkspaceMembership(workspaceId, userId));
+	}
 }
 
 function toHostRecord(row: HostRow): HostRecord {
 	return {
 		id: row.id,
 		userId: row.userId,
+		workspaceId: row.workspaceId,
 		name: row.name,
 		protocol: row.protocol,
 		hostname: row.hostname,
@@ -683,6 +1081,7 @@ function toCredentialRecord(row: CredentialRow): CredentialRecord {
 	return {
 		id: row.id,
 		userId: row.userId,
+		workspaceId: row.workspaceId,
 		name: row.name,
 		kind: row.kind,
 		username: row.username,
@@ -712,6 +1111,7 @@ function toConnectionSessionRecord(row: ConnectionSessionRow): ConnectionSession
 	return {
 		id: row.id,
 		userId: row.userId,
+		workspaceId: row.workspaceId,
 		hostId: row.hostId,
 		protocol: row.protocol,
 		status: row.status,
@@ -719,6 +1119,52 @@ function toConnectionSessionRecord(row: ConnectionSessionRow): ConnectionSession
 		endedAt: row.endedAt,
 		errorCode: row.errorCode,
 		updatedAt: row.updatedAt
+	};
+}
+
+function toWorkspaceRecord(row: WorkspaceRow): WorkspaceRecord {
+	return {
+		id: row.id,
+		name: row.name,
+		metadata: row.metadata ?? {},
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
+	};
+}
+
+function toWorkspaceMembershipRecord(row: WorkspaceMembershipRow): WorkspaceMembershipRecord {
+	return {
+		id: row.id,
+		workspaceId: row.workspaceId,
+		userId: row.userId,
+		role: row.role,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
+	};
+}
+
+function toConnectionHistoryRecord(
+	session: ConnectionSessionRecord | ConnectionSessionRow,
+	host: HostRecord | HostRow | null,
+	workspace: WorkspaceRecord | WorkspaceRow | null,
+	user: Pick<UserRow, 'username'> | null
+): ConnectionHistoryRecord {
+	return {
+		id: session.id,
+		userId: session.userId,
+		username: user?.username ?? null,
+		workspaceId: session.workspaceId,
+		workspaceName: workspace?.name ?? null,
+		hostId: session.hostId,
+		hostName: host?.name ?? null,
+		hostname: host?.hostname ?? null,
+		hostUsername: host?.username ?? null,
+		protocol: session.protocol,
+		startedAt: session.startedAt,
+		endedAt: session.endedAt,
+		durationMs: session.endedAt ? session.endedAt.getTime() - session.startedAt.getTime() : null,
+		status: session.status,
+		errorReason: session.errorCode
 	};
 }
 
@@ -755,6 +1201,7 @@ function toSshAttachTicketRecord(row: SshAttachTicketRow): SshAttachTicketRecord
 
 function hostPatchToDb(patch: Partial<HostRecord>): Partial<typeof hosts.$inferInsert> {
 	return {
+		workspaceId: patch.workspaceId,
 		name: patch.name,
 		protocol: patch.protocol,
 		hostname: patch.hostname,
@@ -773,6 +1220,7 @@ function credentialPatchToDb(
 	patch: Partial<CredentialRecord>
 ): Partial<typeof credentials.$inferInsert> {
 	return {
+		workspaceId: patch.workspaceId,
 		name: patch.name,
 		kind: patch.kind,
 		username: patch.username,
@@ -792,6 +1240,44 @@ function connectionSessionPatchToDb(
 		errorCode: patch.errorCode,
 		updatedAt: patch.updatedAt
 	};
+}
+
+function workspaceMembershipPatchToDb(
+	patch: Partial<WorkspaceMembershipRecord>
+): Partial<typeof workspaceMemberships.$inferInsert> {
+	return {
+		role: patch.role,
+		updatedAt: patch.updatedAt
+	};
+}
+
+function workspacePatchToDb(
+	patch: Partial<WorkspaceRecord>
+): Partial<typeof workspaces.$inferInsert> {
+	return {
+		name: patch.name,
+		metadata: patch.metadata,
+		updatedAt: patch.updatedAt
+	};
+}
+
+function matchesConnectionHistoryFilters(
+	session: ConnectionSessionRecord | ConnectionSessionRow,
+	filters: ConnectionHistoryFilters
+): boolean {
+	if (filters.workspaceId !== undefined && session.workspaceId !== filters.workspaceId)
+		return false;
+	if (filters.hostId !== undefined && session.hostId !== filters.hostId) return false;
+	if (filters.userId !== undefined && session.userId !== filters.userId) return false;
+	if (filters.protocol && session.protocol !== filters.protocol) return false;
+	if (filters.status && session.status !== filters.status) return false;
+	if (filters.startedAfter && session.startedAt < filters.startedAfter) return false;
+	if (filters.startedBefore && session.startedAt > filters.startedBefore) return false;
+	return true;
+}
+
+function workspaceMembershipKey(workspaceId: string, userId: string): string {
+	return `${workspaceId}:${userId}`;
 }
 
 function toSshLiveSessionInsert(session: SshLiveSessionRecord): Record<string, unknown> {

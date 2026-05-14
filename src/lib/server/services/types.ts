@@ -6,6 +6,9 @@ export type HostProtocol = (typeof protocols)[number];
 export const credentialKinds = ['password', 'ssh_key'] as const;
 export type CredentialKind = (typeof credentialKinds)[number];
 
+export const workspaceMemberRoles = ['owner', 'member'] as const;
+export type WorkspaceMemberRole = (typeof workspaceMemberRoles)[number];
+
 export const connectionSessionStatuses = ['starting', 'active', 'ended', 'failed'] as const;
 export type ConnectionSessionStatus = (typeof connectionSessionStatuses)[number];
 
@@ -22,6 +25,7 @@ export type SshLiveSessionStatus = (typeof sshLiveSessionStatuses)[number];
 export interface HostRecord {
 	id: string;
 	userId: string;
+	workspaceId: string | null;
 	name: string;
 	protocol: HostProtocol;
 	hostname: string;
@@ -39,6 +43,7 @@ export interface HostRecord {
 export interface CredentialRecord {
 	id: string;
 	userId: string;
+	workspaceId: string | null;
 	name: string;
 	kind: CredentialKind;
 	username: string | null;
@@ -64,6 +69,7 @@ export interface SessionTicketRecord {
 export interface ConnectionSessionRecord {
 	id: string;
 	userId: string;
+	workspaceId: string | null;
 	hostId: string | null;
 	protocol: HostProtocol;
 	status: ConnectionSessionStatus;
@@ -71,6 +77,51 @@ export interface ConnectionSessionRecord {
 	endedAt: Date | null;
 	errorCode: string | null;
 	updatedAt: Date;
+}
+
+export interface WorkspaceRecord {
+	id: string;
+	name: string;
+	metadata: Record<string, unknown>;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface WorkspaceMembershipRecord {
+	id: string;
+	workspaceId: string;
+	userId: string;
+	role: WorkspaceMemberRole;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface ConnectionHistoryRecord {
+	id: string;
+	userId: string;
+	username: string | null;
+	workspaceId: string | null;
+	workspaceName: string | null;
+	hostId: string | null;
+	hostName: string | null;
+	hostname: string | null;
+	hostUsername: string | null;
+	protocol: HostProtocol;
+	startedAt: Date;
+	endedAt: Date | null;
+	durationMs: number | null;
+	status: ConnectionSessionStatus;
+	errorReason: string | null;
+}
+
+export interface ConnectionHistoryFilters {
+	workspaceId?: string | null;
+	hostId?: string | null;
+	userId?: string | null;
+	protocol?: HostProtocol | null;
+	status?: ConnectionSessionStatus | null;
+	startedAfter?: Date | null;
+	startedBefore?: Date | null;
 }
 
 export interface SshLiveSessionRecord {
@@ -161,6 +212,29 @@ export interface CredentialRepository {
 	deleteCredential(userId: string, id: string): Promise<boolean>;
 }
 
+export interface WorkspaceRepository {
+	listWorkspaces(userId: string): Promise<WorkspaceRecord[]>;
+	getWorkspace(userId: string, id: string): Promise<WorkspaceRecord | null>;
+	getWorkspaceById(id: string): Promise<WorkspaceRecord | null>;
+	createWorkspace(workspace: WorkspaceRecord): Promise<WorkspaceRecord>;
+	updateWorkspace(id: string, patch: Partial<WorkspaceRecord>): Promise<WorkspaceRecord | null>;
+	createWorkspaceMembership(
+		membership: WorkspaceMembershipRecord
+	): Promise<WorkspaceMembershipRecord>;
+	listWorkspaceMemberships(workspaceId: string): Promise<WorkspaceMembershipRecord[]>;
+	listUserWorkspaceMemberships(userId: string): Promise<WorkspaceMembershipRecord[]>;
+	getWorkspaceMembership(
+		workspaceId: string,
+		userId: string
+	): Promise<WorkspaceMembershipRecord | null>;
+	updateWorkspaceMembership(
+		workspaceId: string,
+		userId: string,
+		patch: Partial<WorkspaceMembershipRecord>
+	): Promise<WorkspaceMembershipRecord | null>;
+	deleteWorkspaceMembership(workspaceId: string, userId: string): Promise<boolean>;
+}
+
 export interface SessionTicketRepository {
 	createTicket(ticket: SessionTicketRecord): Promise<SessionTicketRecord>;
 	getTicketByHash(ticketHash: string): Promise<SessionTicketRecord | null>;
@@ -174,6 +248,10 @@ export interface ConnectionSessionRepository {
 		id: string,
 		patch: ConnectionSessionPatch
 	): Promise<ConnectionSessionRecord | null>;
+	listConnectionHistory(
+		userId: string,
+		filters?: ConnectionHistoryFilters
+	): Promise<ConnectionHistoryRecord[]>;
 }
 
 export interface SshLiveSessionRepository {
@@ -201,6 +279,7 @@ export interface TermixServicesRepository
 	extends
 		HostRepository,
 		CredentialRepository,
+		WorkspaceRepository,
 		SessionTicketRepository,
 		ConnectionSessionRepository,
 		SshLiveSessionRepository {}

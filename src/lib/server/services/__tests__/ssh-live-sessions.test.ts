@@ -69,6 +69,7 @@ describe('SshLiveSessionService', () => {
 		const sshHostWithMissingCredential = await repository.createHost({
 			id: 'host-with-missing-credential',
 			userId: 'user-1',
+			workspaceId: null,
 			name: 'Broken shell',
 			protocol: 'ssh',
 			hostname: 'shell.example.test',

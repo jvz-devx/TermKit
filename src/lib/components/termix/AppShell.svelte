@@ -15,8 +15,10 @@
 	const titles: Record<string, string> = {
 		'/hosts': 'Hosts',
 		'/sessions': 'Sessions',
+		'/history': 'History',
 		'/credentials': 'Credentials',
 		'/import': 'Import',
+		'/admin': 'Admin',
 		'/settings': 'Settings'
 	};
 
@@ -42,7 +44,7 @@
 </script>
 
 <Sidebar.Provider>
-	<AppSidebar user={sidebarUser(user ?? null)} />
+	<AppSidebar user={sidebarUser(user ?? null)} isAdmin={user?.isAdmin ?? false} />
 	<Sidebar.Inset>
 		<header
 			class="flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12"

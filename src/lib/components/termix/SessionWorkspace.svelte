@@ -7,7 +7,9 @@
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import {
 		Database,
+		History,
 		Maximize2,
+		Minimize2,
 		Monitor,
 		Network,
 		Power,
@@ -15,6 +17,7 @@
 		Server,
 		Terminal
 	} from '@lucide/svelte';
+	import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { getAppSettings, type BasicAppSettings } from '$lib/settings.remote';
@@ -51,6 +54,13 @@
 		ticketTtlSeconds: 60,
 		terminalFontSize: 13,
 		clipboardSync: true,
+		rdpClipboard: {
+			text: true,
+			files: false,
+			clientToRemote: true,
+			remoteToClient: true,
+			fileTransferSizeLimitMiB: 16
+		},
 		rememberLastActiveTab: true
 	};
 	const lastProtocolStoragePrefix = 'termixkit:last-protocol:';
@@ -71,6 +81,7 @@
 	let liveSshError = $state<string | null>(null);
 	let dismissedLiveSshSessionIds = $state<string[]>([]);
 	let workspaceElement = $state<HTMLElement | null>(null);
+	let isFullscreen = $state(false);
 	let hosts = $derived(hostsQuery.current ?? []);
 	let liveSshSessions = $derived.by(() =>
 		(liveSshSessionsQuery.current ?? []).filter(
@@ -136,13 +147,37 @@
 		selectedHost ? sessionPauseKey(selectedHost.id, activeProtocol) : null
 	);
 	let sessionPaused = $derived(Boolean(activePauseKey && pausedSessionKey === activePauseKey));
+	let detachedSshCount = $derived(
+		selectedHostLiveSshSessions.filter((session) => session.status === 'detached').length
+	);
+	let workspaceStatus = $derived.by(() => {
+		if (!selectedHost) return 'No host';
+		if (liveSshError) return 'Failure';
+		if (sessionPaused) return 'Closed';
+		if (activeProtocol === 'ssh' && liveSshAttach) return 'Attached';
+		if (activeProtocol === 'ssh' && detachedSshCount) return `${detachedSshCount} detached`;
+		return 'Ready';
+	});
+	let workspaceStatusVariant = $derived.by<BadgeVariant>(() => {
+		if (liveSshError) return 'destructive';
+		if (sessionPaused) return 'outline';
+		if (activeProtocol === 'ssh' && liveSshAttach) return 'secondary';
+		return 'outline';
+	});
+	let FullscreenIcon = $derived(isFullscreen ? Minimize2 : Maximize2);
 
 	onMount(() => {
 		const refreshTimer = window.setInterval(
 			() => void listLiveSshSessions().refresh(),
 			liveSshRefreshIntervalMs
 		);
-		return () => window.clearInterval(refreshTimer);
+		document.addEventListener('fullscreenchange', syncFullscreenState);
+		syncFullscreenState();
+
+		return () => {
+			window.clearInterval(refreshTimer);
+			document.removeEventListener('fullscreenchange', syncFullscreenState);
+		};
 	});
 
 	async function getSessionLaunch(hostId: string, protocol: WorkspaceProtocol) {
@@ -186,13 +221,21 @@
 		try {
 			if (document.fullscreenElement) {
 				await document.exitFullscreen();
+				syncFullscreenState();
 				return;
 			}
 
 			await workspaceElement.requestFullscreen();
+			syncFullscreenState();
 		} catch {
 			// Fullscreen can be denied by browser policy; keep the workspace usable.
 		}
+	}
+
+	function syncFullscreenState() {
+		isFullscreen = Boolean(
+			browser && workspaceElement && document.fullscreenElement === workspaceElement
+		);
 	}
 
 	function setLauncherProtocol(protocol: LauncherProtocolFilter) {
@@ -412,11 +455,19 @@
 	}
 </script>
 
-<section bind:this={workspaceElement} class="flex h-[calc(100dvh-3.5rem)] min-h-0 flex-col">
-	<div class="flex items-center justify-between border-b px-4 py-2">
-		<div>
-			<h1 class="text-sm font-semibold">{selectedHost?.name ?? 'Sessions'}</h1>
-			<p class="font-mono text-xs text-muted-foreground">
+<section
+	bind:this={workspaceElement}
+	class="flex h-[calc(100dvh-3.5rem)] min-h-0 flex-col overflow-hidden bg-background"
+>
+	<div
+		class="flex flex-col gap-2 border-b px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4"
+	>
+		<div class="min-w-0">
+			<div class="flex min-w-0 items-center gap-2">
+				<h1 class="truncate text-sm font-semibold">{selectedHost?.name ?? 'Sessions'}</h1>
+				<Badge variant={workspaceStatusVariant}>{workspaceStatus}</Badge>
+			</div>
+			<p class="truncate font-mono text-xs text-muted-foreground">
 				{#if selectedHost}
 					{selectedHost.username
 						? `${selectedHost.username}@`
@@ -427,7 +478,11 @@
 				{/if}
 			</p>
 		</div>
-		<div class="flex gap-1">
+		<div class="flex flex-wrap gap-1">
+			<Button href={resolve('/history' as '/')} size="sm" variant="outline" class="gap-2">
+				<History class="size-4" />
+				History
+			</Button>
 			{#if selectedHost}
 				<Button size="sm" variant="outline" class="gap-2" onclick={returnToLauncher}>
 					<Server class="size-4" />
@@ -440,24 +495,27 @@
 				aria-label="Reconnect"
 				disabled={!selectedHost || activeProtocol === 'sftp'}
 				onclick={reconnect}
+				title="Reconnect session"
 			>
 				<RotateCcw class="size-4" />
 			</Button>
 			<Button
 				size="icon"
 				variant="ghost"
-				aria-label="Fullscreen"
+				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 				disabled={!browser}
 				onclick={toggleFullscreen}
+				title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 			>
-				<Maximize2 class="size-4" />
+				<FullscreenIcon class="size-4" />
 			</Button>
 			<Button
 				size="icon"
 				variant="ghost"
-				aria-label="Disconnect"
+				aria-label="Close session"
 				disabled={!selectedHost || activeProtocol === 'sftp'}
 				onclick={disconnect}
+				title="Close current session"
 			>
 				<Power class="size-4" />
 			</Button>
@@ -595,6 +653,7 @@
 						error="Disconnected. Reconnect to create a new session."
 						onReconnect={reconnect}
 						clipboardSync={appSettings.clipboardSync}
+						clipboardPolicy={appSettings.rdpClipboard}
 					/>
 				{:else if browser && activeProtocol === 'rdp'}
 					{#key `rdp:${selectedHost.id}:${reconnectNonce}`}
@@ -602,6 +661,7 @@
 							hostId={selectedHost.id}
 							onReconnect={reconnect}
 							clipboardSync={appSettings.clipboardSync}
+							clipboardPolicy={appSettings.rdpClipboard}
 						/>
 					{/key}
 				{/if}

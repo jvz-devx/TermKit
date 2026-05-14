@@ -41,6 +41,7 @@ describe('SessionTicketConsumer', () => {
 		await repository.createCredential({
 			id: 'credential-1',
 			userId: 'user-1',
+			workspaceId: null,
 			name: 'Shell password',
 			kind: 'password',
 			username: 'credential-user',
@@ -80,6 +81,7 @@ describe('SessionTicketConsumer', () => {
 		await repository.createCredential({
 			id: 'credential-1',
 			userId: 'user-1',
+			workspaceId: null,
 			name: 'RDP password',
 			kind: 'password',
 			username: 'credential-user',

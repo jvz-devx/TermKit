@@ -80,7 +80,7 @@ export async function resolveSftpTarget(
 		host: host.hostname,
 		port: host.port,
 		username,
-		credential: credential ? decryptCredential(userId, credential, crypto) : undefined
+		credential: credential ? decryptCredential(credential, crypto) : undefined
 	};
 }
 
@@ -308,17 +308,13 @@ function toEntry(directory: string, entry: FileEntryWithStats): SftpEntry {
 	};
 }
 
-function decryptCredential(
-	userId: string,
-	credential: CredentialRecord,
-	crypto: CredentialCrypto
-): Credential {
+function decryptCredential(credential: CredentialRecord, crypto: CredentialCrypto): Credential {
 	const secret = crypto.decrypt(
 		{
 			ciphertext: credential.encryptedSecret,
 			metadata: credential.encryption
 		},
-		credentialSecretContext(userId, credential.id)
+		credentialSecretContext(credential.userId, credential.id)
 	);
 
 	if (credential.kind === 'password') {
@@ -333,12 +329,11 @@ function decryptCredential(
 		kind: 'ssh_key',
 		username: credential.username ?? undefined,
 		privateKey: secret,
-		passphrase: decryptPassphrase(userId, credential, crypto)
+		passphrase: decryptPassphrase(credential, crypto)
 	};
 }
 
 function decryptPassphrase(
-	userId: string,
 	credential: CredentialRecord,
 	crypto: CredentialCrypto
 ): string | undefined {
@@ -349,7 +344,7 @@ function decryptPassphrase(
 				ciphertext: encrypted.ciphertext,
 				metadata: encrypted.encryption
 			},
-			credentialPassphraseContext(userId, credential.id)
+			credentialPassphraseContext(credential.userId, credential.id)
 		);
 	}
 

@@ -1,12 +1,23 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { AlertTriangle, KeyRound, Monitor, RotateCw, ShieldCheck, Unplug } from '@lucide/svelte';
+	import {
+		AlertTriangle,
+		Clipboard,
+		FileDown,
+		FileUp,
+		KeyRound,
+		Monitor,
+		RotateCw,
+		ShieldCheck,
+		Unplug
+	} from '@lucide/svelte';
 	import type { UserInteraction } from '@devolutions/iron-remote-desktop';
 	import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import StatePanel from '../StatePanel.svelte';
+	import type { RdpClipboardPolicy } from '$lib/settings.remote';
 	import { recordRdpSessionLifecycle, type SessionLaunch } from '$lib/termix.remote';
 
 	type RdpBackendModule = typeof import('@devolutions/iron-remote-desktop-rdp');
@@ -19,24 +30,46 @@
 		| 'disconnected';
 	type IronReadyDetail = { irgUserInteraction?: UserInteraction };
 	type RdpDesktopSize = { width: number; height: number };
+	type RdpClipboardData = {
+		addBinary(mimeType: string, binary: Uint8Array): void;
+		addText(mimeType: string, text: string): void;
+		free?(): void;
+	};
+	type RdpSessionClipboardBridge = {
+		onClipboardPaste(content: RdpClipboardData): Promise<void>;
+	};
+	type TermixRdpGlobal = typeof globalThis & {
+		__termixRdpClipboardCapture?: (session: RdpSessionClipboardBridge) => void;
+		__termixRdpSessionCaptureInstalled?: boolean;
+	};
+	type FileTransferState = 'idle' | 'copying' | 'saving' | 'complete' | 'failed';
 
 	const minDesktopWidth = 2;
 	const minDesktopHeight = 1;
 	const maxDesktopWidth = 7680;
 	const maxDesktopHeight = 4320;
+	const defaultRdpClipboardPolicy: RdpClipboardPolicy = {
+		text: true,
+		files: false,
+		clientToRemote: true,
+		remoteToClient: true,
+		fileTransferSizeLimitMiB: 16
+	};
 
 	let {
 		launch,
 		error,
 		onReconnect,
 		onSavedPasswordStaged,
-		clipboardSync = true
+		clipboardSync = true,
+		clipboardPolicy
 	}: {
 		launch: SessionLaunch | null;
 		error: string | null;
 		onReconnect: () => void;
 		onSavedPasswordStaged?: () => void;
 		clipboardSync?: boolean;
+		clipboardPolicy?: RdpClipboardPolicy;
 	} = $props();
 
 	let bootstrap = $derived(launch?.rdp ?? null);
@@ -50,6 +83,10 @@
 	let stagedSavedPassword = $state<string | null>(null);
 	let savedPasswordCleared = $state(false);
 	let viewportElement = $state<HTMLDivElement | null>(null);
+	let fileInputElement = $state<HTMLInputElement | null>(null);
+	let activeClipboardSession = $state<RdpSessionClipboardBridge | null>(null);
+	let fileTransferState = $state<FileTransferState>('idle');
+	let fileTransferDetail = $state('No file clipboard transfer has run in this session.');
 	let resizeObserver: ResizeObserver | null = null;
 	let resizeFrame: number | null = null;
 	let lastDesktopSize: RdpDesktopSize | null = null;
@@ -79,6 +116,23 @@
 				: 'outline'
 	);
 	let rdpCredentials = $derived(launch?.rdpCredentials ?? null);
+	let effectiveClipboardPolicy = $derived(normalizeClipboardPolicy(clipboardPolicy, clipboardSync));
+	let automaticClipboardEnabled = $derived(canEnableAutomaticClipboard(effectiveClipboardPolicy));
+	let clipboardStatusLabel = $derived(
+		automaticClipboardEnabled
+			? 'Clipboard on'
+			: effectiveClipboardPolicy.text || effectiveClipboardPolicy.files
+				? 'Clipboard restricted'
+				: 'Clipboard off'
+	);
+	let clipboardStatusVariant: BadgeVariant = $derived(
+		automaticClipboardEnabled
+			? 'secondary'
+			: effectiveClipboardPolicy.text || effectiveClipboardPolicy.files
+				? 'outline'
+				: 'destructive'
+	);
+	let clipboardPolicyDetail = $derived(formatClipboardPolicyDetail(effectiveClipboardPolicy));
 	let savedPasswordAvailable = $derived(
 		rdpCredentials?.source === 'saved-password' &&
 			Boolean(stagedSavedPassword) &&
@@ -108,6 +162,28 @@
 			connectionState !== 'connected'
 		)
 	);
+	let fileTransferBusy = $derived(
+		fileTransferState === 'copying' || fileTransferState === 'saving'
+	);
+	let canCopyFileToRemote = $derived(
+		Boolean(
+			effectiveClipboardPolicy.files &&
+			effectiveClipboardPolicy.clientToRemote &&
+			connectionState === 'connected' &&
+			rdpModule &&
+			activeClipboardSession &&
+			!fileTransferBusy
+		)
+	);
+	let canSaveRemoteClipboard = $derived(
+		Boolean(
+			effectiveClipboardPolicy.files &&
+			effectiveClipboardPolicy.remoteToClient &&
+			connectionState === 'connected' &&
+			api &&
+			!fileTransferBusy
+		)
+	);
 
 	onMount(() => {
 		disposed = false;
@@ -128,6 +204,7 @@
 			disposed = true;
 			stopResizeObserver();
 			finalizeRdpLifecycleOnDispose();
+			activeClipboardSession = null;
 			api?.shutdown();
 		};
 	});
@@ -141,6 +218,10 @@
 			await backend.init('INFO');
 			if (disposed) return;
 
+			(globalThis as TermixRdpGlobal).__termixRdpClipboardCapture = (session) => {
+				if (!disposed) activeClipboardSession = session;
+			};
+			installSessionCapture(backend);
 			rdpModule = backend;
 			webComponentReady = true;
 			detail = 'Waiting for IronRDP client readiness.';
@@ -161,7 +242,7 @@
 		}
 
 		api = userInteraction;
-		api.setEnableAutoClipboard(clipboardSync);
+		api.setEnableAutoClipboard(automaticClipboardEnabled);
 		api.setVisibility(true);
 		connectionState = 'ready';
 		detail = targetCredentialState;
@@ -204,12 +285,14 @@
 				.run()
 				.then((termination) => {
 					if (disposed) return;
+					activeClipboardSession = null;
 					connectionState = 'disconnected';
 					detail = `RDP session ended: ${termination.reason()}`;
 					void recordRdpLifecycle('ended');
 				})
 				.catch((caught: unknown) => {
 					if (disposed) return;
+					activeClipboardSession = null;
 					connectionState = 'error';
 					detail = `RDP session failed: ${errorMessage(caught)}`;
 					void recordRdpLifecycle('failed', rdpClientErrorCode(caught));
@@ -220,6 +303,28 @@
 			detail = `Could not connect RDP session: ${errorMessage(caught)}`;
 			void recordRdpLifecycle('failed', rdpClientErrorCode(caught));
 		}
+	}
+
+	function installSessionCapture(backend: RdpBackendModule) {
+		const termixGlobal = globalThis as TermixRdpGlobal;
+		if (termixGlobal.__termixRdpSessionCaptureInstalled) return;
+
+		const sessionBuilder = backend.Backend.SessionBuilder as unknown as {
+			prototype?: {
+				connect?: (...args: unknown[]) => Promise<RdpSessionClipboardBridge>;
+			};
+		};
+		const prototype = sessionBuilder.prototype;
+		const originalConnect = prototype?.connect;
+		if (!prototype || !originalConnect) return;
+
+		const wrappedConnect = async function (this: unknown, ...args: unknown[]) {
+			const session = await originalConnect.apply(this, args);
+			(globalThis as TermixRdpGlobal).__termixRdpClipboardCapture?.(session);
+			return session;
+		};
+		prototype.connect = wrappedConnect;
+		termixGlobal.__termixRdpSessionCaptureInstalled = true;
 	}
 
 	function clearLocalPasswordState() {
@@ -354,6 +459,109 @@
 			.replace(/[^a-z0-9_:-]+/g, '_');
 		return `rdp_client_${message}`.slice(0, 120);
 	}
+
+	function normalizeClipboardPolicy(
+		policy: RdpClipboardPolicy | undefined,
+		legacyClipboardSync: boolean
+	): RdpClipboardPolicy {
+		const normalizedPolicy = policy ?? {
+			...defaultRdpClipboardPolicy,
+			text: legacyClipboardSync,
+			clientToRemote: legacyClipboardSync,
+			remoteToClient: legacyClipboardSync
+		};
+		const hasPayloads = normalizedPolicy.text || normalizedPolicy.files;
+		if (!hasPayloads) {
+			return {
+				...normalizedPolicy,
+				clientToRemote: false,
+				remoteToClient: false
+			};
+		}
+
+		return normalizedPolicy;
+	}
+
+	function canEnableAutomaticClipboard(policy: RdpClipboardPolicy): boolean {
+		return policy.text && policy.clientToRemote && policy.remoteToClient;
+	}
+
+	function formatClipboardPolicyDetail(policy: RdpClipboardPolicy): string {
+		if (!policy.text && !policy.files) return 'Clipboard is disabled by application policy.';
+
+		const parts = [
+			policy.text ? 'Text clipboard allowed.' : 'Text clipboard disabled.',
+			policy.files
+				? `File clipboard reserved with a ${policy.fileTransferSizeLimitMiB} MiB limit.`
+				: 'File clipboard disabled.'
+		];
+
+		if (!policy.clientToRemote) parts.push('Client to remote is blocked.');
+		if (!policy.remoteToClient) parts.push('Remote to client is blocked.');
+		if (!canEnableAutomaticClipboard(policy)) {
+			parts.push('Automatic clipboard sync is off while restrictions are active.');
+		}
+
+		return parts.join(' ');
+	}
+
+	function pickFileForRemoteClipboard() {
+		fileInputElement?.click();
+	}
+
+	async function copyFileToRemoteClipboard(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		if (!rdpModule || !activeClipboardSession) {
+			fileTransferState = 'failed';
+			fileTransferDetail = 'The RDP session is not ready for file clipboard transfer.';
+			return;
+		}
+
+		const maxBytes = effectiveClipboardPolicy.fileTransferSizeLimitMiB * 1024 * 1024;
+		if (file.size > maxBytes) {
+			fileTransferState = 'failed';
+			fileTransferDetail = `${file.name} is larger than the ${effectiveClipboardPolicy.fileTransferSizeLimitMiB} MiB policy limit.`;
+			return;
+		}
+
+		fileTransferState = 'copying';
+		fileTransferDetail = `Copying ${file.name} to the remote clipboard.`;
+
+		const clipboardData = new rdpModule.Backend.ClipboardData();
+		try {
+			clipboardData.addText('text/plain', file.name);
+			clipboardData.addBinary(
+				file.type || 'application/octet-stream',
+				new Uint8Array(await file.arrayBuffer())
+			);
+			await activeClipboardSession.onClipboardPaste(clipboardData);
+			fileTransferState = 'complete';
+			fileTransferDetail = `${file.name} is available through the RDP clipboard.`;
+		} catch (caught) {
+			fileTransferState = 'failed';
+			fileTransferDetail = `Could not copy ${file.name}: ${errorMessage(caught)}`;
+		} finally {
+			clipboardData.free?.();
+		}
+	}
+
+	async function saveRemoteClipboardLocally() {
+		if (!api) return;
+
+		fileTransferState = 'saving';
+		fileTransferDetail = 'Saving the remote clipboard payload to the browser clipboard.';
+		try {
+			await api.saveRemoteClipboardData();
+			fileTransferState = 'complete';
+			fileTransferDetail = 'Remote clipboard payload was copied to the browser clipboard.';
+		} catch (caught) {
+			fileTransferState = 'failed';
+			fileTransferDetail = `Could not save remote clipboard data: ${errorMessage(caught)}`;
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-md border bg-background">
@@ -361,7 +569,8 @@
 		<div class="flex min-w-0 items-center gap-2">
 			<Monitor class="size-4 shrink-0 text-muted-foreground" />
 			<span class="truncate text-sm font-medium">RDP</span>
-			<Badge variant={statusVariant}>{statusLabel}</Badge>
+			<Badge variant={statusVariant} class="shrink truncate">{statusLabel}</Badge>
+			<Badge variant={clipboardStatusVariant} class="shrink truncate">{clipboardStatusLabel}</Badge>
 		</div>
 		<Button size="sm" variant="outline" onclick={onReconnect}>
 			<RotateCw class="size-4" />
@@ -417,7 +626,49 @@
 				{/if}
 			</div>
 
-			{#if connectionState !== 'connected'}
+			{#if connectionState === 'connected' && effectiveClipboardPolicy.files}
+				<div class="border-t bg-background p-3">
+					<div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+						<div class="min-w-0">
+							<div class="flex items-center gap-2">
+								<Clipboard class="size-4 text-muted-foreground" />
+								<p class="text-sm font-medium">RDP file clipboard</p>
+							</div>
+							<p
+								class:text-destructive={fileTransferState === 'failed'}
+								class="mt-1 truncate text-xs text-muted-foreground"
+							>
+								{fileTransferDetail}
+							</p>
+						</div>
+						<input
+							bind:this={fileInputElement}
+							type="file"
+							class="hidden"
+							onchange={copyFileToRemoteClipboard}
+							aria-label="Choose file for RDP clipboard"
+						/>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={!canCopyFileToRemote}
+							onclick={pickFileForRemoteClipboard}
+						>
+							<FileUp class="size-4" />
+							Copy file to remote
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={!canSaveRemoteClipboard}
+							onclick={saveRemoteClipboardLocally}
+						>
+							<FileDown class="size-4" />
+							Save remote clipboard
+						</Button>
+					</div>
+				</div>
+			{:else if connectionState !== 'connected'}
 				<div class="border-t bg-background p-3">
 					<form class="grid gap-3 lg:grid-cols-[1fr_1fr_auto]" onsubmit={submitConnect}>
 						<div class="grid gap-1.5">
@@ -449,7 +700,7 @@
 						</div>
 					</form>
 
-					<div class="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+					<div class="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
 						<div class="flex min-w-0 items-center gap-2">
 							<ShieldCheck class="size-4 shrink-0" />
 							<span class="truncate">{bootstrap.gatewayPublicUrl}</span>
@@ -461,6 +712,10 @@
 						<div class="flex min-w-0 items-center gap-2">
 							<AlertTriangle class="size-4 shrink-0" />
 							<span class="truncate">{targetCredentialState}</span>
+						</div>
+						<div class="flex min-w-0 items-center gap-2">
+							<Clipboard class="size-4 shrink-0" />
+							<span class="truncate">{clipboardPolicyDetail}</span>
 						</div>
 					</div>
 				</div>

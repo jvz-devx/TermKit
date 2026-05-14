@@ -3,8 +3,28 @@
 	import ServerIcon from '@lucide/svelte/icons/server';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
 	import SquareTerminalIcon from '@lucide/svelte/icons/square-terminal';
+	import type { Component } from 'svelte';
 
-	const data = {
+	type NavItem = {
+		title: string;
+		url: string;
+		icon?: Component;
+		adminOnly?: boolean;
+		items?: {
+			title: string;
+			url: string;
+			adminOnly?: boolean;
+		}[];
+	};
+
+	const data: {
+		teams: {
+			name: string;
+			logo: Component;
+			plan: string;
+		}[];
+		navMain: NavItem[];
+	} = {
 		teams: [
 			{
 				name: 'TermixKit',
@@ -27,13 +47,19 @@
 				title: 'Connections',
 				url: '/sessions',
 				icon: SquareTerminalIcon,
-				items: [{ title: 'Session workspace', url: '/sessions' }]
+				items: [
+					{ title: 'Session workspace', url: '/sessions' },
+					{ title: 'History', url: '/history' }
+				]
 			},
 			{
 				title: 'Administration',
 				url: '/settings',
 				icon: Settings2Icon,
-				items: [{ title: 'Application', url: '/settings' }]
+				items: [
+					{ title: 'Admin panel', url: '/admin', adminOnly: true },
+					{ title: 'Application', url: '/settings' }
+				]
 			}
 		]
 	};
@@ -54,10 +80,20 @@
 
 	let {
 		user,
+		isAdmin = false,
 		ref = $bindable(null),
 		collapsible = 'icon',
 		...restProps
-	}: ComponentProps<typeof Sidebar.Root> & { user: SidebarUser } = $props();
+	}: ComponentProps<typeof Sidebar.Root> & { user: SidebarUser; isAdmin?: boolean } = $props();
+
+	const navItems = $derived(
+		data.navMain
+			.filter((item) => !item.adminOnly || isAdmin)
+			.map((item) => ({
+				...item,
+				items: item.items?.filter((subItem) => !subItem.adminOnly || isAdmin)
+			}))
+	);
 </script>
 
 <Sidebar.Root bind:ref {collapsible} {...restProps}>
@@ -65,7 +101,7 @@
 		<TeamSwitcher teams={data.teams} />
 	</Sidebar.Header>
 	<Sidebar.Content>
-		<NavMain items={data.navMain} />
+		<NavMain items={navItems} />
 	</Sidebar.Content>
 	<Sidebar.Footer>
 		<NavUser {user} />

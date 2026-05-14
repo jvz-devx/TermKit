@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { ServiceNotFoundError, ServiceValidationError } from './errors';
 import { termixRepository } from './repository';
-import type { CredentialRepository, HostProtocol, HostRecord, HostRepository } from './types';
+import type {
+	CredentialRepository,
+	HostProtocol,
+	HostRecord,
+	HostRepository,
+	WorkspaceRepository
+} from './types';
 import { protocols } from './types';
 
 export interface HostInput {
@@ -9,6 +15,7 @@ export interface HostInput {
 	protocol?: unknown;
 	hostname?: unknown;
 	port?: unknown;
+	workspaceId?: unknown;
 	username?: unknown;
 	credentialId?: unknown;
 	folder?: unknown;
@@ -20,7 +27,8 @@ export interface HostInput {
 export class HostService {
 	constructor(
 		private readonly repository: HostRepository &
-			Pick<CredentialRepository, 'getCredential'> = termixRepository
+			Pick<CredentialRepository, 'getCredential'> &
+			Pick<WorkspaceRepository, 'getWorkspaceMembership'> = termixRepository
 	) {}
 
 	list(userId: string): Promise<HostRecord[]> {
@@ -36,7 +44,8 @@ export class HostService {
 	async create(userId: string, input: HostInput): Promise<HostRecord> {
 		const now = new Date();
 		const validated = validateHostInput(input);
-		await this.assertCredentialBelongsToUser(userId, validated.credentialId);
+		await this.assertWorkspaceOwner(userId, validated.workspaceId);
+		await this.assertCredentialMatchesScope(userId, validated.credentialId, validated.workspaceId);
 
 		return this.repository.createHost({
 			id: randomUUID(),
@@ -50,7 +59,9 @@ export class HostService {
 	async update(userId: string, id: string, input: HostInput): Promise<HostRecord> {
 		const current = await this.get(userId, id);
 		const validated = validateHostInput({ ...current, ...input });
-		await this.assertCredentialBelongsToUser(userId, validated.credentialId);
+		await this.assertWorkspaceOwner(userId, current.workspaceId);
+		await this.assertWorkspaceOwner(userId, validated.workspaceId);
+		await this.assertCredentialMatchesScope(userId, validated.credentialId, validated.workspaceId);
 		const updated = await this.repository.updateHost(userId, id, {
 			...validated,
 			updatedAt: new Date()
@@ -61,13 +72,29 @@ export class HostService {
 	}
 
 	async delete(userId: string, id: string): Promise<void> {
+		const current = await this.get(userId, id);
+		await this.assertWorkspaceOwner(userId, current.workspaceId);
 		const deleted = await this.repository.deleteHost(userId, id);
 		if (!deleted) throw new ServiceNotFoundError('Host not found');
 	}
 
-	private async assertCredentialBelongsToUser(
+	private async assertWorkspaceOwner(userId: string, workspaceId: string | null): Promise<void> {
+		if (!workspaceId) return;
+		const membership = await this.repository.getWorkspaceMembership(workspaceId, userId);
+		if (!membership) {
+			throw new ServiceValidationError([
+				'workspaceId must reference a workspace the user belongs to'
+			]);
+		}
+		if (membership.role !== 'owner') {
+			throw new ServiceValidationError(['workspace owner role is required']);
+		}
+	}
+
+	private async assertCredentialMatchesScope(
 		userId: string,
-		credentialId: string | null
+		credentialId: string | null,
+		workspaceId: string | null
 	): Promise<void> {
 		if (!credentialId) return;
 
@@ -76,6 +103,9 @@ export class HostService {
 			throw new ServiceValidationError([
 				'credentialId must reference an existing credential owned by the user'
 			]);
+		}
+		if (credential.workspaceId !== workspaceId) {
+			throw new ServiceValidationError(['credentialId must belong to the same scope as the host']);
 		}
 	}
 }
@@ -108,6 +138,7 @@ export function validateHostInput(
 		protocol: protocol as HostProtocol,
 		hostname: hostname!,
 		port,
+		workspaceId: asNullableString(input.workspaceId),
 		username: asNullableString(input.username),
 		credentialId: asNullableString(input.credentialId),
 		folder: asNullableString(input.folder),

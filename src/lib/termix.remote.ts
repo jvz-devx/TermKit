@@ -18,6 +18,8 @@ import { settingsService } from '$lib/server/services/settings';
 import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
 import { liveSshManager } from '$lib/server/ssh-live/manager';
 import type {
+	ConnectionHistoryRecord,
+	ConnectionSessionStatus,
 	CredentialKind,
 	HostProtocol,
 	HostRecord,
@@ -112,6 +114,24 @@ export type LiveSshAttach = {
 	expiresAt: string;
 };
 
+export type ConnectionHistorySummary = {
+	id: string;
+	userId: string;
+	user: string;
+	workspaceId: string | null;
+	workspace: string;
+	hostId: string | null;
+	host: string;
+	hostname: string;
+	hostUser: string | null;
+	protocol: HostProtocol;
+	startedAt: string;
+	endedAt: string | null;
+	durationMs: number | null;
+	status: ConnectionSessionStatus;
+	errorReason: string | null;
+};
+
 export const listHosts = query(async () => {
 	const userId = requireRemoteUser();
 	const [hosts, credentials] = await Promise.all([
@@ -141,6 +161,12 @@ export const listHosts = query(async () => {
 			})
 		)
 		.sort((left, right) => left.name.localeCompare(right.name));
+});
+
+export const listConnectionHistory = query(async () => {
+	const userId = requireRemoteUser();
+	const rows = await connectionSessionService.listHistory(userId);
+	return rows.map(toConnectionHistorySummary);
 });
 
 export const listCredentials = query(async () => {
@@ -473,6 +499,26 @@ function requireRemoteUser(): string {
 	const userId = getRequestEvent().locals.user?.id;
 	if (!userId) throw new ServiceUnauthorizedError();
 	return userId;
+}
+
+function toConnectionHistorySummary(record: ConnectionHistoryRecord): ConnectionHistorySummary {
+	return {
+		id: record.id,
+		userId: record.userId,
+		user: record.username ?? 'Unknown user',
+		workspaceId: record.workspaceId,
+		workspace: record.workspaceName ?? 'Personal workspace',
+		hostId: record.hostId,
+		host: record.hostName ?? 'Deleted host',
+		hostname: record.hostname ?? 'Unknown host',
+		hostUser: record.hostUsername,
+		protocol: record.protocol,
+		startedAt: record.startedAt.toISOString(),
+		endedAt: record.endedAt?.toISOString() ?? null,
+		durationMs: record.durationMs,
+		status: record.status,
+		errorReason: record.errorReason
+	};
 }
 
 function rdpLaunchErrorCode(error: unknown): string {

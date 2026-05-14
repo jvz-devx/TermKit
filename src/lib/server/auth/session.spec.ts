@@ -217,12 +217,16 @@ describe('local session flow', () => {
 		const authenticateLimit = vi.fn(async () => [user]);
 		const authenticateWhere = vi.fn(() => ({ limit: authenticateLimit }));
 		const authenticateFrom = vi.fn(() => ({ where: authenticateWhere }));
+		const sessionUserLimit = vi.fn(async () => [{ id: user.id }]);
+		const sessionUserWhere = vi.fn(() => ({ limit: sessionUserLimit }));
+		const sessionUserFrom = vi.fn(() => ({ where: sessionUserWhere }));
 		const lookupLimit = vi.fn(async () => [{ session, user }]);
 		const lookupWhere = vi.fn(() => ({ limit: lookupLimit }));
 		const lookupInnerJoin = vi.fn(() => ({ where: lookupWhere }));
 		const lookupFrom = vi.fn(() => ({ innerJoin: lookupInnerJoin }));
 		db.select
 			.mockReturnValueOnce({ from: authenticateFrom })
+			.mockReturnValueOnce({ from: sessionUserFrom })
 			.mockReturnValueOnce({ from: lookupFrom });
 		const insertReturning = vi.fn(async () => [session]);
 		const insertValues = vi.fn(() => ({ returning: insertReturning }));

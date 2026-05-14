@@ -45,7 +45,7 @@ export async function resolveRdpLaunchCredentials(
 			ciphertext: credential.encryptedSecret,
 			metadata: credential.encryption
 		},
-		credentialSecretContext(userId, credential.id)
+		credentialSecretContext(credential.userId, credential.id)
 	);
 
 	return {

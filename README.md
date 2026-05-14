@@ -1,6 +1,6 @@
 # TermixKit
 
-TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. The current V2 app keeps the V1 Docker Compose shape: one public app port, Postgres on the Compose network or loopback for local tooling, and Devolutions Gateway reached through the app's `/gateway` proxy for browser RDP.
+TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. The current V3 app keeps the V1 Docker Compose shape: one public app port, Postgres on the Compose network or loopback for local tooling, and Devolutions Gateway reached through the app's `/gateway` proxy for browser RDP.
 
 ## Milestones
 
@@ -13,22 +13,39 @@ TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. The 
 - V2 milestone 2: app-owned live SSH sessions with attach tickets, session limits, idle cleanup, and stale-session reconciliation.
 - V2 milestone 3: persistent SSH workspace tabs for opening, renaming, reattaching, and closing live SSH sessions.
 - V2 milestone 4: Microsoft auth docs, live SSH docs, browser smokes, and continued V1 regression coverage.
+- V3 milestone 1: shared workspaces for hosts and credentials with simple owner/member access.
+- V3 milestone 2: first-class connection history with filters for user, workspace, protocol, host, status, and date range.
+- V3 milestone 3: RDP clipboard controls, file clipboard transfer states, and session workspace polish.
+- V3 milestone 4: central admin panel for users, workspaces, live sessions, connection history, and settings.
 
 ## Application Navigation
 
 TermixKit uses logical workspace navigation, not a host tree in the sidebar:
 
 - **Inventory**: host records at `/hosts`, reusable secrets at `/credentials`, and the Termix importer at `/import`.
-- **Connections**: the session workspace at `/sessions`.
-- **Administration**: application defaults at `/settings`.
+- **Connections**: the session workspace at `/sessions` and connection history at `/history`.
+- **Workspaces**: shared host and credential scopes at `/workspaces`.
+- **Administration**: app defaults at `/settings` and the admin overview at `/admin`.
 
 The session workspace is the launcher for every protocol. It stores the selected host and protocol in URL query parameters, provides host search and protocol filters, and only shows protocol tabs supported by the selected host. SSH hosts expose both SSH and SFTP tabs; RDP, VNC, and Telnet hosts expose their own protocol tab.
+
+## Workspaces And Admin
+
+V3 adds simple workspaces without full RBAC. Hosts and credentials can stay private to the signed-in user or belong to a shared workspace. Workspace members can use shared inventory, while workspace owners can manage inventory and membership. The `/workspaces` page provides create, rename, member management, and inventory assignment controls.
+
+Connection history is available at `/history`. It records protocol, host, user, workspace, start/end times, duration, status, and structured error reason fields, with filters for common operator questions.
+
+Admins can use `/admin` to view users, create local accounts, promote admins, disable users, inspect workspace inventory, terminate live SSH sessions, review recent connection failures, and jump into app settings. Disabling a user revokes their active app sessions and blocks future password/session authentication.
 
 ## Live SSH Sessions
 
 V2 adds app-owned live SSH sessions behind `/ws/ssh/live/:ticket`. Remote functions create short-lived attach tickets, the production server consumes them after normal app-session authentication, and an in-process live SSH manager keeps the shell alive across browser websocket disconnects. Reattaching replays bounded in-memory scrollback and takes over the single active browser attachment for that live session.
 
 The session workspace has an SSH tab strip for opening, renaming, reattaching, and closing live SSH sessions. Metadata is stored in Postgres through `ssh_live_sessions` and `ssh_attach_tickets`, but SSH processes and terminal output are not persisted. A live SSH tab can survive browser refreshes and reconnects while the TermixKit app process stays up; it does not survive app or container restart. Startup marks old metadata as `stale`, detached sessions expire after the default two-hour idle window, attach tickets default to 60 seconds, and each user is limited to 10 live SSH sessions. Recently ended or failed live SSH rows stay visible briefly so the workspace can show terminal states before the user dismisses them. VNC and Telnet continue to use the V1 launch-ticket websocket behavior; RDP launches through the Devolutions Gateway bootstrap and `/gateway` proxy; SFTP uses authenticated file-manager API routes plus a `connection_sessions` lifecycle row for the workspace launch.
+
+## RDP Clipboard
+
+The settings page controls RDP clipboard policy separately for text payloads, file payloads, client-to-remote direction, remote-to-client direction, and file size limit. The RDP session pane shows whether automatic clipboard sync is on, restricted, or disabled. When file clipboard is enabled and the RDP session is connected, users can copy a local file into the remote clipboard or save the current remote clipboard payload back to the browser clipboard; the pane shows copying, saving, complete, and failed states and enforces the configured MiB limit before sending local file data.
 
 ## Microsoft Entra Login
 

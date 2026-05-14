@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { termixRepository } from './repository';
-import type { ConnectionSessionRecord, ConnectionSessionRepository, HostProtocol } from './types';
+import type {
+	ConnectionHistoryFilters,
+	ConnectionHistoryRecord,
+	ConnectionSessionRecord,
+	ConnectionSessionRepository,
+	HostProtocol,
+	HostRepository
+} from './types';
 
 export type StartConnectionSessionInput = {
 	userId: string;
@@ -17,14 +24,28 @@ export interface ConnectionSessionLifecycleRecorder {
 }
 
 export class ConnectionSessionService implements ConnectionSessionLifecycleRecorder {
-	constructor(private readonly repository: ConnectionSessionRepository = termixRepository) {}
+	constructor(
+		private readonly repository: ConnectionSessionRepository &
+			Pick<HostRepository, 'getHost'> = termixRepository
+	) {}
+
+	listHistory(
+		userId: string,
+		filters?: ConnectionHistoryFilters
+	): Promise<ConnectionHistoryRecord[]> {
+		return this.repository.listConnectionHistory(userId, filters);
+	}
 
 	async start(input: StartConnectionSessionInput): Promise<ConnectionSessionRecord> {
 		const now = input.now ?? new Date();
+		const host = input.hostId
+			? await this.repository.getHost(input.userId, input.hostId).catch(() => null)
+			: null;
 
 		return this.repository.createConnectionSession({
 			id: randomUUID(),
 			userId: input.userId,
+			workspaceId: host?.workspaceId ?? null,
 			hostId: input.hostId,
 			protocol: input.protocol,
 			status: 'starting',

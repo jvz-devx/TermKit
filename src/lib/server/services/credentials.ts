@@ -7,7 +7,8 @@ import type {
 	CredentialCrypto,
 	CredentialKind,
 	CredentialRecord,
-	CredentialRepository
+	CredentialRepository,
+	WorkspaceRepository
 } from './types';
 import { credentialKinds } from './types';
 
@@ -28,6 +29,7 @@ const sensitiveMetadataKeys = new Set([
 export interface CredentialInput {
 	name?: unknown;
 	kind?: unknown;
+	workspaceId?: unknown;
 	username?: unknown;
 	secret?: unknown;
 	metadata?: unknown;
@@ -37,7 +39,8 @@ export type PublicCredentialRecord = Omit<CredentialRecord, 'encryptedSecret' | 
 
 export class CredentialService {
 	constructor(
-		private readonly repository: CredentialRepository = termixRepository,
+		private readonly repository: CredentialRepository &
+			Pick<WorkspaceRepository, 'getWorkspaceMembership'> = termixRepository,
 		private readonly crypto: CredentialCrypto = new AesGcmCredentialCrypto()
 	) {}
 
@@ -54,12 +57,14 @@ export class CredentialService {
 	async create(userId: string, input: CredentialInput): Promise<PublicCredentialRecord> {
 		const now = new Date();
 		const validated = validateCredentialInput(input, true);
+		await this.assertWorkspaceOwner(userId, validated.workspaceId);
 		const id = randomUUID();
 		const encrypted = this.crypto.encrypt(validated.secret!, credentialSecretContext(userId, id));
 		const metadata = this.protectMetadata(userId, id, validated.kind!, validated.metadata);
 		const credential = await this.repository.createCredential({
 			id,
 			userId,
+			workspaceId: validated.workspaceId,
 			name: validated.name!,
 			kind: validated.kind!,
 			username: validated.username,
@@ -82,6 +87,8 @@ export class CredentialService {
 		if (!current) throw new ServiceNotFoundError('Credential not found');
 
 		const validated = validateCredentialInput({ ...current, ...input }, false);
+		await this.assertWorkspaceOwner(userId, current.workspaceId);
+		await this.assertWorkspaceOwner(userId, validated.workspaceId);
 		const kindChanged = validated.kind !== current.kind;
 		if (kindChanged && validated.secret === undefined) {
 			throw new ServiceValidationError(['secret is required when kind changes']);
@@ -105,6 +112,7 @@ export class CredentialService {
 		const updated = await this.repository.updateCredential(userId, id, {
 			name: validated.name!,
 			kind: validated.kind!,
+			workspaceId: validated.workspaceId,
 			username: validated.username,
 			metadata,
 			...secretPatch,
@@ -116,6 +124,9 @@ export class CredentialService {
 	}
 
 	async delete(userId: string, id: string): Promise<void> {
+		const current = await this.repository.getCredential(userId, id);
+		if (!current) throw new ServiceNotFoundError('Credential not found');
+		await this.assertWorkspaceOwner(userId, current.workspaceId);
 		const deleted = await this.repository.deleteCredential(userId, id);
 		if (!deleted) throw new ServiceNotFoundError('Credential not found');
 	}
@@ -142,6 +153,19 @@ export class CredentialService {
 
 		return protectedMetadata;
 	}
+
+	private async assertWorkspaceOwner(userId: string, workspaceId: string | null): Promise<void> {
+		if (!workspaceId) return;
+		const membership = await this.repository.getWorkspaceMembership(workspaceId, userId);
+		if (!membership) {
+			throw new ServiceValidationError([
+				'workspaceId must reference a workspace the user belongs to'
+			]);
+		}
+		if (membership.role !== 'owner') {
+			throw new ServiceValidationError(['workspace owner role is required']);
+		}
+	}
 }
 
 function validateCredentialInput(
@@ -151,6 +175,7 @@ function validateCredentialInput(
 	name: string | null;
 	kind: CredentialKind | null;
 	username: string | null;
+	workspaceId: string | null;
 	secret?: string;
 	metadata: Record<string, unknown>;
 } {
@@ -170,6 +195,7 @@ function validateCredentialInput(
 	return {
 		name,
 		kind: kind as CredentialKind,
+		workspaceId: asTrimmedString(input.workspaceId),
 		username: asTrimmedString(input.username),
 		secret,
 		metadata: isRecord(input.metadata) ? input.metadata : {}

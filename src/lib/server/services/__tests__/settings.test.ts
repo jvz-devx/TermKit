@@ -23,6 +23,13 @@ describe('SettingsService', () => {
 			ticketTtlSeconds: '120',
 			terminalFontSize: 15,
 			clipboardSync: false,
+			rdpClipboard: {
+				text: true,
+				files: false,
+				clientToRemote: true,
+				remoteToClient: false,
+				fileTransferSizeLimitMiB: '64'
+			},
 			rememberLastActiveTab: true
 		});
 
@@ -30,6 +37,13 @@ describe('SettingsService', () => {
 			ticketTtlSeconds: 120,
 			terminalFontSize: 15,
 			clipboardSync: false,
+			rdpClipboard: {
+				text: true,
+				files: false,
+				clientToRemote: true,
+				remoteToClient: false,
+				fileTransferSizeLimitMiB: 64
+			},
 			rememberLastActiveTab: true
 		});
 		await expect(repository.getSetting(BASIC_APP_SETTINGS_KEY)).resolves.toEqual(saved);
@@ -42,9 +56,40 @@ describe('SettingsService', () => {
 				ticketTtlSeconds: 9,
 				terminalFontSize: 40,
 				clipboardSync: 'yes',
+				rdpClipboard: {
+					text: 'yes',
+					files: null,
+					clientToRemote: true,
+					remoteToClient: 'no',
+					fileTransferSizeLimitMiB: 0
+				},
 				rememberLastActiveTab: null
 			})
 		).toThrow(ServiceValidationError);
+	});
+
+	it('stores conservative RDP clipboard directions when all clipboard payloads are disabled', () => {
+		expect(
+			validateBasicAppSettingsInput({
+				ticketTtlSeconds: 60,
+				terminalFontSize: 13,
+				clipboardSync: true,
+				rdpClipboard: {
+					text: false,
+					files: false,
+					clientToRemote: true,
+					remoteToClient: true,
+					fileTransferSizeLimitMiB: 16
+				},
+				rememberLastActiveTab: true
+			}).rdpClipboard
+		).toEqual({
+			text: false,
+			files: false,
+			clientToRemote: false,
+			remoteToClient: false,
+			fileTransferSizeLimitMiB: 16
+		});
 	});
 
 	it('falls back per field when legacy stored settings are malformed', async () => {
@@ -61,7 +106,36 @@ describe('SettingsService', () => {
 		await expect(service.getBasicAppSettings()).resolves.toEqual({
 			...DEFAULT_BASIC_APP_SETTINGS,
 			ticketTtlSeconds: 300,
-			clipboardSync: false
+			clipboardSync: false,
+			rdpClipboard: {
+				...DEFAULT_BASIC_APP_SETTINGS.rdpClipboard,
+				text: false,
+				clientToRemote: false,
+				remoteToClient: false
+			}
+		});
+	});
+
+	it('maps legacy disabled clipboard sync to a disabled RDP clipboard policy', async () => {
+		const repository = new InMemorySettingsRepository();
+		await repository.upsertSetting(BASIC_APP_SETTINGS_KEY, {
+			ticketTtlSeconds: 60,
+			terminalFontSize: 13,
+			clipboardSync: false,
+			rememberLastActiveTab: true
+		});
+
+		const service = new SettingsService(repository);
+
+		await expect(service.getBasicAppSettings()).resolves.toEqual({
+			...DEFAULT_BASIC_APP_SETTINGS,
+			clipboardSync: false,
+			rdpClipboard: {
+				...DEFAULT_BASIC_APP_SETTINGS.rdpClipboard,
+				text: false,
+				clientToRemote: false,
+				remoteToClient: false
+			}
 		});
 	});
 });

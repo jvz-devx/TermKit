@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
-import { eq, and, gt, count, sql } from 'drizzle-orm';
+import { eq, and, gt, count, sql, isNull } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { sessions, users } from '$lib/server/db/schema';
 import { hashPassword, verifyPassword } from './password';
@@ -13,6 +13,7 @@ export type AuthUser = {
 	username: string;
 	name?: string;
 	isAdmin: boolean;
+	disabledAt?: Date | null;
 	createdAt: Date;
 	updatedAt: Date;
 };
@@ -156,7 +157,11 @@ export async function authenticateUser(input: {
 	username: string;
 	password: string;
 }): Promise<AuthUser | null> {
-	const [user] = await db.select().from(users).where(eq(users.username, input.username)).limit(1);
+	const [user] = await db
+		.select()
+		.from(users)
+		.where(and(eq(users.username, input.username), isNull(users.disabledAt)))
+		.limit(1);
 
 	if (!user || !(await verifyPassword(input.password, user.passwordHash))) {
 		return null;
@@ -166,6 +171,7 @@ export async function authenticateUser(input: {
 		id: user.id,
 		username: user.username,
 		isAdmin: user.isAdmin,
+		disabledAt: user.disabledAt,
 		createdAt: user.createdAt,
 		updatedAt: user.updatedAt
 	};
@@ -175,6 +181,15 @@ export async function createSessionForUser(
 	userId: string,
 	event: RequestEvent
 ): Promise<{ token: string; session: AuthSession }> {
+	const [user] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(and(eq(users.id, userId), isNull(users.disabledAt)))
+		.limit(1);
+	if (!user) {
+		throw new AuthError('User is disabled or does not exist');
+	}
+
 	const token = createSessionToken();
 	const expiresAt = new Date(Date.now() + sessionMaxAgeSeconds * 1000);
 	const [session] = await db
@@ -205,13 +220,20 @@ export async function getSessionFromToken(
 				id: users.id,
 				username: users.username,
 				isAdmin: users.isAdmin,
+				disabledAt: users.disabledAt,
 				createdAt: users.createdAt,
 				updatedAt: users.updatedAt
 			}
 		})
 		.from(sessions)
 		.innerJoin(users, eq(sessions.userId, users.id))
-		.where(and(eq(sessions.tokenHash, hashSessionToken(token)), gt(sessions.expiresAt, new Date())))
+		.where(
+			and(
+				eq(sessions.tokenHash, hashSessionToken(token)),
+				gt(sessions.expiresAt, new Date()),
+				isNull(users.disabledAt)
+			)
+		)
 		.limit(1);
 
 	if (!row) {

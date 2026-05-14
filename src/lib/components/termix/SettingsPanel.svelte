@@ -1,17 +1,35 @@
 <script lang="ts">
-	import { AlertCircle, CheckCircle2, RotateCcw, Save } from '@lucide/svelte';
+	import {
+		AlertCircle,
+		CheckCircle2,
+		Clipboard,
+		FileArchive,
+		RotateCcw,
+		Save
+	} from '@lucide/svelte';
 	import * as Alert from '$lib/components/ui/alert';
+	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
-	import { getAppSettings, saveAppSettings, type BasicAppSettings } from '$lib/settings.remote';
+	import {
+		getAppSettings,
+		saveAppSettings,
+		type BasicAppSettings,
+		type BasicAppSettingsInput
+	} from '$lib/settings.remote';
 
 	type SettingsForm = {
 		ticketTtlSeconds: number;
 		terminalFontSize: number;
 		clipboardSync: boolean;
+		rdpClipboardText: boolean;
+		rdpClipboardFiles: boolean;
+		rdpClipboardClientToRemote: boolean;
+		rdpClipboardRemoteToClient: boolean;
+		rdpClipboardFileTransferSizeLimitMiB: number;
 		rememberLastActiveTab: boolean;
 	};
 
@@ -27,14 +45,25 @@
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
 
+	const clipboardPayloadEnabled = $derived(form.rdpClipboardText || form.rdpClipboardFiles);
+	const textClipboardAllowed = $derived(
+		form.rdpClipboardText && form.rdpClipboardClientToRemote && form.rdpClipboardRemoteToClient
+	);
 	const isDirty = $derived(settingsSignature(form) !== settingsSignature(persisted));
 	const canSubmit = $derived(!saving && isDirty);
 
 	function createForm(settings?: BasicAppSettings | null): SettingsForm {
+		const rdpClipboard = settings?.rdpClipboard;
+
 		return {
 			ticketTtlSeconds: settings?.ticketTtlSeconds ?? 60,
 			terminalFontSize: settings?.terminalFontSize ?? 13,
 			clipboardSync: settings?.clipboardSync ?? true,
+			rdpClipboardText: rdpClipboard?.text ?? settings?.clipboardSync ?? true,
+			rdpClipboardFiles: rdpClipboard?.files ?? false,
+			rdpClipboardClientToRemote: rdpClipboard?.clientToRemote ?? settings?.clipboardSync ?? true,
+			rdpClipboardRemoteToClient: rdpClipboard?.remoteToClient ?? settings?.clipboardSync ?? true,
+			rdpClipboardFileTransferSizeLimitMiB: rdpClipboard?.fileTransferSizeLimitMiB ?? 16,
 			rememberLastActiveTab: settings?.rememberLastActiveTab ?? true
 		};
 	}
@@ -58,6 +87,14 @@
 			nextErrors.terminalFontSize = 'Use 8 to 32 pixels.';
 		}
 
+		if (
+			!Number.isInteger(form.rdpClipboardFileTransferSizeLimitMiB) ||
+			form.rdpClipboardFileTransferSizeLimitMiB < 1 ||
+			form.rdpClipboardFileTransferSizeLimitMiB > 1024
+		) {
+			nextErrors.rdpClipboardFileTransferSizeLimitMiB = 'Use 1 to 1024 MiB.';
+		}
+
 		return nextErrors;
 	}
 
@@ -78,7 +115,7 @@
 
 		saving = true;
 		try {
-			const saved = await saveAppSettings(form).updates(getAppSettings);
+			const saved = await saveAppSettings(createSettingsInput(form)).updates(getAppSettings);
 			persisted = saved;
 			form = createForm(saved);
 			success = 'Settings saved.';
@@ -90,12 +127,54 @@
 	}
 
 	function settingsSignature(settings: SettingsForm | BasicAppSettings): string {
-		return JSON.stringify({
+		const settingsForm = 'rdpClipboard' in settings ? createForm(settings) : settings;
+		return JSON.stringify(createSettingsInput(settingsForm));
+	}
+
+	function createSettingsInput(settings: SettingsForm): BasicAppSettingsInput {
+		const payloadEnabled = settings.rdpClipboardText || settings.rdpClipboardFiles;
+
+		return {
 			ticketTtlSeconds: settings.ticketTtlSeconds,
 			terminalFontSize: settings.terminalFontSize,
-			clipboardSync: settings.clipboardSync,
+			clipboardSync:
+				settings.rdpClipboardText &&
+				settings.rdpClipboardClientToRemote &&
+				settings.rdpClipboardRemoteToClient,
+			rdpClipboard: {
+				text: settings.rdpClipboardText,
+				files: settings.rdpClipboardFiles,
+				clientToRemote: payloadEnabled ? settings.rdpClipboardClientToRemote : false,
+				remoteToClient: payloadEnabled ? settings.rdpClipboardRemoteToClient : false,
+				fileTransferSizeLimitMiB: settings.rdpClipboardFileTransferSizeLimitMiB
+			},
 			rememberLastActiveTab: settings.rememberLastActiveTab
-		});
+		};
+	}
+
+	function setRdpClipboardText(checked: boolean) {
+		form.rdpClipboardText = checked;
+		restoreClipboardDirectionsWhenEnabled();
+		disableClipboardDirectionsWhenNoPayloads();
+	}
+
+	function setRdpClipboardFiles(checked: boolean) {
+		form.rdpClipboardFiles = checked;
+		restoreClipboardDirectionsWhenEnabled();
+		disableClipboardDirectionsWhenNoPayloads();
+	}
+
+	function restoreClipboardDirectionsWhenEnabled() {
+		if (!form.rdpClipboardText && !form.rdpClipboardFiles) return;
+		if (form.rdpClipboardClientToRemote || form.rdpClipboardRemoteToClient) return;
+		form.rdpClipboardClientToRemote = true;
+		form.rdpClipboardRemoteToClient = true;
+	}
+
+	function disableClipboardDirectionsWhenNoPayloads() {
+		if (form.rdpClipboardText || form.rdpClipboardFiles) return;
+		form.rdpClipboardClientToRemote = false;
+		form.rdpClipboardRemoteToClient = false;
 	}
 </script>
 
@@ -151,19 +230,108 @@
 
 		<Card.Root>
 			<Card.Header>
+				<Card.Title>RDP clipboard policy</Card.Title>
+				<Card.Description>Application controls for browser RDP clipboard behavior.</Card.Description
+				>
+			</Card.Header>
+			<Card.Content class="space-y-5">
+				<div class="flex flex-wrap items-center gap-2 text-sm">
+					<Badge variant={textClipboardAllowed ? 'secondary' : 'outline'}>
+						<Clipboard class="size-3" />
+						{textClipboardAllowed ? 'Text clipboard allowed' : 'Text clipboard restricted'}
+					</Badge>
+					<Badge variant={form.rdpClipboardFiles ? 'secondary' : 'outline'}>
+						<FileArchive class="size-3" />
+						Files {form.rdpClipboardFiles
+							? `${form.rdpClipboardFileTransferSizeLimitMiB} MiB limit`
+							: 'disabled'}
+					</Badge>
+				</div>
+
+				<div class="grid gap-4 md:grid-cols-2">
+					<label class="flex items-center justify-between gap-4 text-sm">
+						<span>
+							<span class="block font-medium">Text clipboard</span>
+							<span class="text-muted-foreground">Allow text clipboard payloads for RDP.</span>
+						</span>
+						<Switch
+							checked={form.rdpClipboardText}
+							onCheckedChange={setRdpClipboardText}
+							aria-label="RDP text clipboard"
+						/>
+					</label>
+					<label class="flex items-center justify-between gap-4 text-sm">
+						<span>
+							<span class="block font-medium">File clipboard</span>
+							<span class="text-muted-foreground">Allow RDP file clipboard transfer controls.</span>
+						</span>
+						<Switch
+							checked={form.rdpClipboardFiles}
+							onCheckedChange={setRdpClipboardFiles}
+							aria-label="RDP file clipboard"
+						/>
+					</label>
+					<label class="flex items-center justify-between gap-4 text-sm">
+						<span>
+							<span class="block font-medium">Client to remote</span>
+							<span class="text-muted-foreground"
+								>Permit local clipboard data to enter the RDP host.</span
+							>
+						</span>
+						<Switch
+							bind:checked={form.rdpClipboardClientToRemote}
+							disabled={!clipboardPayloadEnabled}
+							aria-label="RDP client to remote clipboard"
+						/>
+					</label>
+					<label class="flex items-center justify-between gap-4 text-sm">
+						<span>
+							<span class="block font-medium">Remote to client</span>
+							<span class="text-muted-foreground"
+								>Permit remote clipboard data to reach the browser.</span
+							>
+						</span>
+						<Switch
+							bind:checked={form.rdpClipboardRemoteToClient}
+							disabled={!clipboardPayloadEnabled}
+							aria-label="RDP remote to client clipboard"
+						/>
+					</label>
+				</div>
+
+				<div class="grid gap-2 sm:max-w-xs">
+					<Label for="rdp-file-limit">File transfer limit (MiB)</Label>
+					<Input
+						id="rdp-file-limit"
+						type="number"
+						min="1"
+						max="1024"
+						bind:value={form.rdpClipboardFileTransferSizeLimitMiB}
+						disabled={!form.rdpClipboardFiles}
+						aria-invalid={Boolean(fieldErrors.rdpClipboardFileTransferSizeLimitMiB)}
+						aria-describedby={fieldErrors.rdpClipboardFileTransferSizeLimitMiB
+							? 'rdp-file-limit-error'
+							: undefined}
+					/>
+					{#if fieldErrors.rdpClipboardFileTransferSizeLimitMiB}
+						<p id="rdp-file-limit-error" class="text-xs text-destructive">
+							{fieldErrors.rdpClipboardFileTransferSizeLimitMiB}
+						</p>
+					{:else}
+						<p class="text-xs text-muted-foreground">
+							Applied before local files are sent into the RDP clipboard.
+						</p>
+					{/if}
+				</div>
+			</Card.Content>
+		</Card.Root>
+
+		<Card.Root>
+			<Card.Header>
 				<Card.Title>Protocol features</Card.Title>
 				<Card.Description>Feature flags shared by supported connection panes.</Card.Description>
 			</Card.Header>
 			<Card.Content class="space-y-4">
-				<label class="flex items-center justify-between gap-4 text-sm">
-					<span>
-						<span class="block font-medium">Clipboard sync when supported</span>
-						<span class="text-muted-foreground"
-							>Allow compatible clients to mirror clipboard data.</span
-						>
-					</span>
-					<Switch bind:checked={form.clipboardSync} aria-label="Clipboard sync when supported" />
-				</label>
 				<label class="flex items-center justify-between gap-4 text-sm">
 					<span>
 						<span class="block font-medium">Remember last active tab per host</span>

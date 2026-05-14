@@ -121,6 +121,7 @@ function testHost(patch: Partial<HostRecord> = {}): HostRecord {
 	return {
 		id: 'host-1',
 		userId: 'user-1',
+		workspaceId: null,
 		name: 'Shell',
 		protocol: 'ssh',
 		hostname: 'shell.example.test',

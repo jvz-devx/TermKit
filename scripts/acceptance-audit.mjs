@@ -204,6 +204,36 @@ const checks = [
 		status: 'local',
 		evidence:
 			'npm run smoke:app-protocols plus npm run check && npm run lint && npm test && npm run build'
+	},
+	{
+		name: 'V3 workspaces for shared hosts, credentials, owners, and members',
+		status: 'local',
+		evidence:
+			'npm test covers workspace service/repository authorization, host and credential scoping, rename, member removal, and inventory assignment'
+	},
+	{
+		name: 'V3 connection history screen with filters and structured error reasons',
+		status: 'local',
+		evidence:
+			'npm test covers connection history persistence/filter data and npm run check validates the history route UI'
+	},
+	{
+		name: 'V3 RDP clipboard policy and file clipboard transfer controls',
+		status: 'local',
+		evidence:
+			'npm test covers settings policy validation and npm run check validates RDP session clipboard controls and transfer states'
+	},
+	{
+		name: 'V3 central admin panel for users, workspaces, live sessions, history, and settings',
+		status: 'local',
+		evidence:
+			'npm run check validates the admin route and remote functions for user creation, disable, promote, session termination, and overview data'
+	},
+	{
+		name: 'V3 session workspace polish keeps protocol panes responsive and stateful',
+		status: 'local',
+		evidence:
+			'npm run check && npm run build validate the polished session workspace, protocol state panels, fullscreen controls, and responsive layout'
 	}
 ];
 

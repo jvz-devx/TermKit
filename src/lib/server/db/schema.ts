@@ -15,6 +15,7 @@ import {
 export const hostProtocol = pgEnum('host_protocol', ['ssh', 'rdp', 'vnc', 'telnet']);
 export const credentialKind = pgEnum('credential_kind', ['password', 'ssh_key']);
 export const authIdentityProvider = pgEnum('auth_identity_provider', ['microsoft']);
+export const workspaceMemberRole = pgEnum('workspace_member_role', ['owner', 'member']);
 export const connectionSessionStatus = pgEnum('connection_session_status', [
 	'starting',
 	'active',
@@ -42,6 +43,7 @@ export const users = pgTable(
 		username: text('username').notNull(),
 		passwordHash: text('password_hash').notNull(),
 		isAdmin: boolean('is_admin').notNull().default(false),
+		disabledAt: timestamp('disabled_at', { withTimezone: true }),
 		...timestamps
 	},
 	(table) => [uniqueIndex('users_username_unique').on(table.username)]
@@ -93,6 +95,37 @@ export const sessions = pgTable(
 	]
 );
 
+export const workspaces = pgTable(
+	'workspaces',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		name: text('name').notNull(),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		...timestamps
+	},
+	(table) => [index('workspaces_name_idx').on(table.name)]
+);
+
+export const workspaceMemberships = pgTable(
+	'workspace_memberships',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		role: workspaceMemberRole('role').notNull().default('member'),
+		...timestamps
+	},
+	(table) => [
+		uniqueIndex('workspace_memberships_workspace_user_unique').on(table.workspaceId, table.userId),
+		index('workspace_memberships_workspace_id_idx').on(table.workspaceId),
+		index('workspace_memberships_user_id_idx').on(table.userId)
+	]
+);
+
 export const credentials = pgTable(
 	'credentials',
 	{
@@ -100,6 +133,7 @@ export const credentials = pgTable(
 		userId: uuid('user_id')
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
+		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
 		name: text('name').notNull(),
 		kind: credentialKind('kind').notNull(),
 		username: text('username'),
@@ -116,7 +150,10 @@ export const credentials = pgTable(
 		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
 		...timestamps
 	},
-	(table) => [index('credentials_user_id_idx').on(table.userId)]
+	(table) => [
+		index('credentials_user_id_idx').on(table.userId),
+		index('credentials_workspace_id_idx').on(table.workspaceId)
+	]
 );
 
 export const hosts = pgTable(
@@ -126,6 +163,7 @@ export const hosts = pgTable(
 		userId: uuid('user_id')
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
+		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
 		name: text('name').notNull(),
 		protocol: hostProtocol('protocol').notNull(),
 		hostname: text('hostname').notNull(),
@@ -140,6 +178,7 @@ export const hosts = pgTable(
 	},
 	(table) => [
 		index('hosts_user_id_idx').on(table.userId),
+		index('hosts_workspace_id_idx').on(table.workspaceId),
 		index('hosts_credential_id_idx').on(table.credentialId)
 	]
 );
@@ -151,6 +190,7 @@ export const connectionSessions = pgTable(
 		userId: uuid('user_id')
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
+		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
 		hostId: uuid('host_id').references(() => hosts.id, { onDelete: 'set null' }),
 		protocol: hostProtocol('protocol').notNull(),
 		status: connectionSessionStatus('status').notNull().default('starting'),
@@ -161,6 +201,7 @@ export const connectionSessions = pgTable(
 	},
 	(table) => [
 		index('connection_sessions_user_id_idx').on(table.userId),
+		index('connection_sessions_workspace_id_idx').on(table.workspaceId),
 		index('connection_sessions_host_id_idx').on(table.hostId)
 	]
 );
@@ -312,6 +353,7 @@ export const importJobs = pgTable(
 export const usersRelations = relations(users, ({ many }) => ({
 	authIdentities: many(authIdentities),
 	sessions: many(sessions),
+	workspaceMemberships: many(workspaceMemberships),
 	hosts: many(hosts),
 	credentials: many(credentials),
 	sshLiveSessions: many(sshLiveSessions),
@@ -327,8 +369,24 @@ export const sessionsRelations = relations(sessions, ({ one }) => ({
 	user: one(users, { fields: [sessions.userId], references: [users.id] })
 }));
 
+export const workspacesRelations = relations(workspaces, ({ many }) => ({
+	memberships: many(workspaceMemberships),
+	hosts: many(hosts),
+	credentials: many(credentials),
+	connectionSessions: many(connectionSessions)
+}));
+
+export const workspaceMembershipsRelations = relations(workspaceMemberships, ({ one }) => ({
+	workspace: one(workspaces, {
+		fields: [workspaceMemberships.workspaceId],
+		references: [workspaces.id]
+	}),
+	user: one(users, { fields: [workspaceMemberships.userId], references: [users.id] })
+}));
+
 export const hostsRelations = relations(hosts, ({ one, many }) => ({
 	user: one(users, { fields: [hosts.userId], references: [users.id] }),
+	workspace: one(workspaces, { fields: [hosts.workspaceId], references: [workspaces.id] }),
 	credential: one(credentials, { fields: [hosts.credentialId], references: [credentials.id] }),
 	connectionSessions: many(connectionSessions),
 	sessionTickets: many(sessionTickets),
@@ -337,11 +395,19 @@ export const hostsRelations = relations(hosts, ({ one, many }) => ({
 
 export const credentialsRelations = relations(credentials, ({ one, many }) => ({
 	user: one(users, { fields: [credentials.userId], references: [users.id] }),
+	workspace: one(workspaces, {
+		fields: [credentials.workspaceId],
+		references: [workspaces.id]
+	}),
 	hosts: many(hosts)
 }));
 
 export const connectionSessionsRelations = relations(connectionSessions, ({ one }) => ({
 	user: one(users, { fields: [connectionSessions.userId], references: [users.id] }),
+	workspace: one(workspaces, {
+		fields: [connectionSessions.workspaceId],
+		references: [workspaces.id]
+	}),
 	host: one(hosts, { fields: [connectionSessions.hostId], references: [hosts.id] })
 }));
 

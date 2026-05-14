@@ -829,6 +829,7 @@ describe('websocket upgrade routing', () => {
 		await repository.createCredential({
 			id: 'credential-1',
 			userId: 'user-1',
+			workspaceId: null,
 			name: 'Shell password',
 			kind: 'password',
 			username: 'credential-user',
@@ -1234,6 +1235,7 @@ function testConnectionSessionRecord(
 	return {
 		id: 'connection-session-1',
 		userId: 'user-1',
+		workspaceId: null,
 		hostId: 'host-1',
 		protocol: 'ssh',
 		status,

@@ -6,11 +6,22 @@ import { ServiceValidationError } from './errors';
 export const BASIC_APP_SETTINGS_KEY = 'app.basic';
 const ticketTtlMinimumSeconds = 10;
 const ticketTtlMaximumSeconds = 300;
+const rdpClipboardFileTransferMinimumMiB = 1;
+const rdpClipboardFileTransferMaximumMiB = 1024;
+
+export type RdpClipboardPolicy = {
+	text: boolean;
+	files: boolean;
+	clientToRemote: boolean;
+	remoteToClient: boolean;
+	fileTransferSizeLimitMiB: number;
+};
 
 export type BasicAppSettings = {
 	ticketTtlSeconds: number;
 	terminalFontSize: number;
 	clipboardSync: boolean;
+	rdpClipboard: RdpClipboardPolicy;
 	rememberLastActiveTab: boolean;
 };
 
@@ -20,6 +31,13 @@ export const DEFAULT_BASIC_APP_SETTINGS: BasicAppSettings = {
 	ticketTtlSeconds: 60,
 	terminalFontSize: 13,
 	clipboardSync: true,
+	rdpClipboard: {
+		text: true,
+		files: false,
+		clientToRemote: true,
+		remoteToClient: true,
+		fileTransferSizeLimitMiB: 16
+	},
 	rememberLastActiveTab: true
 };
 
@@ -102,6 +120,7 @@ export function validateBasicAppSettingsInput(input: BasicAppSettingsInput): Bas
 	const ticketTtlSeconds = asInteger(input.ticketTtlSeconds);
 	const terminalFontSize = asInteger(input.terminalFontSize);
 	const clipboardSync = asBoolean(input.clipboardSync);
+	const rdpClipboard = validateRdpClipboardPolicyInput(input.rdpClipboard, issues);
 	const rememberLastActiveTab = asBoolean(input.rememberLastActiveTab);
 
 	if (
@@ -130,6 +149,7 @@ export function validateBasicAppSettingsInput(input: BasicAppSettingsInput): Bas
 		ticketTtlSeconds: ticketTtlSeconds!,
 		terminalFontSize: terminalFontSize!,
 		clipboardSync: clipboardSync!,
+		rdpClipboard: normalizeRdpClipboardPolicyDirections(rdpClipboard!),
 		rememberLastActiveTab: rememberLastActiveTab!
 	};
 }
@@ -137,21 +157,121 @@ export function validateBasicAppSettingsInput(input: BasicAppSettingsInput): Bas
 function normalizeStoredSettings(value: unknown): BasicAppSettings {
 	if (!isRecord(value)) return { ...DEFAULT_BASIC_APP_SETTINGS };
 
+	const legacyClipboardSync =
+		typeof value.clipboardSync === 'boolean'
+			? value.clipboardSync
+			: DEFAULT_BASIC_APP_SETTINGS.clipboardSync;
+
 	return {
 		ticketTtlSeconds:
 			asStoredInteger(value.ticketTtlSeconds, ticketTtlMinimumSeconds, ticketTtlMaximumSeconds) ??
 			DEFAULT_BASIC_APP_SETTINGS.ticketTtlSeconds,
 		terminalFontSize:
 			asStoredInteger(value.terminalFontSize, 8, 32) ?? DEFAULT_BASIC_APP_SETTINGS.terminalFontSize,
-		clipboardSync:
-			typeof value.clipboardSync === 'boolean'
-				? value.clipboardSync
-				: DEFAULT_BASIC_APP_SETTINGS.clipboardSync,
+		clipboardSync: legacyClipboardSync,
+		rdpClipboard: normalizeStoredRdpClipboardPolicy(value.rdpClipboard, legacyClipboardSync),
 		rememberLastActiveTab:
 			typeof value.rememberLastActiveTab === 'boolean'
 				? value.rememberLastActiveTab
 				: DEFAULT_BASIC_APP_SETTINGS.rememberLastActiveTab
 	};
+}
+
+function validateRdpClipboardPolicyInput(
+	value: unknown,
+	issues: string[]
+): RdpClipboardPolicy | null {
+	if (!isRecord(value)) {
+		issues.push('rdpClipboard must be an object');
+		return null;
+	}
+
+	const text = asBoolean(value.text);
+	const files = asBoolean(value.files);
+	const clientToRemote = asBoolean(value.clientToRemote);
+	const remoteToClient = asBoolean(value.remoteToClient);
+	const fileTransferSizeLimitMiB = asInteger(value.fileTransferSizeLimitMiB);
+
+	if (text === null) issues.push('rdpClipboard.text must be a boolean');
+	if (files === null) issues.push('rdpClipboard.files must be a boolean');
+	if (clientToRemote === null) issues.push('rdpClipboard.clientToRemote must be a boolean');
+	if (remoteToClient === null) issues.push('rdpClipboard.remoteToClient must be a boolean');
+	if (
+		fileTransferSizeLimitMiB === null ||
+		fileTransferSizeLimitMiB < rdpClipboardFileTransferMinimumMiB ||
+		fileTransferSizeLimitMiB > rdpClipboardFileTransferMaximumMiB
+	) {
+		issues.push('rdpClipboard.fileTransferSizeLimitMiB must be an integer between 1 and 1024');
+	}
+
+	if (
+		text === null ||
+		files === null ||
+		clientToRemote === null ||
+		remoteToClient === null ||
+		fileTransferSizeLimitMiB === null
+	) {
+		return null;
+	}
+
+	return {
+		text,
+		files,
+		clientToRemote,
+		remoteToClient,
+		fileTransferSizeLimitMiB
+	};
+}
+
+function normalizeStoredRdpClipboardPolicy(
+	value: unknown,
+	legacyClipboardSync: boolean
+): RdpClipboardPolicy {
+	if (!isRecord(value)) {
+		return normalizeRdpClipboardPolicyDirections({
+			...DEFAULT_BASIC_APP_SETTINGS.rdpClipboard,
+			text: legacyClipboardSync,
+			clientToRemote: legacyClipboardSync,
+			remoteToClient: legacyClipboardSync
+		});
+	}
+
+	return normalizeRdpClipboardPolicyDirections({
+		text:
+			typeof value.text === 'boolean'
+				? value.text
+				: legacyClipboardSync && DEFAULT_BASIC_APP_SETTINGS.rdpClipboard.text,
+		files:
+			typeof value.files === 'boolean'
+				? value.files
+				: DEFAULT_BASIC_APP_SETTINGS.rdpClipboard.files,
+		clientToRemote:
+			typeof value.clientToRemote === 'boolean'
+				? value.clientToRemote
+				: legacyClipboardSync && DEFAULT_BASIC_APP_SETTINGS.rdpClipboard.clientToRemote,
+		remoteToClient:
+			typeof value.remoteToClient === 'boolean'
+				? value.remoteToClient
+				: legacyClipboardSync && DEFAULT_BASIC_APP_SETTINGS.rdpClipboard.remoteToClient,
+		fileTransferSizeLimitMiB:
+			asStoredInteger(
+				value.fileTransferSizeLimitMiB,
+				rdpClipboardFileTransferMinimumMiB,
+				rdpClipboardFileTransferMaximumMiB
+			) ?? DEFAULT_BASIC_APP_SETTINGS.rdpClipboard.fileTransferSizeLimitMiB
+	});
+}
+
+function normalizeRdpClipboardPolicyDirections(policy: RdpClipboardPolicy): RdpClipboardPolicy {
+	if (!policy.text && !policy.files) {
+		return {
+			...policy,
+			clientToRemote: false,
+			remoteToClient: false
+		};
+	}
+
+	return policy;
 }
 
 function asInteger(value: unknown): number | null {

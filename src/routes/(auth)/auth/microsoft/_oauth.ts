@@ -8,6 +8,7 @@ import {
 	type MicrosoftEntraAuthConfig
 } from '$lib/server/auth/microsoft';
 import {
+	AuthError,
 	createSessionForUser,
 	hasAnyUser,
 	setSessionCookie,
@@ -121,7 +122,13 @@ export async function completeMicrosoftCallback(event: RequestEvent): Promise<ne
 		isAdmin,
 		claims
 	});
-	const { token } = await createSessionForUser(userId, event);
+	let token: string;
+	try {
+		({ token } = await createSessionForUser(userId, event));
+	} catch (caught) {
+		if (caught instanceof AuthError) error(403, caught.message);
+		throw caught;
+	}
 	setSessionCookie(event.cookies, token, shouldUseSecureSessionCookie(event));
 
 	redirect(303, '/hosts');

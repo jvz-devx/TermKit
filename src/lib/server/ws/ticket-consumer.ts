@@ -183,25 +183,21 @@ async function resolveCredential(
 	const credential = await credentials.getCredential(userId, credentialId);
 	if (!credential) return null;
 
-	return toProtocolCredential(userId, credential, crypto);
+	return toProtocolCredential(credential, crypto);
 }
 
-function toProtocolCredential(
-	userId: string,
-	credential: CredentialRecord,
-	crypto: CredentialCrypto
-): Credential {
+function toProtocolCredential(credential: CredentialRecord, crypto: CredentialCrypto): Credential {
 	const secret = crypto.decrypt(
 		{
 			ciphertext: credential.encryptedSecret,
 			metadata: credential.encryption
 		},
-		credentialSecretContext(userId, credential.id)
+		credentialSecretContext(credential.userId, credential.id)
 	);
 	const username = credential.username ?? undefined;
 
 	if (credential.kind === 'ssh_key') {
-		const passphrase = decryptPassphrase(userId, credential, crypto);
+		const passphrase = decryptPassphrase(credential, crypto);
 
 		return {
 			kind: 'ssh_key',
@@ -219,7 +215,6 @@ function toProtocolCredential(
 }
 
 function decryptPassphrase(
-	userId: string,
 	credential: CredentialRecord,
 	crypto: CredentialCrypto
 ): string | undefined {
@@ -230,7 +225,7 @@ function decryptPassphrase(
 				ciphertext: encrypted.ciphertext,
 				metadata: encrypted.encryption
 			},
-			credentialPassphraseContext(userId, credential.id)
+			credentialPassphraseContext(credential.userId, credential.id)
 		);
 	}
 

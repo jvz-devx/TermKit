@@ -57,6 +57,7 @@ describe('HostService', () => {
 		await repository.createCredential({
 			id: 'credential-1',
 			userId: 'user-1',
+			workspaceId: null,
 			name: 'Prod password',
 			kind: 'password',
 			username: 'root',

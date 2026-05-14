@@ -13,10 +13,12 @@
 			title: string;
 			url: string;
 			icon?: Component;
+			adminOnly?: boolean;
 			isActive?: boolean;
 			items?: {
 				title: string;
 				url: string;
+				adminOnly?: boolean;
 			}[];
 		}[];
 	} = $props();
@@ -43,6 +45,7 @@
 		items?: {
 			title: string;
 			url: string;
+			adminOnly?: boolean;
 		}[];
 	}) {
 		return (

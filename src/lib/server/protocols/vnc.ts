@@ -58,7 +58,7 @@ export async function resolveVncLaunchCredentials(
 			ciphertext: credential.encryptedSecret,
 			metadata: credential.encryption
 		},
-		credentialSecretContext(userId, credential.id)
+		credentialSecretContext(credential.userId, credential.id)
 	);
 
 	return {

@@ -93,6 +93,7 @@ describe('SessionTicketService', () => {
 		const host = await repository.createHost({
 			id: 'host-1',
 			userId: 'user-1',
+			workspaceId: null,
 			name: 'Shell',
 			protocol: 'ssh',
 			hostname: 'shell.example.test',
@@ -205,6 +206,7 @@ describe('SessionTicketService', () => {
 		await repository.createCredential({
 			id: 'credential-1',
 			userId: 'user-1',
+			workspaceId: null,
 			name: 'Shell password',
 			kind: 'password',
 			username: 'credential-user',
