@@ -1,5 +1,5 @@
 import { createCipheriv, hkdfSync } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CredentialService } from '$lib/server/services/credentials';
 import { HostService } from '$lib/server/services/hosts';
 import { InMemoryTermixServicesRepository } from '$lib/server/services/repository';
@@ -39,6 +39,10 @@ function createService() {
 }
 
 describe('ImportService', () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
 	it('parses JSON arrays and object-wrapped connection exports', () => {
 		expect(parseImportUpload({ fileName: 'termix.json', bytes: '[{"id":1}]' })).toMatchObject({
 			sourceKind: 'json',
@@ -149,6 +153,56 @@ describe('ImportService', () => {
 		});
 	});
 
+	it('surfaces top-level source account rows as import warnings', async () => {
+		const { imports, repository } = createService();
+		const result = await imports.validate('user-1', {
+			fileName: 'termix.json',
+			bytes: JSON.stringify({
+				hosts: [
+					{
+						id: 'prod',
+						name: 'Prod SSH',
+						protocol: 'ssh',
+						hostname: 'prod.example.test'
+					}
+				],
+				users: [
+					{
+						id: 'source-user-1',
+						email: 'owner@example.test',
+						password_hash: '$2b$10$legacy-termix-password-hash'
+					},
+					{
+						id: 'source-user-2',
+						email: 'viewer@example.test'
+					}
+				]
+			})
+		});
+
+		expect(result.job.status).toBe('validated');
+		expect(result.job.summary).toMatchObject({
+			totalRecords: 3,
+			validHosts: 1,
+			warnings: 2
+		});
+		expect(result.job.warnings).toEqual([
+			{
+				sourceId: 'source-user-1',
+				code: 'unsupported_user_account',
+				message:
+					'Source user accounts or password hashes were not imported; TermixKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
+			},
+			{
+				sourceId: 'source-user-2',
+				code: 'unsupported_user_account',
+				message:
+					'Source user accounts or password hashes were not imported; TermixKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
+			}
+		]);
+		await expect(repository.listHosts('user-1')).resolves.toHaveLength(0);
+	});
+
 	it('uses sourceSecret during import so decryptable source credentials are stored', async () => {
 		const { imports, repository } = createService();
 		const encryptedPassword = encryptTermixField({
@@ -184,6 +238,43 @@ describe('ImportService', () => {
 			warnings: 0
 		});
 		expect(credential?.encryptedSecret).toBe('encrypted:source-password');
+	});
+
+	it('falls back to the environment source secret for encrypted imports', async () => {
+		const { imports, repository } = createService();
+		vi.stubEnv('TERMIXKIT_IMPORT_SOURCE_SECRET', sourceSecret);
+		const encryptedPassword = encryptTermixField({
+			plaintext: 'env-source-password',
+			sourceSecret,
+			recordId: 'prod-env',
+			fieldName: 'password'
+		});
+
+		const result = await imports.import('user-1', {
+			fileName: 'termix.json',
+			bytes: JSON.stringify({
+				records: [
+					{
+						id: 'prod-env',
+						name: 'Prod SSH',
+						protocol: 'ssh',
+						hostname: 'prod.example.test',
+						username: 'deploy',
+						password: JSON.stringify(encryptedPassword)
+					}
+				]
+			})
+		});
+
+		const [credential] = await repository.listCredentials('user-1');
+
+		expect(result.job.status).toBe('completed');
+		expect(result.job.summary).toMatchObject({
+			importedHosts: 1,
+			importedCredentials: 1,
+			warnings: 0
+		});
+		expect(credential?.encryptedSecret).toBe('encrypted:env-source-password');
 	});
 });
 

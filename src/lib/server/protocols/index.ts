@@ -1,4 +1,3 @@
-export { createRdpGatewayAdapter, createRdpGatewayPlaceholderAdapter } from './rdp';
 export { createSshAdapter } from './ssh';
 export { createTelnetAdapter, negotiate } from './telnet';
 export { createVncAdapter } from './vnc';

@@ -100,6 +100,7 @@ export type ImportWarning = {
 		| 'missing_hostname'
 		| 'invalid_port'
 		| 'unsupported_field'
+		| 'unsupported_user_account'
 		| 'credential_requires_decryption'
 		| 'credential_decryption_failed'
 		| 'unsupported_encrypted_credential';
@@ -144,14 +145,17 @@ export function mapTermixRecords(
 
 	for (const record of records) {
 		const sourceId = String(record.id);
+		const sourceAccountWarningRecorded = collectSourceAccountWarning(record, sourceId, warnings);
 		const protocol = normalizeProtocol(record.protocol ?? record.connectionType);
 
 		if (!protocol || !SUPPORTED_PROTOCOLS.has(protocol)) {
-			warnings.push({
-				sourceId,
-				code: 'unsupported_protocol',
-				message: `Record uses unsupported protocol "${record.protocol ?? record.connectionType ?? 'unknown'}".`
-			});
+			if (!sourceAccountWarningRecorded) {
+				warnings.push({
+					sourceId,
+					code: 'unsupported_protocol',
+					message: `Record uses unsupported protocol "${record.protocol ?? record.connectionType ?? 'unknown'}".`
+				});
+			}
 			skippedRecords += 1;
 			continue;
 		}
@@ -565,6 +569,41 @@ function collectUnsupportedWarnings(
 	if (hasAnySourceValue(record, ['audit', 'auditLog', 'audit_log', 'auditLogs', 'audit_logs'])) {
 		addUnsupportedWarning(warnings, sourceId, 'Audit records were ignored.');
 	}
+}
+
+function collectSourceAccountWarning(
+	record: TermixSourceRecord,
+	sourceId: string,
+	warnings: ImportWarning[]
+): boolean {
+	if (
+		!hasAnySourceValue(record, [
+			'sourceUserPasswordHash',
+			'source_user_password_hash',
+			'ownerPasswordHash',
+			'owner_password_hash',
+			'userPasswordHash',
+			'user_password_hash',
+			'authPasswordHash',
+			'auth_password_hash',
+			'passwordHash',
+			'password_hash',
+			'users',
+			'userAccounts',
+			'user_accounts',
+			'accounts'
+		])
+	) {
+		return false;
+	}
+
+	warnings.push({
+		sourceId,
+		code: 'unsupported_user_account',
+		message:
+			'Source user accounts or password hashes were not imported; TermixKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
+	});
+	return true;
 }
 
 function collectHostMetadata(record: TermixSourceRecord): Record<string, string> {

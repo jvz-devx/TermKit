@@ -156,6 +156,33 @@ describe('mapTermixRecords', () => {
 		]);
 	});
 
+	it('warns when source user password hashes cannot be imported', () => {
+		const result = mapTermixRecords([
+			{
+				id: 'owned-auth',
+				protocol: 'ssh',
+				hostname: 'owned.example.test',
+				ownerId: 42,
+				raw: {
+					owner_password_hash: '$2b$10$legacy-termix-password-hash'
+				}
+			}
+		]);
+
+		expect(result.hosts).toHaveLength(1);
+		expect(result.hosts[0]?.metadata).toEqual({
+			sourceUserId: '42'
+		});
+		expect(result.warnings).toEqual([
+			{
+				sourceId: 'owned-auth',
+				code: 'unsupported_user_account',
+				message:
+					'Source user accounts or password hashes were not imported; TermixKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
+			}
+		]);
+	});
+
 	it('does not warn for disabled unsupported source data flags', () => {
 		const result = mapTermixRecords([
 			{

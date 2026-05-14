@@ -4,7 +4,6 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { getSessionFromToken, sessionCookieName } from '$lib/server/auth';
 import type { SshAttachTicket } from '$lib/server/ssh-live/types';
 import {
-	createRdpGatewayPlaceholderAdapter,
 	createSshAdapter,
 	createTelnetAdapter,
 	createVncAdapter,
@@ -56,7 +55,7 @@ export type LiveSshManager = {
 
 export type { SshAttachTicket } from '$lib/server/ssh-live/types';
 
-const WS_PATH = /^\/ws\/(ssh|vnc|telnet|rdp)\/([^/]+)$/;
+const WS_PATH = /^\/ws\/(ssh|vnc|telnet)\/([^/]+)$/;
 const SSH_LIVE_PATH = /^\/ws\/ssh\/live\/([^/]+)$/;
 
 const rejectingSshAttachTicketConsumer: SshAttachTicketConsumer = {
@@ -186,12 +185,7 @@ function isIgnoredUpgradePath(url: string | undefined, ignoredPaths: RegExp[]): 
 }
 
 export function defaultProtocolAdapters(): ProtocolAdapter[] {
-	return [
-		createSshAdapter(),
-		createVncAdapter(),
-		createTelnetAdapter(),
-		createRdpGatewayPlaceholderAdapter()
-	];
+	return [createSshAdapter(), createVncAdapter(), createTelnetAdapter()];
 }
 
 export function parseWebSocketRoute(

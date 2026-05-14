@@ -56,6 +56,12 @@ describe('websocket upgrade routing', () => {
 		});
 	});
 
+	it('does not expose an RDP websocket route', () => {
+		expect.assertions(1);
+
+		expect(parseWebSocketRoute({ url: '/ws/rdp/ticket-123' })).toBeNull();
+	});
+
 	it('preserves normal SSH ticket routes when a ticket starts with live', async () => {
 		expect.assertions(4);
 

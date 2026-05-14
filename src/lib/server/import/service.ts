@@ -68,7 +68,7 @@ export class ImportService {
 			await this.jobs.updateImportJob(userId, job.id, { status: 'validating' });
 			const parsed = parseImportUpload(upload);
 			const mapping = mapTermixRecords(parsed.records, {
-				sourceSecret: upload.sourceSecret
+				sourceSecret: resolveImportSourceSecret(upload.sourceSecret)
 			});
 			const summary = summaryFromMapping(parsed.records.length, mapping);
 			const updated = await this.jobs.updateImportJob(userId, job.id, {
@@ -96,7 +96,7 @@ export class ImportService {
 			await this.jobs.updateImportJob(userId, job.id, { status: 'importing' });
 			const parsed = parseImportUpload(upload);
 			const mapping = mapTermixRecords(parsed.records, {
-				sourceSecret: upload.sourceSecret
+				sourceSecret: resolveImportSourceSecret(upload.sourceSecret)
 			});
 			const failures: string[] = [];
 			const credentialIds = new Map<string, string>();
@@ -234,10 +234,47 @@ function extractRecordArray(parsed: unknown): unknown[] | null {
 
 	for (const key of ['records', 'connections', 'hosts']) {
 		const value = parsed[key];
-		if (Array.isArray(value)) return value;
+		if (Array.isArray(value)) return [...value, ...extractSourceAccountRows(parsed)];
 	}
 
-	return null;
+	const sourceAccountRows = extractSourceAccountRows(parsed);
+	return sourceAccountRows.length > 0 ? sourceAccountRows : null;
+}
+
+function extractSourceAccountRows(parsed: Record<string, unknown>): unknown[] {
+	const rows: unknown[] = [];
+	for (const key of ['users', 'userAccounts', 'user_accounts', 'accounts']) {
+		const value = parsed[key];
+		if (!Array.isArray(value)) continue;
+		value.forEach((account, index) => {
+			rows.push(sourceAccountRecord(key, account, index));
+		});
+	}
+	return rows;
+}
+
+function sourceAccountRecord(
+	key: string,
+	account: unknown,
+	index: number
+): Record<string, unknown> {
+	if (isRecord(account)) {
+		return {
+			[key]: account,
+			...account,
+			id:
+				typeof account.id === 'string' || typeof account.id === 'number'
+					? account.id
+					: `${key}-${index + 1}`,
+			raw: { ...account, [key]: account }
+		};
+	}
+
+	return {
+		id: `${key}-${index + 1}`,
+		[key]: account,
+		raw: { [key]: account }
+	};
 }
 
 function toTermixSourceRecord(value: unknown, index: number): TermixSourceRecord {
@@ -278,6 +315,10 @@ function previewFromMapping(mapping: ImportMappingResult): ImportPreview {
 
 function sourceName(fileName: string): string {
 	return fileName.trim() || 'upload';
+}
+
+function resolveImportSourceSecret(uploadSecret: string | undefined): string | undefined {
+	return uploadSecret?.trim() || process.env.TERMIXKIT_IMPORT_SOURCE_SECRET?.trim() || undefined;
 }
 
 function formatFailure(scope: string, error: unknown): string {
