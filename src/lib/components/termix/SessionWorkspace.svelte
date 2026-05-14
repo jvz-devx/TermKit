@@ -38,7 +38,7 @@
 	import RdpPane from './session/RdpPane.svelte';
 	import SftpBrowser from './session/SftpBrowser.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
-	import VncPane from './session/VncPane.svelte';
+	import VncLaunchPane from './session/VncLaunchPane.svelte';
 
 	type WorkspaceProtocol = 'ssh' | 'sftp' | 'rdp' | 'vnc' | 'telnet';
 	type LauncherProtocolFilter = WorkspaceProtocol | 'all';
@@ -654,26 +654,7 @@
 					/>
 				{:else if browser && activeProtocol === 'vnc'}
 					{#key `vnc:${selectedHost.id}:${reconnectNonce}`}
-						{#await getSessionLaunch(selectedHost.id, 'vnc')}
-							<StatePanel state="loading" title="Opening VNC" detail="Creating a session ticket." />
-						{:then currentLaunch}
-							<VncPane
-								websocketUrl={currentLaunch.websocketPath
-									? toWebSocketUrl(currentLaunch.websocketPath)
-									: undefined}
-								credentials={{
-									username: currentLaunch.vncCredentials?.username ?? selectedHost.username,
-									password: currentLaunch.vncCredentials?.password ?? null
-								}}
-								credentialStrategy={currentLaunch.vncCredentials?.source ?? 'none'}
-							/>
-						{:catch caught}
-							<StatePanel
-								state="error"
-								title="Session launch failed"
-								detail={errorMessage(caught)}
-							/>
-						{/await}
+						<VncLaunchPane hostId={selectedHost.id} fallbackUsername={selectedHost.username} />
 					{/key}
 				{/if}
 			</Tabs.Content>

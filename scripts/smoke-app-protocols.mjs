@@ -122,13 +122,21 @@ try {
 	);
 	pass('Telnet websocket with NAWS', 'saw telnet-ready, echo, and 132x43 NAWS');
 
+	const vncCredential = await createVncCredential(api);
 	const vncHost = await createHost(api, {
 		name: 'Smoke VNC fixture',
 		protocol: 'vnc',
 		hostname: '127.0.0.1',
 		port: fixtures.vncPort,
+		username: 'vnc-user',
+		credentialId: vncCredential.id,
 		tags: ['smoke']
 	});
+	await smokeVncSavedCredentialLaunchUi(auth.page, vncHost.id, fixtures.vncState);
+	pass(
+		'VNC saved credential staging',
+		'staged saved password, noVNC sent an auth response, and the secret was not rendered'
+	);
 	await smokeVncWebSocket(api, app.baseUrl, auth.cookieHeader, vncHost.id, fixtures.vncState);
 	pass('VNC websocket RFB banner', 'proxied RFB 003.008 banner');
 
@@ -444,9 +452,49 @@ async function createRdpCredential(api) {
 	return credential;
 }
 
+async function createVncCredential(api) {
+	const { credential } = await api.post('/api/credentials', {
+		name: 'Smoke VNC password',
+		kind: 'password',
+		username: 'saved-vnc-user',
+		secret: 'saved-vnc-password'
+	});
+	return credential;
+}
+
 async function createHost(api, input) {
 	const { host } = await api.post('/api/hosts', input);
 	return host;
+}
+
+async function smokeVncSavedCredentialLaunchUi(page, hostId, vncState) {
+	const launchPage = await page.context().newPage();
+	const initialAuthResponseCount = vncState.authResponseCount;
+
+	try {
+		await launchPage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=vnc`);
+		await waitFor(
+			async () =>
+				((await launchPage.locator('body').textContent()) ?? '').includes(
+					'saved password staged in browser memory'
+				),
+			async () => {
+				const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
+					.replace(/\s+/g, ' ')
+					.trim();
+				return `VNC launch UI did not show saved-password staging state: ${bodyText}`;
+			}
+		);
+		const bodyText = (await launchPage.locator('body').textContent()) ?? '';
+		assert(!bodyText.includes('saved-vnc-password'), 'VNC pane rendered the saved password');
+		await waitFor(
+			() => vncState.authResponseCount > initialAuthResponseCount,
+			() =>
+				`VNC fixture did not receive a password-auth response from noVNC. ${describeVncState(vncState)}`
+		);
+	} finally {
+		await launchPage.close().catch(() => {});
+	}
 }
 
 async function smokeRdpSessionLaunchUi(page, hostId, gateway) {
@@ -695,6 +743,7 @@ async function smokeTelnetWebSocket(api, baseUrl, cookieHeader, hostId, telnetSt
 
 async function smokeVncWebSocket(api, baseUrl, cookieHeader, hostId, vncState) {
 	const ticket = await createTicket(api, hostId, 'vnc');
+	const initialClientVersionCount = vncState.clientVersionCount;
 	const socket = await openWebSocket(
 		baseUrl,
 		`/ws/vnc/${encodeURIComponent(ticket)}`,
@@ -708,7 +757,7 @@ async function smokeVncWebSocket(api, baseUrl, cookieHeader, hostId, vncState) {
 			return true;
 		});
 		await waitFor(
-			() => vncState.sawClientVersion,
+			() => vncState.clientVersionCount > initialClientVersionCount,
 			'VNC fixture did not receive client RFB version.'
 		);
 	} finally {
@@ -1064,14 +1113,63 @@ function createTelnetFixtureServer() {
 
 function createVncFixtureServer() {
 	const sockets = new Set();
-	const state = { sawClientVersion: false };
+	const state = {
+		events: [],
+		lastStage: 'idle',
+		selectedSecurityType: null,
+		authResponseBytes: 0,
+		clientVersionCount: 0,
+		authResponseCount: 0,
+		sawClientVersion: false,
+		sawAuthResponse: false
+	};
 	const server = createServer((socket) => {
 		sockets.add(socket);
 		socket.once('close', () => sockets.delete(socket));
 		socket.write(rfbVersion);
-		socket.once('data', (chunk) => {
-			state.sawClientVersion = chunk.subarray(0, rfbVersion.length).equals(rfbVersion);
-			socket.end();
+		recordVncEvent(state, 'server-version-sent');
+		let buffer = Buffer.alloc(0);
+		let stage = 'version';
+
+		socket.on('data', (chunk) => {
+			buffer = Buffer.concat([buffer, chunk]);
+			state.lastStage = stage;
+			recordVncEvent(state, `${stage}:${chunk.length}b`);
+
+			if (stage === 'version' && buffer.length >= rfbVersion.length) {
+				state.sawClientVersion = buffer.subarray(0, rfbVersion.length).equals(rfbVersion);
+				if (state.sawClientVersion) state.clientVersionCount += 1;
+				buffer = buffer.subarray(rfbVersion.length);
+				stage = 'security-type';
+				state.lastStage = stage;
+				socket.write(Buffer.from([1, 2])); // one supported security type: VNC auth
+				recordVncEvent(state, 'security-types-sent:vnc-auth');
+			}
+
+			if (stage === 'security-type' && buffer.length >= 1) {
+				state.selectedSecurityType = buffer[0];
+				if (buffer[0] !== 2) {
+					recordVncEvent(state, `unsupported-security-type:${buffer[0]}`);
+					socket.end();
+					return;
+				}
+				buffer = buffer.subarray(1);
+				stage = 'auth-response';
+				state.lastStage = stage;
+				socket.write(Buffer.from('termixkit-vnc-00'));
+				recordVncEvent(state, 'challenge-sent');
+			}
+
+			if (stage === 'auth-response' && buffer.length >= 16) {
+				state.authResponseBytes = buffer.length;
+				state.sawAuthResponse = true;
+				state.authResponseCount += 1;
+				buffer = buffer.subarray(16);
+				stage = 'server-init';
+				state.lastStage = stage;
+				socket.write(Buffer.concat([Buffer.alloc(4), rfbServerInit('TermixKit smoke VNC')]));
+				recordVncEvent(state, 'auth-response-received');
+			}
 		});
 	});
 	server.closeAllClients = () => {
@@ -1079,6 +1177,25 @@ function createVncFixtureServer() {
 		sockets.clear();
 	};
 	return { server, state };
+}
+
+function recordVncEvent(state, event) {
+	state.events.push(event);
+	if (state.events.length > 12) state.events.shift();
+}
+
+function describeVncState(state) {
+	return `stage=${state.lastStage} selectedSecurityType=${state.selectedSecurityType ?? '<none>'} authResponseBytes=${state.authResponseBytes} events=${state.events.join(' > ') || '<none>'}`;
+}
+
+function rfbServerInit(name) {
+	const nameBuffer = Buffer.from(name);
+	const pixelFormat = Buffer.from([32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0]);
+	const header = Buffer.alloc(8);
+	header.writeUInt16BE(1, 0);
+	header.writeUInt16BE(1, 2);
+	header.writeUInt32BE(nameBuffer.length, 4);
+	return Buffer.concat([header.subarray(0, 4), pixelFormat, header.subarray(4), nameBuffer]);
 }
 
 function normalizeRemotePath(path) {

@@ -20,12 +20,14 @@
 		websocketUrl,
 		credentials,
 		credentialStrategy = 'none',
-		viewOnly = false
+		viewOnly = false,
+		onSavedPasswordStaged
 	}: {
 		websocketUrl?: string;
 		credentials?: VncCredentials;
 		credentialStrategy?: CredentialStrategy;
 		viewOnly?: boolean;
+		onSavedPasswordStaged?: () => void;
 	} = $props();
 
 	let mountElement: HTMLDivElement;
@@ -89,6 +91,7 @@
 				rfb.showDotCursor = true;
 
 				rfb.addEventListener('connect', () => {
+					scrubParentSavedPassword();
 					connectionState = 'connected';
 					authPromptVisible = false;
 					savedCredentialFallbackPrompt = false;
@@ -96,6 +99,7 @@
 					rfb?.focus();
 				});
 				rfb.addEventListener('disconnect', () => {
+					scrubParentSavedPassword();
 					if (savedCredentialFallbackPrompt) {
 						connectionState = 'error';
 						authPromptVisible = true;
@@ -108,6 +112,7 @@
 					detail = 'VNC session closed.';
 				});
 				rfb.addEventListener('securityfailure', () => {
+					scrubParentSavedPassword();
 					connectionState = 'error';
 					if (credentialStrategy === 'saved-password' && !savedPasswordCleared && rfb) {
 						clearStagedSavedPassword(rfb);
@@ -121,6 +126,7 @@
 						'VNC security negotiation failed. Reconnect the session if the target rejected the credentials.';
 				});
 				rfb.addEventListener('credentialsrequired', (event) => {
+					scrubParentSavedPassword();
 					connectionState = 'error';
 					showManualCredentialPrompt(event.detail?.types ?? []);
 					detail =
@@ -177,6 +183,12 @@
 
 		const username = sessionUsername.trim() || defaultUsername;
 		rfb.sendCredentials(username ? { username } : {});
+	}
+
+	function scrubParentSavedPassword() {
+		if (credentialStrategy === 'saved-password' && credentials?.password) {
+			onSavedPasswordStaged?.();
+		}
 	}
 
 	function showManualCredentialPrompt(types: string[]) {
