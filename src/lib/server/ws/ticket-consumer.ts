@@ -60,12 +60,13 @@ export class SessionTicketConsumer implements TicketConsumer {
 				this.crypto
 			);
 			const consumed = await this.tickets.consume(ticket, now, userId, protocol as HostProtocol);
+			if (consumed.protocol !== protocol) return null;
 
 			return {
 				ticketId: consumed.id,
 				userId: consumed.userId,
 				hostId: consumed.hostId,
-				protocol: consumed.protocol,
+				protocol,
 				target: {
 					host: snapshot.host.hostname,
 					port: snapshot.host.port,

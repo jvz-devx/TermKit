@@ -18,6 +18,12 @@ import {
 	type ConnectionSessionLifecycleRecorder
 } from '$lib/server/services/connection-sessions';
 import {
+	proxyTcpTunnelWebSocket,
+	resolveSshTunnelConnectTarget,
+	tunnelFailureCode
+} from '$lib/server/protocols/ssh-tunnel';
+import { sshTunnelService } from '$lib/server/services/ssh-tunnels';
+import {
 	sshLiveSessionService,
 	type SshLiveSessionService
 } from '$lib/server/services/ssh-live-sessions';
@@ -59,6 +65,7 @@ export type { SshAttachTicket } from '$lib/server/ssh-live/types';
 
 const WS_PATH = /^\/ws\/(ssh|vnc|telnet)\/([^/]+)$/;
 const SSH_LIVE_PATH = /^\/ws\/ssh\/live\/([^/]+)$/;
+const SSH_TUNNEL_PATH = /^\/ws\/tunnel\/([^/]+)$/;
 
 const rejectingSshAttachTicketConsumer: SshAttachTicketConsumer = {
 	async consume() {
@@ -117,7 +124,52 @@ export function installWebSocketUpgrades(
 			return;
 		}
 
-		if (route.live) {
+		if ('tunnel' in route) {
+			const tunnelSession = await sshTunnelService
+				.touchSessionForProxy(authenticatedSession.userId, route.sessionId)
+				.catch((error: unknown) => {
+					logSshTunnelUpgradeFailure(error);
+					return null;
+				});
+
+			if (!tunnelSession) {
+				rejectUpgrade(socket, 404, 'SSH tunnel session unavailable');
+				return;
+			}
+
+			const sshTarget = await resolveSshTunnelConnectTarget(
+				authenticatedSession.userId,
+				tunnelSession.hostId
+			).catch((error: unknown) => {
+				logSshTunnelUpgradeFailure(error);
+				return null;
+			});
+
+			if (!sshTarget) {
+				await sshTunnelService
+					.failSession(authenticatedSession.userId, tunnelSession.id, 'credential_missing')
+					.catch(() => undefined);
+				await connectionSessions
+					.fail(tunnelSession.id, 'credential_missing')
+					.catch(() => undefined);
+				rejectUpgrade(socket, 502, 'SSH tunnel target unavailable');
+				return;
+			}
+
+			webSockets.handleUpgrade(request, socket, head, (webSocket) => {
+				webSockets.emit('connection', webSocket, request);
+				void handleSshTunnelConnection(
+					webSocket,
+					authenticatedSession.userId,
+					tunnelSession,
+					sshTarget,
+					connectionSessions
+				);
+			});
+			return;
+		}
+
+		if ('live' in route && route.live) {
 			if (!liveSshManager) {
 				rejectUpgrade(socket, 501, 'Live SSH manager unavailable');
 				return;
@@ -208,15 +260,24 @@ export function parseWebSocketRoute(
 ):
 	| { protocol: Protocol; ticket: string; live?: false }
 	| { protocol: 'ssh'; ticket: string; live: true }
+	| { tunnel: true; sessionId: string }
 	| null {
 	const url = new URL(request.url ?? '/', 'http://localhost');
 	const liveMatch = SSH_LIVE_PATH.exec(url.pathname);
+	const tunnelMatch = SSH_TUNNEL_PATH.exec(url.pathname);
 
 	if (liveMatch) {
 		return {
 			protocol: 'ssh',
 			ticket: decodeURIComponent(liveMatch[1]),
 			live: true
+		};
+	}
+
+	if (tunnelMatch) {
+		return {
+			tunnel: true,
+			sessionId: decodeURIComponent(tunnelMatch[1])
 		};
 	}
 
@@ -396,6 +457,12 @@ function logSshAttachTicketUpgradeFailure(error: unknown): void {
 	});
 }
 
+function logSshTunnelUpgradeFailure(error: unknown): void {
+	console.warn('WebSocket SSH tunnel upgrade failed', {
+		error: diagnosticError(error)
+	});
+}
+
 function diagnosticError(error: unknown): { name: string; message: string } {
 	if (error instanceof Error) {
 		const isCredentialEncryptionError = error.name === 'CredentialEncryptionError';
@@ -526,6 +593,27 @@ async function handleLiveSshConnection(
 	} finally {
 		releaseClosePersistence!();
 		attachmentPersistence.delete(attachTicket.sshLiveSessionId);
+	}
+}
+
+async function handleSshTunnelConnection(
+	webSocket: WebSocket,
+	userId: string,
+	tunnelSession: Awaited<ReturnType<typeof sshTunnelService.touchSessionForProxy>>,
+	sshTarget: Awaited<ReturnType<typeof resolveSshTunnelConnectTarget>>,
+	connectionSessions: ConnectionSessionLifecycleRecorder
+): Promise<void> {
+	try {
+		await proxyTcpTunnelWebSocket(sshTarget, tunnelSession, webSocket);
+	} catch (error) {
+		const failureCode = tunnelFailureCode(error);
+		await sshTunnelService
+			.failSession(userId, tunnelSession.id, failureCode)
+			.catch(() => undefined);
+		await connectionSessions.fail(tunnelSession.id, failureCode).catch(() => undefined);
+		if (webSocket.readyState === webSocket.OPEN) {
+			webSocket.close(1011, 'ssh tunnel failed');
+		}
 	}
 }
 

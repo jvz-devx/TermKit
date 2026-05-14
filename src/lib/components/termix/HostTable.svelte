@@ -20,12 +20,14 @@
 
 	const hostsQuery = listHosts();
 	const credentialsQuery = listCredentials();
-	const hostProtocols: HostProtocol[] = ['ssh', 'rdp', 'vnc', 'telnet'];
+	const hostProtocols: HostProtocol[] = ['ssh', 'rdp', 'vnc', 'telnet', 'ftp', 'ftps'];
 	const protocolLabels: Record<HostProtocol, string> = {
 		ssh: 'SSH',
 		rdp: 'RDP',
 		vnc: 'VNC',
-		telnet: 'Telnet'
+		telnet: 'Telnet',
+		ftp: 'FTP',
+		ftps: 'FTPS'
 	};
 
 	let search = $state('');

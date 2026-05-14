@@ -1,7 +1,10 @@
 import type { CredentialEncryptionContext } from '$lib/server/crypto/credentials';
 
-export const protocols = ['ssh', 'rdp', 'vnc', 'telnet'] as const;
+export const protocols = ['ssh', 'rdp', 'vnc', 'telnet', 'ftp', 'ftps'] as const;
 export type HostProtocol = (typeof protocols)[number];
+
+export const connectionProtocols = [...protocols, 'ssh_tunnel'] as const;
+export type ConnectionProtocol = (typeof connectionProtocols)[number];
 
 export const credentialKinds = ['password', 'ssh_key'] as const;
 export type CredentialKind = (typeof credentialKinds)[number];
@@ -11,6 +14,16 @@ export type WorkspaceMemberRole = (typeof workspaceMemberRoles)[number];
 
 export const connectionSessionStatuses = ['starting', 'active', 'ended', 'failed'] as const;
 export type ConnectionSessionStatus = (typeof connectionSessionStatuses)[number];
+
+export const sshTunnelSessionStatuses = [
+	'starting',
+	'active',
+	'idle',
+	'ended',
+	'failed',
+	'expired'
+] as const;
+export type SshTunnelSessionStatus = (typeof sshTunnelSessionStatuses)[number];
 
 export const sshLiveSessionStatuses = [
 	'starting',
@@ -71,11 +84,13 @@ export interface ConnectionSessionRecord {
 	userId: string;
 	workspaceId: string | null;
 	hostId: string | null;
-	protocol: HostProtocol;
+	protocol: ConnectionProtocol;
 	status: ConnectionSessionStatus;
 	startedAt: Date;
 	endedAt: Date | null;
 	errorCode: string | null;
+	errorMessage?: string | null;
+	errorDetails?: Record<string, unknown> | null;
 	updatedAt: Date;
 }
 
@@ -106,22 +121,84 @@ export interface ConnectionHistoryRecord {
 	hostName: string | null;
 	hostname: string | null;
 	hostUsername: string | null;
-	protocol: HostProtocol;
+	protocol: ConnectionProtocol;
 	startedAt: Date;
 	endedAt: Date | null;
 	durationMs: number | null;
 	status: ConnectionSessionStatus;
 	errorReason: string | null;
+	errorCode: string | null;
+	errorMessage: string | null;
+	errorDetails: Record<string, unknown> | null;
 }
 
 export interface ConnectionHistoryFilters {
 	workspaceId?: string | null;
 	hostId?: string | null;
 	userId?: string | null;
-	protocol?: HostProtocol | null;
+	protocol?: ConnectionProtocol | null;
 	status?: ConnectionSessionStatus | null;
 	startedAfter?: Date | null;
 	startedBefore?: Date | null;
+}
+
+export interface SshTunnelProfileRecord {
+	id: string;
+	userId: string;
+	workspaceId: string | null;
+	sshHostId: string;
+	name: string;
+	targetHost: string;
+	targetPort: number;
+	description: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface SshTunnelProfileFilters {
+	workspaceId?: string | null;
+	sshHostId?: string | null;
+	userId?: string | null;
+}
+
+export interface SshTunnelSessionRecord {
+	id: string;
+	profileId: string | null;
+	userId: string;
+	workspaceId: string | null;
+	sshHostId: string | null;
+	targetHost: string;
+	targetPort: number;
+	publicPath: string;
+	status: SshTunnelSessionStatus;
+	startedAt: Date;
+	endedAt: Date | null;
+	lastSeenAt: Date;
+	errorCode: string | null;
+	errorMessage: string | null;
+}
+
+export interface SshTunnelSessionFilters {
+	workspaceId?: string | null;
+	sshHostId?: string | null;
+	profileId?: string | null;
+	userId?: string | null;
+	status?: SshTunnelSessionStatus | null;
+}
+
+export interface WorkspaceLayoutRecord {
+	id: string;
+	userId: string;
+	workspaceId: string | null;
+	layoutKind: string;
+	panes: Record<string, unknown>[];
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface WorkspaceLayoutFilters {
+	workspaceId?: string | null;
+	layoutKind?: string | null;
 }
 
 export interface SshLiveSessionRecord {
@@ -152,7 +229,38 @@ export interface SshAttachTicketRecord {
 }
 
 export type ConnectionSessionPatch = Partial<
-	Pick<ConnectionSessionRecord, 'status' | 'endedAt' | 'errorCode' | 'updatedAt'>
+	Pick<
+		ConnectionSessionRecord,
+		'status' | 'endedAt' | 'errorCode' | 'errorMessage' | 'errorDetails' | 'updatedAt'
+	>
+>;
+
+export type SshTunnelProfilePatch = Partial<
+	Pick<
+		SshTunnelProfileRecord,
+		'workspaceId' | 'sshHostId' | 'name' | 'targetHost' | 'targetPort' | 'description' | 'updatedAt'
+	>
+>;
+
+export type SshTunnelSessionPatch = Partial<
+	Pick<
+		SshTunnelSessionRecord,
+		| 'profileId'
+		| 'workspaceId'
+		| 'sshHostId'
+		| 'targetHost'
+		| 'targetPort'
+		| 'publicPath'
+		| 'status'
+		| 'endedAt'
+		| 'lastSeenAt'
+		| 'errorCode'
+		| 'errorMessage'
+	>
+>;
+
+export type WorkspaceLayoutPatch = Partial<
+	Pick<WorkspaceLayoutRecord, 'workspaceId' | 'layoutKind' | 'panes' | 'updatedAt'>
 >;
 
 export type SshLiveSessionPatch = Partial<
@@ -254,6 +362,50 @@ export interface ConnectionSessionRepository {
 	): Promise<ConnectionHistoryRecord[]>;
 }
 
+export interface SshTunnelProfileRepository {
+	listSshTunnelProfiles(
+		userId: string,
+		filters?: SshTunnelProfileFilters
+	): Promise<SshTunnelProfileRecord[]>;
+	getSshTunnelProfile(userId: string, id: string): Promise<SshTunnelProfileRecord | null>;
+	createSshTunnelProfile(profile: SshTunnelProfileRecord): Promise<SshTunnelProfileRecord>;
+	updateSshTunnelProfile(
+		userId: string,
+		id: string,
+		patch: SshTunnelProfilePatch
+	): Promise<SshTunnelProfileRecord | null>;
+	deleteSshTunnelProfile(userId: string, id: string): Promise<boolean>;
+}
+
+export interface SshTunnelSessionRepository {
+	listSshTunnelSessions(
+		userId: string,
+		filters?: SshTunnelSessionFilters
+	): Promise<SshTunnelSessionRecord[]>;
+	getSshTunnelSession(userId: string, id: string): Promise<SshTunnelSessionRecord | null>;
+	createSshTunnelSession(session: SshTunnelSessionRecord): Promise<SshTunnelSessionRecord>;
+	updateSshTunnelSession(
+		userId: string,
+		id: string,
+		patch: SshTunnelSessionPatch
+	): Promise<SshTunnelSessionRecord | null>;
+}
+
+export interface WorkspaceLayoutRepository {
+	listWorkspaceLayouts(
+		userId: string,
+		filters?: WorkspaceLayoutFilters
+	): Promise<WorkspaceLayoutRecord[]>;
+	getWorkspaceLayout(userId: string, id: string): Promise<WorkspaceLayoutRecord | null>;
+	createWorkspaceLayout(layout: WorkspaceLayoutRecord): Promise<WorkspaceLayoutRecord>;
+	updateWorkspaceLayout(
+		userId: string,
+		id: string,
+		patch: WorkspaceLayoutPatch
+	): Promise<WorkspaceLayoutRecord | null>;
+	deleteWorkspaceLayout(userId: string, id: string): Promise<boolean>;
+}
+
 export interface SshLiveSessionRepository {
 	listSshLiveSessions(userId: string): Promise<SshLiveSessionRecord[]>;
 	getSshLiveSession(userId: string, id: string): Promise<SshLiveSessionRecord | null>;
@@ -282,4 +434,7 @@ export interface TermixServicesRepository
 		WorkspaceRepository,
 		SessionTicketRepository,
 		ConnectionSessionRepository,
+		SshTunnelProfileRepository,
+		SshTunnelSessionRepository,
+		WorkspaceLayoutRepository,
 		SshLiveSessionRepository {}

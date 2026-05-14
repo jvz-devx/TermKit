@@ -43,6 +43,13 @@
       "when": 1778750656308,
       "tag": "0005_thick_maginty",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778789522291,
+      "tag": "0006_quiet_mandrill",
+      "breakpoints": true
     }
   ]
 }

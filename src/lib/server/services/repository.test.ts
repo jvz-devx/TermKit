@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TermixDb } from '../db';
-import { DrizzleTermixServicesRepository } from './repository';
+import { DrizzleTermixServicesRepository, InMemoryTermixServicesRepository } from './repository';
 
 function queryResult<T>(rows: T[]) {
 	return {
@@ -118,5 +118,119 @@ describe('DrizzleTermixServicesRepository', () => {
 		expect(capturedValues).toMatchObject({ target: { value: 'ssh:shell.example.test:22' } });
 		expect(ticket.target).toBe('ssh:shell.example.test:22');
 		expect(ticket.usedAt).toBeNull();
+	});
+
+	it('stores V4 tunnel profiles, tunnel sessions, and workspace layouts in memory', async () => {
+		expect.assertions(7);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const now = new Date('2026-05-14T10:00:00.000Z');
+
+		await repository.createWorkspace({
+			id: 'workspace-1',
+			name: 'Operations',
+			metadata: {},
+			createdAt: now,
+			updatedAt: now
+		});
+		await repository.createWorkspaceMembership({
+			id: 'membership-1',
+			workspaceId: 'workspace-1',
+			userId: 'user-1',
+			role: 'owner',
+			createdAt: now,
+			updatedAt: now
+		});
+		await repository.createSshTunnelProfile({
+			id: 'profile-1',
+			userId: 'user-1',
+			workspaceId: 'workspace-1',
+			sshHostId: 'host-1',
+			name: 'Private Postgres',
+			targetHost: 'postgres.internal',
+			targetPort: 5432,
+			description: 'Database tunnel',
+			createdAt: now,
+			updatedAt: now
+		});
+		await repository.createSshTunnelSession({
+			id: 'tunnel-session-1',
+			profileId: 'profile-1',
+			userId: 'user-1',
+			workspaceId: 'workspace-1',
+			sshHostId: 'host-1',
+			targetHost: 'postgres.internal',
+			targetPort: 5432,
+			publicPath: '/tunnels/tunnel-session-1',
+			status: 'starting',
+			startedAt: now,
+			endedAt: null,
+			lastSeenAt: now,
+			errorCode: null,
+			errorMessage: null
+		});
+		await repository.createWorkspaceLayout({
+			id: 'layout-1',
+			userId: 'user-1',
+			workspaceId: 'workspace-1',
+			layoutKind: 'tiled',
+			panes: [{ hostId: 'host-1', protocol: 'ssh', sessionId: 'session-1' }],
+			createdAt: now,
+			updatedAt: now
+		});
+
+		expect(
+			await repository.listSshTunnelProfiles('user-1', { workspaceId: 'workspace-1' })
+		).toHaveLength(1);
+		await expect(repository.getSshTunnelProfile('user-2', 'profile-1')).resolves.toBeNull();
+		await expect(
+			repository.updateSshTunnelSession('user-1', 'tunnel-session-1', {
+				status: 'active',
+				lastSeenAt: new Date('2026-05-14T10:01:00.000Z')
+			})
+		).resolves.toMatchObject({ status: 'active' });
+		await expect(
+			repository.listSshTunnelSessions('user-1', { status: 'active' })
+		).resolves.toHaveLength(1);
+		await expect(
+			repository.listWorkspaceLayouts('user-1', { layoutKind: 'tiled' })
+		).resolves.toHaveLength(1);
+		await expect(repository.deleteWorkspaceLayout('user-1', 'layout-1')).resolves.toBe(true);
+		await expect(repository.getWorkspaceLayout('user-1', 'layout-1')).resolves.toBeNull();
+	});
+
+	it('keeps structured connection history errors for V4 protocols', async () => {
+		expect.assertions(1);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const startedAt = new Date('2026-05-14T10:00:00.000Z');
+		const endedAt = new Date('2026-05-14T10:00:05.000Z');
+
+		await repository.createConnectionSession({
+			id: 'connection-1',
+			userId: 'user-1',
+			workspaceId: null,
+			hostId: null,
+			protocol: 'ssh_tunnel',
+			status: 'failed',
+			startedAt,
+			endedAt,
+			errorCode: 'target_refused',
+			errorMessage: 'Target refused connection',
+			errorDetails: { targetHost: 'postgres.internal', targetPort: 5432 },
+			updatedAt: endedAt
+		});
+
+		await expect(
+			repository.listConnectionHistory('user-1', { protocol: 'ssh_tunnel' })
+		).resolves.toEqual([
+			expect.objectContaining({
+				protocol: 'ssh_tunnel',
+				errorReason: 'Target refused connection',
+				errorCode: 'target_refused',
+				errorMessage: 'Target refused connection',
+				errorDetails: { targetHost: 'postgres.internal', targetPort: 5432 }
+			})
+		]);
 	});
 });

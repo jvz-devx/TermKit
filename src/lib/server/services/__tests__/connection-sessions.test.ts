@@ -14,12 +14,14 @@ describe('ConnectionSessionService', () => {
 		const failedAt = new Date('2026-05-13T12:00:03.000Z');
 
 		const session = await service.start({
+			id: 'connection-session-1',
 			userId: 'user-1',
 			hostId: 'host-1',
 			protocol: 'ssh',
 			now: startedAt
 		});
 		expect(session).toMatchObject({
+			id: 'connection-session-1',
 			userId: 'user-1',
 			hostId: 'host-1',
 			protocol: 'ssh',

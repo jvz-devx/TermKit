@@ -5,22 +5,11 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
-	import {
-		Database,
-		History,
-		Maximize2,
-		Minimize2,
-		Monitor,
-		Network,
-		Power,
-		RotateCcw,
-		Server,
-		Terminal
-	} from '@lucide/svelte';
+	import { History, Maximize2, Minimize2, Power, RotateCcw, Server } from '@lucide/svelte';
 	import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import * as Tabs from '$lib/components/ui/tabs';
 	import { getAppSettings, type BasicAppSettings } from '$lib/settings.remote';
+	import * as termixRemote from '$lib/termix.remote';
 	import {
 		attachLiveSshSession,
 		closeLiveSshSession,
@@ -37,18 +26,47 @@
 	import LiveSshTabStrip from './session/LiveSshTabStrip.svelte';
 	import RdpLaunchPane from './session/RdpLaunchPane.svelte';
 	import RdpPane from './session/RdpPane.svelte';
+	import SessionLayoutControls from './session/SessionLayoutControls.svelte';
+	import SessionPaneFallback from './session/SessionPaneFallback.svelte';
+	import SessionPaneHeader from './session/SessionPaneHeader.svelte';
+	import SessionTileGrid from './session/SessionTileGrid.svelte';
+	import FtpLaunchPane from './session/FtpLaunchPane.svelte';
 	import SftpLaunchPane from './session/SftpLaunchPane.svelte';
 	import SessionHostLauncher from './session/SessionHostLauncher.svelte';
 	import SshLaunchPane from './session/SshLaunchPane.svelte';
+	import SshTunnelPane from './session/SshTunnelPane.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
 	import VncLaunchPane from './session/VncLaunchPane.svelte';
+	import {
+		normalizeSessionLayout,
+		removeSessionPane,
+		resizeSessionLayout,
+		updateSessionPaneHost,
+		updateSessionPaneKind,
+		type SessionLayoutKind,
+		type SessionPaneKind,
+		type SessionWorkspaceLayoutMetadata
+	} from './session/workspace-layout';
 
-	type WorkspaceProtocol = 'ssh' | 'sftp' | 'rdp' | 'vnc' | 'telnet';
+	type WorkspaceProtocol = SessionPaneKind;
 	type LauncherProtocolFilter = WorkspaceProtocol | 'all';
+	type SessionLayoutQuery = {
+		current?: unknown;
+		loading?: boolean;
+		refresh?: () => Promise<unknown> | unknown;
+	};
+	type SessionLayoutRemotes = typeof termixRemote & {
+		getSessionWorkspaceLayout?: () => SessionLayoutQuery;
+		saveSessionWorkspaceLayout?: (input: {
+			metadata: SessionWorkspaceLayoutMetadata;
+		}) => Promise<unknown>;
+	};
 
 	const hostsQuery = listHosts();
 	const settingsQuery = getAppSettings();
 	const liveSshSessionsQuery = listLiveSshSessions();
+	const layoutRemotes = termixRemote as SessionLayoutRemotes;
+	const sessionWorkspaceLayoutQuery = layoutRemotes.getSessionWorkspaceLayout?.();
 	const liveSshRefreshIntervalMs = 60_000;
 	const defaultSessionSettings: BasicAppSettings = {
 		ticketTtlSeconds: 60,
@@ -64,13 +82,6 @@
 		rememberLastActiveTab: true
 	};
 	const lastProtocolStoragePrefix = 'termixkit:last-protocol:';
-	const tabIcons = {
-		ssh: Terminal,
-		sftp: Database,
-		rdp: Monitor,
-		vnc: Network,
-		telnet: Terminal
-	};
 
 	let reconnectNonce = $state(0);
 	let pausedSessionKey = $state<string | null>(null);
@@ -82,6 +93,10 @@
 	let dismissedLiveSshSessionIds = $state<string[]>([]);
 	let workspaceElement = $state<HTMLElement | null>(null);
 	let isFullscreen = $state(false);
+	let layoutOverride = $state<SessionLayoutKind | null>(null);
+	let paneKindOverrides = $state<Record<string, SessionPaneKind>>({});
+	let paneHostIdOverrides = $state<Record<string, string>>({});
+	let layoutPersistenceError = $state<string | null>(null);
 	let hosts = $derived(hostsQuery.current ?? []);
 	let liveSshSessions = $derived.by(() =>
 		(liveSshSessionsQuery.current ?? []).filter(
@@ -147,6 +162,37 @@
 		selectedHost ? sessionPauseKey(selectedHost.id, activeProtocol) : null
 	);
 	let sessionPaused = $derived(Boolean(activePauseKey && pausedSessionKey === activePauseKey));
+	let primaryPaneKind = $derived<SessionPaneKind>(activeProtocol);
+	let primaryPaneHostId = $derived(selectedHost?.id ?? null);
+	let remoteWorkspaceLayout = $derived(
+		normalizeSessionLayout(
+			sessionWorkspaceLayoutQuery?.current,
+			'single',
+			primaryPaneKind,
+			primaryPaneHostId
+		)
+	);
+	let activeWorkspaceLayout = $derived.by(() => {
+		const layout = layoutOverride ?? remoteWorkspaceLayout.layout;
+		const resized = resizeSessionLayout(
+			remoteWorkspaceLayout,
+			layout,
+			primaryPaneKind,
+			primaryPaneHostId
+		);
+
+		return {
+			...resized,
+			panes: resized.panes.map((pane) => ({
+				...pane,
+				kind: paneKindOverrides[pane.id] ?? pane.kind,
+				hostId: paneHostIdOverrides[pane.id] ?? pane.hostId ?? primaryPaneHostId
+			}))
+		};
+	});
+	let workspaceHasSshPane = $derived(
+		activeWorkspaceLayout.panes.some((pane) => pane.kind === 'ssh')
+	);
 	let detachedSshCount = $derived(
 		selectedHostLiveSshSessions.filter((session) => session.status === 'detached').length
 	);
@@ -292,6 +338,74 @@
 		void goto(resolve(`/sessions?${params.toString()}` as '/'));
 	}
 
+	async function selectLayout(layout: SessionLayoutKind) {
+		const nextLayout = resizeSessionLayout(
+			activeWorkspaceLayout,
+			layout,
+			primaryPaneKind,
+			primaryPaneHostId
+		);
+		layoutOverride = layout;
+		paneKindOverrides = Object.fromEntries(nextLayout.panes.map((pane) => [pane.id, pane.kind]));
+		paneHostIdOverrides = Object.fromEntries(
+			nextLayout.panes.flatMap((pane) => (pane.hostId ? [[pane.id, pane.hostId]] : []))
+		);
+		await persistSessionLayout(nextLayout);
+	}
+
+	async function selectPaneKind(paneId: string, kind: SessionPaneKind) {
+		const nextLayout = updateSessionPaneKind(activeWorkspaceLayout, paneId, kind);
+		paneKindOverrides = {
+			...paneKindOverrides,
+			[paneId]: kind
+		};
+		await persistSessionLayout(nextLayout);
+	}
+
+	async function selectPaneHost(paneId: string, hostId: string) {
+		const nextLayout = updateSessionPaneHost(activeWorkspaceLayout, paneId, hostId);
+		paneHostIdOverrides = {
+			...paneHostIdOverrides,
+			[paneId]: hostId
+		};
+		await persistSessionLayout(nextLayout);
+	}
+
+	async function reconnectPane(paneId: string) {
+		pausedSessionKey = null;
+		reconnectNonce += 1;
+		const pane = activeWorkspaceLayout.panes.find((entry) => entry.id === paneId);
+		if (pane?.kind === 'ssh') liveSshAttach = null;
+	}
+
+	async function closePane(paneId: string) {
+		const nextLayout = removeSessionPane(
+			activeWorkspaceLayout,
+			paneId,
+			primaryPaneKind,
+			primaryPaneHostId
+		);
+		layoutOverride = nextLayout.layout;
+		paneKindOverrides = Object.fromEntries(nextLayout.panes.map((pane) => [pane.id, pane.kind]));
+		paneHostIdOverrides = Object.fromEntries(
+			nextLayout.panes.flatMap((pane) => (pane.hostId ? [[pane.id, pane.hostId]] : []))
+		);
+		await persistSessionLayout(nextLayout);
+	}
+
+	async function persistSessionLayout(metadata: SessionWorkspaceLayoutMetadata) {
+		const saveLayout = layoutRemotes.saveSessionWorkspaceLayout;
+		if (!saveLayout) return;
+
+		try {
+			layoutPersistenceError = null;
+			await saveLayout({ metadata });
+			await sessionWorkspaceLayoutQuery?.refresh?.();
+		} catch (caught) {
+			layoutPersistenceError = errorMessage(caught);
+		}
+	}
+
 	async function createPersistentSshTab() {
 		if (!selectedHost || liveSshBusy) return;
 		liveSshBusy = true;
@@ -421,11 +535,29 @@
 	}
 
 	function protocolsForHost(host: HostSummary): WorkspaceProtocol[] {
-		return host.protocol === 'ssh' ? ['ssh', 'sftp'] : [host.protocol];
+		return host.protocol === 'ssh' ? ['ssh', 'sftp', 'ssh-tunnel'] : [host.protocol];
 	}
 
 	function isWorkspaceProtocol(value: string): value is WorkspaceProtocol {
-		return ['ssh', 'sftp', 'rdp', 'vnc', 'telnet'].includes(value);
+		return ['ssh', 'sftp', 'rdp', 'vnc', 'telnet', 'ftp', 'ftps', 'ssh-tunnel'].includes(value);
+	}
+
+	function isPaneProtocolAvailable(host: HostSummary, kind: SessionPaneKind) {
+		if (kind === 'sftp') return host.protocol === 'ssh';
+		if (kind === 'ssh-tunnel') return host.protocol === 'ssh';
+		return host.protocol === kind;
+	}
+
+	function hostForPane(pane: { hostId: string | null }) {
+		return hosts.find((host) => host.id === pane.hostId) ?? selectedHost;
+	}
+
+	function liveSshSessionsForHost(hostId: string) {
+		return liveSshSessions.filter((session) => session.hostId === hostId);
+	}
+
+	function isPanePaused(host: HostSummary, kind: SessionPaneKind) {
+		return pausedSessionKey === sessionPauseKey(host.id, kind);
 	}
 
 	function sessionUrl(params: SvelteURLSearchParams) {
@@ -565,18 +697,29 @@
 			/>
 		</div>
 	{:else}
-		<Tabs.Root value={activeProtocol} class="flex min-h-0 flex-1 flex-col">
-			<Tabs.List class="h-10 justify-start rounded-none border-b bg-muted/20 px-2">
-				{#each availableTabs as tab (tab)}
-					<Tabs.Trigger value={tab} class="h-8 gap-2" onclick={() => selectProtocol(tab)}>
-						{@const Icon = tabIcons[tab]}
-						<Icon class="size-4" />
-						{tab.toUpperCase()}
-					</Tabs.Trigger>
-				{/each}
-			</Tabs.List>
+		<div class="flex min-h-0 flex-1 flex-col">
+			<div
+				class="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b bg-muted/10 px-3 py-2"
+			>
+				<div class="flex min-w-0 flex-wrap items-center gap-2">
+					{#each availableTabs as tab (tab)}
+						<Button
+							size="sm"
+							variant={activeProtocol === tab ? 'secondary' : 'ghost'}
+							aria-pressed={activeProtocol === tab}
+							onclick={() => selectProtocol(tab)}
+						>
+							{tab.toUpperCase()}
+						</Button>
+					{/each}
+					{#if layoutPersistenceError}
+						<Badge variant="destructive">Layout not saved</Badge>
+					{/if}
+				</div>
+				<SessionLayoutControls layout={activeWorkspaceLayout.layout} onChange={selectLayout} />
+			</div>
 
-			<Tabs.Content value="ssh" class="m-0 flex min-h-0 flex-1 flex-col p-0">
+			{#if workspaceHasSshPane || liveSshSessions.length}
 				<LiveSshTabStrip
 					sessions={liveSshSessions}
 					activeSessionId={activeLiveSshSessionId}
@@ -587,135 +730,184 @@
 					onRename={renamePersistentSshTab}
 					onClose={closePersistentSshTab}
 				/>
-				<div class="min-h-0 flex-1 p-3">
-					{#if liveSshError}
-						<StatePanel state="error" title="SSH session failed" detail={liveSshError} />
-					{:else if liveSshBusy}
-						<StatePanel state="loading" title="Opening SSH tab" detail="Preparing attach ticket." />
-					{:else if liveSshAttach}
-						{#key `ssh-live:${liveSshAttach.session.id}:${liveSshAttach.liveTicket}:${reconnectNonce}`}
-							<TerminalPane
-								title={liveSshAttach.session.title}
-								subtitle={`${liveSshAttach.session.username ?? 'user'}@${liveSshAttach.session.hostname}`}
-								websocketUrl={toWebSocketUrl(liveSshAttach.liveWebsocketPath)}
-								welcome={[
-									`$ ssh ${liveSshAttach.session.hostname}`,
-									'Attaching live SSH session...',
-									''
-								]}
-								fontSize={appSettings.terminalFontSize}
-								onConnectionStateChange={handleLiveSshTerminalState}
+			{/if}
+
+			<SessionTileGrid layout={activeWorkspaceLayout.layout} panes={activeWorkspaceLayout.panes}>
+				{#snippet children(pane, index)}
+					{@const paneHost = hostForPane(pane)}
+					<SessionPaneHeader
+						paneId={pane.id}
+						kind={pane.kind}
+						host={paneHost}
+						{hosts}
+						{index}
+						onKindChange={selectPaneKind}
+						onHostChange={selectPaneHost}
+						onReconnect={reconnectPane}
+						onClose={closePane}
+					/>
+					{#if !paneHost}
+						<div class="min-h-0 flex-1 p-3">
+							<StatePanel
+								state="disconnected"
+								title="No host selected"
+								detail="Choose a host for this pane."
 							/>
-						{/key}
-					{:else if sessionPaused && activeProtocol === 'ssh'}
-						<StatePanel
-							state="disconnected"
-							title="SSH disconnected"
-							detail="Reconnect to attach the SSH tab again."
-						/>
-					{:else if liveSshSessionsQuery.loading}
-						<StatePanel
-							state="loading"
-							title="Loading SSH tabs"
-							detail="Fetching live session state."
-						/>
-					{:else if selectedHostLiveSshSessions.length > 0}
-						<StatePanel
-							state="ready"
-							title="SSH tabs available"
-							detail="Existing live sessions are idle."
-						/>
-					{:else if browser && activeProtocol === 'ssh'}
-						{#key `ssh:${selectedHost.id}:${reconnectNonce}`}
-							<SshLaunchPane
-								host={selectedHost}
-								fontSize={appSettings.terminalFontSize}
-								onLaunch={handleLiveSshLaunch}
-								onConnectionStateChange={handleLiveSshTerminalState}
-							/>
-						{/key}
+						</div>
+					{:else if !isPaneProtocolAvailable(paneHost, pane.kind)}
+						<SessionPaneFallback kind={pane.kind} host={paneHost} />
+					{:else if pane.kind === 'ssh'}
+						<div class="min-h-0 flex-1 p-3">
+							{#if liveSshError}
+								<StatePanel state="error" title="SSH session failed" detail={liveSshError} />
+							{:else if liveSshBusy}
+								<StatePanel
+									state="loading"
+									title="Opening SSH tab"
+									detail="Preparing attach ticket."
+								/>
+							{:else if liveSshAttach && liveSshAttach.session.hostId === paneHost.id}
+								{#key `ssh-live:${liveSshAttach.session.id}:${liveSshAttach.liveTicket}:${reconnectNonce}`}
+									<TerminalPane
+										title={liveSshAttach.session.title}
+										subtitle={`${liveSshAttach.session.username ?? 'user'}@${liveSshAttach.session.hostname}`}
+										websocketUrl={toWebSocketUrl(liveSshAttach.liveWebsocketPath)}
+										welcome={[
+											`$ ssh ${liveSshAttach.session.hostname}`,
+											'Attaching live SSH session...',
+											''
+										]}
+										fontSize={appSettings.terminalFontSize}
+										onConnectionStateChange={handleLiveSshTerminalState}
+									/>
+								{/key}
+							{:else if isPanePaused(paneHost, pane.kind)}
+								<StatePanel
+									state="disconnected"
+									title="SSH disconnected"
+									detail="Reconnect to attach the SSH tab again."
+								/>
+							{:else if liveSshSessionsQuery.loading}
+								<StatePanel
+									state="loading"
+									title="Loading SSH tabs"
+									detail="Fetching live session state."
+								/>
+							{:else if liveSshSessionsForHost(paneHost.id).length > 0}
+								<StatePanel
+									state="ready"
+									title="SSH tabs available"
+									detail="Existing live sessions are idle."
+								/>
+							{:else if browser}
+								{#key `ssh:${paneHost.id}:${pane.id}:${reconnectNonce}`}
+									<SshLaunchPane
+										host={paneHost}
+										fontSize={appSettings.terminalFontSize}
+										onLaunch={handleLiveSshLaunch}
+										onConnectionStateChange={handleLiveSshTerminalState}
+									/>
+								{/key}
+							{/if}
+						</div>
+					{:else if pane.kind === 'sftp'}
+						<div class="min-h-0 flex-1 p-3">
+							{#if browser}
+								{#key `sftp:${paneHost.id}:${pane.id}:${reconnectNonce}`}
+									<SftpLaunchPane hostId={paneHost.id} />
+								{/key}
+							{/if}
+						</div>
+					{:else if pane.kind === 'ftp' || pane.kind === 'ftps'}
+						<div class="min-h-0 flex-1 p-3">
+							{#if browser}
+								{#key `ftp:${paneHost.id}:${pane.id}:${reconnectNonce}`}
+									<FtpLaunchPane host={paneHost} />
+								{/key}
+							{/if}
+						</div>
+					{:else if pane.kind === 'ssh-tunnel'}
+						<div class="min-h-0 flex-1 p-3">
+							<SshTunnelPane host={paneHost} />
+						</div>
+					{:else if pane.kind === 'rdp'}
+						<div class="min-h-0 flex-1 p-3">
+							{#if isPanePaused(paneHost, pane.kind)}
+								<RdpPane
+									launch={null}
+									error="Disconnected. Reconnect to create a new session."
+									onReconnect={reconnect}
+									clipboardSync={appSettings.clipboardSync}
+									clipboardPolicy={appSettings.rdpClipboard}
+								/>
+							{:else if browser}
+								{#key `rdp:${paneHost.id}:${pane.id}:${reconnectNonce}`}
+									<RdpLaunchPane
+										hostId={paneHost.id}
+										onReconnect={reconnect}
+										clipboardSync={appSettings.clipboardSync}
+										clipboardPolicy={appSettings.rdpClipboard}
+									/>
+								{/key}
+							{/if}
+						</div>
+					{:else if pane.kind === 'vnc'}
+						<div class="min-h-0 flex-1 p-3">
+							{#if isPanePaused(paneHost, pane.kind)}
+								<StatePanel
+									state="disconnected"
+									title="VNC disconnected"
+									detail="Reconnect to create a new session."
+								/>
+							{:else if browser}
+								{#key `vnc:${paneHost.id}:${pane.id}:${reconnectNonce}`}
+									<VncLaunchPane hostId={paneHost.id} fallbackUsername={paneHost.username} />
+								{/key}
+							{/if}
+						</div>
+					{:else if pane.kind === 'telnet'}
+						<div class="min-h-0 flex-1 p-3">
+							{#if isPanePaused(paneHost, pane.kind)}
+								<StatePanel
+									state="disconnected"
+									title="Telnet disconnected"
+									detail="Reconnect to create a new session."
+								/>
+							{:else if browser}
+								{#key `telnet:${paneHost.id}:${pane.id}:${reconnectNonce}`}
+									{#await getSessionLaunch(paneHost.id, 'telnet')}
+										<StatePanel
+											state="loading"
+											title="Opening Telnet"
+											detail="Creating a session ticket."
+										/>
+									{:then currentLaunch}
+										<TerminalPane
+											title="Telnet terminal"
+											subtitle={`${paneHost.hostname}:${paneHost.port}`}
+											websocketUrl={currentLaunch.websocketPath
+												? toWebSocketUrl(currentLaunch.websocketPath)
+												: undefined}
+											welcome={[
+												`Trying ${paneHost.hostname}...`,
+												'Opening websocket bridge...',
+												''
+											]}
+											fontSize={appSettings.terminalFontSize}
+										/>
+									{:catch caught}
+										<StatePanel
+											state="error"
+											title="Session launch failed"
+											detail={errorMessage(caught)}
+										/>
+									{/await}
+								{/key}
+							{/if}
+						</div>
 					{/if}
-				</div>
-			</Tabs.Content>
-
-			<Tabs.Content value="sftp" class="m-0 min-h-0 flex-1 p-3">
-				{#if browser && activeProtocol === 'sftp'}
-					{#key `sftp:${selectedHost.id}:${reconnectNonce}`}
-						<SftpLaunchPane hostId={selectedHost.id} />
-					{/key}
-				{/if}
-			</Tabs.Content>
-
-			<Tabs.Content value="rdp" class="m-0 min-h-0 flex-1 p-3">
-				{#if sessionPaused && activeProtocol === 'rdp'}
-					<RdpPane
-						launch={null}
-						error="Disconnected. Reconnect to create a new session."
-						onReconnect={reconnect}
-						clipboardSync={appSettings.clipboardSync}
-						clipboardPolicy={appSettings.rdpClipboard}
-					/>
-				{:else if browser && activeProtocol === 'rdp'}
-					{#key `rdp:${selectedHost.id}:${reconnectNonce}`}
-						<RdpLaunchPane
-							hostId={selectedHost.id}
-							onReconnect={reconnect}
-							clipboardSync={appSettings.clipboardSync}
-							clipboardPolicy={appSettings.rdpClipboard}
-						/>
-					{/key}
-				{/if}
-			</Tabs.Content>
-
-			<Tabs.Content value="vnc" class="m-0 min-h-0 flex-1 p-3">
-				{#if sessionPaused && activeProtocol === 'vnc'}
-					<StatePanel
-						state="disconnected"
-						title="VNC disconnected"
-						detail="Reconnect to create a new session."
-					/>
-				{:else if browser && activeProtocol === 'vnc'}
-					{#key `vnc:${selectedHost.id}:${reconnectNonce}`}
-						<VncLaunchPane hostId={selectedHost.id} fallbackUsername={selectedHost.username} />
-					{/key}
-				{/if}
-			</Tabs.Content>
-
-			<Tabs.Content value="telnet" class="m-0 min-h-0 flex-1 p-3">
-				{#if sessionPaused && activeProtocol === 'telnet'}
-					<StatePanel
-						state="disconnected"
-						title="Telnet disconnected"
-						detail="Reconnect to create a new session."
-					/>
-				{:else if browser && activeProtocol === 'telnet'}
-					{#key `telnet:${selectedHost.id}:${reconnectNonce}`}
-						{#await getSessionLaunch(selectedHost.id, 'telnet')}
-							<StatePanel
-								state="loading"
-								title="Opening Telnet"
-								detail="Creating a session ticket."
-							/>
-						{:then currentLaunch}
-							<TerminalPane
-								title="Telnet terminal"
-								subtitle={`${selectedHost.hostname}:${selectedHost.port}`}
-								websocketUrl={currentLaunch.websocketPath
-									? toWebSocketUrl(currentLaunch.websocketPath)
-									: undefined}
-								welcome={[`Trying ${selectedHost.hostname}...`, 'Opening websocket bridge...', '']}
-								fontSize={appSettings.terminalFontSize}
-							/>
-						{:catch caught}
-							<StatePanel
-								state="error"
-								title="Session launch failed"
-								detail={errorMessage(caught)}
-							/>
-						{/await}
-					{/key}
-				{/if}
-			</Tabs.Content>
-		</Tabs.Root>
+				{/snippet}
+			</SessionTileGrid>
+		</div>
 	{/if}
 </section>

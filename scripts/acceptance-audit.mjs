@@ -234,6 +234,30 @@ const checks = [
 		status: 'local',
 		evidence:
 			'npm run check && npm run build validate the polished session workspace, protocol state panels, fullscreen controls, and responsive layout'
+	},
+	{
+		name: 'V4 admin SSH tunnel visibility and termination',
+		status: 'local',
+		evidence:
+			'npm test covers admin protocol visibility helpers and npm run check validates the SSH tunnel termination command/UI'
+	},
+	{
+		name: 'V4 admin FTP and FTPS long-running activity visibility',
+		status: 'local',
+		evidence:
+			'npm test covers V4 admin FTP/FTPS protocol labels and npm run check validates active transfer state tables'
+	},
+	{
+		name: 'V4 connection history includes ssh_tunnel, ftp, ftps, and structured failure reasons',
+		status: 'local',
+		evidence:
+			'npm test covers V4 admin protocol/failure formatting and npm run check validates structured failure reason rendering'
+	},
+	{
+		name: 'V4 acceptance audit rows preserve Microsoft external-blocked behavior',
+		status: 'local',
+		evidence:
+			'npm test covers acceptance-audit V4 rows while missing Microsoft tenant/browser proof remains external-blocked'
 	}
 ];
 

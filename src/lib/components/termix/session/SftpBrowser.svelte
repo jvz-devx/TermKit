@@ -28,7 +28,12 @@
 
 	const sftpUploadMaxBytes = 50 * 1024 * 1024;
 
-	let { hostId, initialPath = '/' }: { hostId: string; initialPath?: string } = $props();
+	let {
+		hostId,
+		initialPath = '/',
+		apiBase = 'sftp',
+		label = 'SFTP'
+	}: { hostId: string; initialPath?: string; apiBase?: 'sftp' | 'ftp'; label?: string } = $props();
 
 	let path = $state('/');
 	let entries = $state<SftpEntry[]>([]);
@@ -50,7 +55,7 @@
 
 		try {
 			const response = await fetch(
-				`/api/sftp/${encodeURIComponent(hostId)}/list?path=${encodeURIComponent(nextPath)}`
+				`/api/${apiBase}/${encodeURIComponent(hostId)}/list?path=${encodeURIComponent(nextPath)}`
 			);
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.error ?? 'Could not list directory');
@@ -81,7 +86,7 @@
 
 		try {
 			const response = await fetch(
-				`/api/sftp/${encodeURIComponent(hostId)}/upload?path=${encodeURIComponent(remotePath)}`,
+				`/api/${apiBase}/${encodeURIComponent(hostId)}/upload?path=${encodeURIComponent(remotePath)}`,
 				{ method: 'POST', body: form }
 			);
 			const body = await response.json().catch(() => ({}));
@@ -141,7 +146,7 @@
 		error = null;
 		try {
 			const response = await fetch(
-				`/api/sftp/${encodeURIComponent(hostId)}/text?path=${encodeURIComponent(entry.path)}`
+				`/api/${apiBase}/${encodeURIComponent(hostId)}/text?path=${encodeURIComponent(entry.path)}`
 			);
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.error ?? 'Could not read text file');
@@ -190,7 +195,7 @@
 		loading = true;
 		error = null;
 		try {
-			const response = await fetch(`/api/sftp/${encodeURIComponent(hostId)}${route}`, init);
+			const response = await fetch(`/api/${apiBase}/${encodeURIComponent(hostId)}${route}`, init);
 			const body = await response.json().catch(() => ({}));
 			if (!response.ok) throw new Error(body.error ?? fallback);
 			return true;
@@ -217,7 +222,7 @@
 	}
 
 	function downloadUrl(entry: SftpEntry) {
-		return `/api/sftp/${encodeURIComponent(hostId)}/download?path=${encodeURIComponent(entry.path)}`;
+		return `/api/${apiBase}/${encodeURIComponent(hostId)}/download?path=${encodeURIComponent(entry.path)}`;
 	}
 
 	function formatSize(size: number) {
@@ -390,7 +395,7 @@
 			{#if loading || error}
 				<StatePanel
 					state={error ? 'error' : 'loading'}
-					title={error ? 'SFTP request failed' : 'Loading remote directory'}
+					title={error ? `${label} request failed` : 'Loading remote directory'}
 					detail={error ?? path}
 					class="absolute right-3 bottom-3 left-3 bg-background"
 				/>

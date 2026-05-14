@@ -57,6 +57,15 @@ describe('websocket upgrade routing', () => {
 		});
 	});
 
+	it('parses SSH tunnel websocket routes', () => {
+		expect.assertions(1);
+
+		expect(parseWebSocketRoute({ url: '/ws/tunnel/session-123?ignored=1' })).toEqual({
+			tunnel: true,
+			sessionId: 'session-123'
+		});
+	});
+
 	it('does not expose an RDP websocket route', () => {
 		expect.assertions(1);
 

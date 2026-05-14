@@ -80,6 +80,23 @@ Out of scope for V4:
 - Browser-native FTP URL handling; FTP/FTPS must go through TermixKit's authenticated file manager.
 - Desktop and mobile wrappers.
 
+V5 scope:
+
+- Protocol power-user polish for SSH, SFTP, FTP, FTPS, and RDP after the V4 wiring is complete.
+- A richer browser terminal experience with search, snippets, command history helpers, per-host terminal preferences, and optional session recording controls.
+- Advanced file-transfer workflows across SFTP, FTP, and FTPS: progress, cancellation, retry, bulk operations, recursive folder transfers, drag-and-drop, bookmarks, and file search.
+- Completed FTP/FTPS workspace integration with explicit FTPS settings, certificate/error handling, session lifecycle history, and browser smoke coverage.
+- RDP operator controls: shortcut toolbar, fullscreen ergonomics, reconnect UX, quality/performance presets, multi-monitor readiness where supported, audio redirection where supported, and richer clipboard/file-transfer feedback.
+- SSH jump host and bastion support for SSH, SFTP, and SSH tunnel flows using the same credential and known-host trust model.
+
+Out of scope for V5:
+
+- A full managed-file-transfer product with queues, scheduled transfers, cross-server sync jobs, or compliance export requirements.
+- Persisting live SSH processes across app/container restart.
+- Storing terminal output, remote desktop pixels, or raw transferred file contents in Postgres by default.
+- A Guacamole-style mounted RDP file drive unless IronRDP/Gateway exposes a clean supported path.
+- Native desktop and mobile wrappers.
+
 ## Runtime And Stack
 
 - Framework: SvelteKit with Svelte 5 and TypeScript.
@@ -351,6 +368,20 @@ Behavior:
 - Record lifecycle state and structured failures in `connection_sessions`.
 - Keep all FTP/FTPS traffic server-side behind authenticated TermixKit routes; do not rely on browser-native FTP URL handling.
 
+V5 file-transfer polish:
+
+- Show transfer progress, throughput, remaining size, completion, cancellation, and failure states for SFTP, FTP, and FTPS uploads and downloads.
+- Support cancel and retry for long-running transfers where the underlying protocol/client can safely stop and restart the operation.
+- Support bulk file actions: multi-select download, upload, move, rename where practical, delete, and mkdir workflows.
+- Support recursive folder upload and download with clear limits, confirmation, partial-failure reporting, and no silent overwrite behavior.
+- Add drag-and-drop upload into the active remote directory.
+- Add remote file search within the current folder tree with bounded depth and clear loading/cancel states.
+- Add bookmarks or favorites for frequently used remote directories per host and user.
+- Add symlink-aware listing and action labels so users can distinguish files, folders, links, and unsupported entry types.
+- Add optional chmod/chown-style metadata actions only where the protocol server exposes reliable support.
+- Stream large downloads and uploads instead of buffering whole files in memory where SvelteKit and the selected protocol client allow it.
+- Add browser smoke coverage for SFTP, FTP, and FTPS file-manager flows, including progress/error states.
+
 ### RDP
 
 Use IronRDP WASM in the browser and Devolutions Gateway for the browser-to-RDP transport.
@@ -371,6 +402,35 @@ Behavior:
 - Support keyboard, mouse, resize, disconnect, and basic clipboard if available through the chosen IronRDP/Gateway integration.
 
 Do not build a custom RDP protocol proxy in V1 unless Devolutions Gateway proves unusable. A simple WebSocket-to-TCP bridge is not assumed to be sufficient for IronRDP.
+
+V5 RDP polish:
+
+- Add a session toolbar for common remote shortcuts, including Ctrl+Alt+Del, Windows key, reconnect, disconnect, fullscreen, and display resize actions where IronRDP exposes support.
+- Add reconnect UX that distinguishes Gateway/session expiration, remote disconnect, client error, and credential failure.
+- Add quality and performance presets for remote desktop size, resize behavior, frame/update behavior, and bandwidth-sensitive operation where the IronRDP API supports the setting.
+- Improve fullscreen focus handling so keyboard capture, pointer focus, and exit states are predictable.
+- Add multi-monitor readiness where supported by IronRDP/Gateway, with a graceful single-monitor fallback.
+- Add audio redirection where supported by IronRDP/Gateway and expose a deployment-level setting to disable it.
+- Keep RDP file transfer based on clipboard file transfer unless a clean supported drive-redirection API becomes available.
+- Add richer clipboard and file-transfer telemetry in the pane without logging remote clipboard payload contents.
+- Add real-target acceptance proof for login, resize, keyboard/mouse, clipboard policy, file clipboard transfer, disconnect, and reconnect behavior.
+
+### V5 SSH And Terminal Polish
+
+V5 improves SSH from a working terminal into an operator-grade terminal workspace.
+
+Behavior:
+
+- Add terminal search over visible scrollback and the bounded in-memory reattach buffer.
+- Add command snippets and per-user command history helpers without logging arbitrary terminal output by default.
+- Add per-host terminal preferences for font size, theme, scrollback size, shell title, and initial terminal dimensions.
+- Add optional terminal session recording with explicit admin/user controls, retention settings, and clear warnings before enabling it.
+- Keep terminal recording disabled by default and store recordings outside normal connection metadata with retention-aware cleanup.
+- Add SSH jump host and bastion configuration for SSH terminal, SFTP, and SSH tunnel flows.
+- Reuse the same credential resolution and known-host trust policy for every hop in a jump-host chain.
+- Add clearer host-key trust enrollment UX and warnings for changed or untrusted keys.
+- Add terminal copy/paste controls where deployment policy needs to restrict browser clipboard interaction.
+- Add browser smoke coverage for terminal search, snippets, per-host preferences, and jump-host launch validation using disposable SSH fixtures where practical.
 
 ### VNC
 
@@ -651,6 +711,56 @@ Required build checks:
 - Keep V1, V2, and V3 verification gates passing.
 - Keep real Microsoft Entra proof external-blocked unless tenant/client/test-user configuration is supplied.
 
+### V5.1: SSH Power-User Terminal
+
+- Add terminal scrollback search.
+- Add command snippets and command history helpers that do not require persisting arbitrary terminal output.
+- Add per-host terminal preferences for font size, theme, scrollback, shell title, and initial dimensions.
+- Add optional terminal session recording with explicit controls, warnings, retention, and cleanup.
+- Keep terminal recording disabled by default.
+- Add SSH jump host and bastion support for SSH terminal sessions.
+- Add stronger host-key enrollment and changed-key warnings.
+- Add browser smoke coverage for terminal search, preferences, and jump-host validation.
+
+### V5.2: File Manager Power Tools
+
+- Add transfer progress, throughput, remaining size, completion, cancellation, retry, and failure states.
+- Add bulk selection and bulk actions for downloads, uploads, moves, deletes, and folder creation.
+- Add recursive folder upload and download with confirmation, limits, partial-failure reporting, and overwrite protection.
+- Add drag-and-drop uploads into the active remote directory.
+- Add remote file search with bounded depth and cancel/loading states.
+- Add per-host and per-user remote directory bookmarks.
+- Add symlink-aware listing and optional chmod/chown metadata actions where supported.
+- Stream large file transfers where the runtime and protocol clients allow it.
+- Verify the same file-manager behavior across SFTP, FTP, and FTPS.
+
+### V5.3: FTP And FTPS Completion
+
+- Wire FTP and FTPS hosts into the session workspace as first-class panes.
+- Reuse the shared file browser with FTP/FTPS-specific labels, failure states, and lifecycle events.
+- Expose explicit FTPS mode settings and support implicit FTPS only where the selected client handles it cleanly.
+- Add clear TLS and certificate error handling for FTPS.
+- Record FTP/FTPS session lifecycle and structured failures from real workspace actions.
+- Add local and browser smoke coverage for FTP and FTPS list, download, upload, mkdir, rename/move, delete, text edit, and transfer error states.
+
+### V5.4: RDP Operator Controls
+
+- Add a toolbar for common remote shortcuts, reconnect, disconnect, fullscreen, and display actions.
+- Improve reconnect UX for Gateway expiration, remote disconnect, client error, and credential failure.
+- Add quality/performance presets where IronRDP exposes useful controls.
+- Improve fullscreen keyboard and pointer focus behavior.
+- Add multi-monitor readiness with graceful single-monitor fallback.
+- Add audio redirection where IronRDP/Gateway supports it and expose a deployment setting to disable it.
+- Improve clipboard and file-transfer feedback without logging remote clipboard payload contents.
+- Add real-target acceptance proof for login, resize, keyboard/mouse, clipboard policy, file clipboard transfer, disconnect, and reconnect behavior.
+
+### V5.5: Verification And Migration
+
+- Keep V1, V2, V3, and V4 acceptance criteria passing.
+- Add acceptance audit rows for V5 SSH, file-manager, FTP/FTPS, and RDP polish.
+- Document any deployment settings added for terminal recording, transfer limits, clipboard restrictions, audio redirection, and FTPS modes.
+- Keep existing hosts, credentials, connection history, workspace layouts, and live SSH metadata compatible through migration.
+
 ## Acceptance Criteria
 
 V1 is complete when:
@@ -715,3 +825,16 @@ V4 is complete when:
 - Connection history includes SSH tunnel, FTP/FTPS, and tiled workspace launch metadata with structured failure reasons.
 - V1, V2, and V3 acceptance criteria still pass.
 - Real Microsoft Entra login proof remains an external-blocked item unless the required tenant, client credentials, allowed-domain user, blocked-domain user, and admin-email user are available.
+
+V5 is complete when:
+
+- SSH terminals support scrollback search, snippets/history helpers, per-host terminal preferences, and stronger host-key enrollment UX.
+- SSH jump host or bastion configuration works for SSH terminal, SFTP, and SSH tunnel flows using the same credential and known-host trust model.
+- Optional terminal session recording is implemented with explicit controls, disabled-by-default behavior, retention, and cleanup.
+- SFTP, FTP, and FTPS file managers show transfer progress, cancellation, retry, and clear partial-failure states.
+- SFTP, FTP, and FTPS support bulk actions, recursive folder transfer, drag-and-drop uploads, remote file search, bookmarks, and symlink-aware listing.
+- FTP and FTPS are fully usable from the session workspace, not only through backend routes.
+- FTPS exposes explicit mode settings, clean implicit-mode behavior where supported, and clear TLS/certificate failures.
+- RDP has a session toolbar, reconnect UX, fullscreen focus improvements, quality/performance controls where supported, and richer clipboard/file-transfer feedback.
+- RDP real-target proof covers login, resize, keyboard/mouse, clipboard policy, file clipboard transfer, disconnect, and reconnect behavior.
+- V1, V2, V3, and V4 acceptance criteria still pass.

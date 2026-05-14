@@ -193,6 +193,13 @@ describe('acceptance proof scripts', () => {
 		});
 
 		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('[local] V4 admin SSH tunnel visibility and termination');
+		expect(result.stdout).toContain(
+			'[local] V4 admin FTP and FTPS long-running activity visibility'
+		);
+		expect(result.stdout).toContain(
+			'[local] V4 connection history includes ssh_tunnel, ftp, ftps, and structured failure reasons'
+		);
 		expect(result.stdout).toContain('acceptance audit: no blocked requirements detected');
 	});
 
@@ -257,6 +264,9 @@ describe('acceptance proof scripts', () => {
 		expect(result.status).toBe(0);
 		expect(result.stdout).toContain('[external-blocked] V2 real Microsoft Entra discovery');
 		expect(result.stdout).toContain('[external-blocked] V2 Microsoft interactive login acceptance');
+		expect(result.stdout).toContain(
+			'[local] V4 acceptance audit rows preserve Microsoft external-blocked behavior'
+		);
 		expect(result.stdout).toContain(
 			'acceptance audit: repo-owned requirements passed; 2 external Microsoft proof item(s) remain blocked'
 		);

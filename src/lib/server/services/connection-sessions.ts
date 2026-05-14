@@ -5,14 +5,15 @@ import type {
 	ConnectionHistoryRecord,
 	ConnectionSessionRecord,
 	ConnectionSessionRepository,
-	HostProtocol,
+	ConnectionProtocol,
 	HostRepository
 } from './types';
 
 export type StartConnectionSessionInput = {
+	id?: string;
 	userId: string;
 	hostId: string | null;
-	protocol: HostProtocol;
+	protocol: ConnectionProtocol;
 	now?: Date;
 };
 
@@ -43,7 +44,7 @@ export class ConnectionSessionService implements ConnectionSessionLifecycleRecor
 			: null;
 
 		return this.repository.createConnectionSession({
-			id: randomUUID(),
+			id: input.id ?? randomUUID(),
 			userId: input.userId,
 			workspaceId: host?.workspaceId ?? null,
 			hostId: input.hostId,

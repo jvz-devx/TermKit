@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { command, getRequestEvent, query } from '$app/server';
 import { hostService } from '$lib/server/services/hosts';
 import { credentialService } from '$lib/server/services/credentials';
@@ -16,9 +17,17 @@ import {
 import { connectionSessionService } from '$lib/server/services/connection-sessions';
 import { settingsService } from '$lib/server/services/settings';
 import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
+import { termixRepository } from '$lib/server/services/repository';
+import {
+	publicSshTunnelPath,
+	sshTunnelService,
+	type SshTunnelProfileRecord,
+	type SshTunnelSessionRecord
+} from '$lib/server/services/ssh-tunnels';
 import { liveSshManager } from '$lib/server/ssh-live/manager';
 import type {
 	ConnectionHistoryRecord,
+	ConnectionProtocol,
 	ConnectionSessionStatus,
 	CredentialKind,
 	HostProtocol,
@@ -114,6 +123,54 @@ export type LiveSshAttach = {
 	expiresAt: string;
 };
 
+export type SshTunnelProfileSummary = {
+	id: string;
+	hostId: string;
+	name: string;
+	targetHost: string;
+	targetPort: number;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type SshTunnelSessionSummary = {
+	id: string;
+	profileId: string | null;
+	hostId: string;
+	targetHost: string;
+	targetPort: number;
+	status: 'active' | 'idle' | 'ended' | 'failed';
+	failureCode: string | null;
+	publicPath: string;
+	websocketPath: string;
+	startedAt: string;
+	lastUsedAt: string | null;
+	endedAt: string | null;
+	updatedAt: string;
+};
+
+export type SshTunnelProfileMutationInput = {
+	id?: unknown;
+	hostId?: unknown;
+	name?: unknown;
+	targetHost?: unknown;
+	targetPort?: unknown;
+};
+
+export type StartSshTunnelInput = {
+	profileId?: unknown;
+	hostId?: unknown;
+	name?: unknown;
+	targetHost?: unknown;
+	targetPort?: unknown;
+};
+
+export type SessionWorkspaceLayoutMetadata = {
+	layout: string;
+	panes: Record<string, unknown>[];
+	updatedAt?: string;
+};
+
 export type ConnectionHistorySummary = {
 	id: string;
 	userId: string;
@@ -124,7 +181,7 @@ export type ConnectionHistorySummary = {
 	host: string;
 	hostname: string;
 	hostUser: string | null;
-	protocol: HostProtocol;
+	protocol: ConnectionProtocol;
 	startedAt: string;
 	endedAt: string | null;
 	durationMs: number | null;
@@ -209,6 +266,32 @@ export const listLiveSshSessions = query(async () => {
 		.filter((session): session is LiveSshSessionSummary => Boolean(session));
 });
 
+export const listSshTunnelProfiles = query(async () => {
+	const userId = requireRemoteUser();
+	const profiles = await sshTunnelService.listProfiles(userId);
+	return profiles.map(toSshTunnelProfileSummary);
+});
+
+export const listSshTunnelSessions = query(async () => {
+	const userId = requireRemoteUser();
+	const sessions = await sshTunnelService.listSessions(userId);
+	return sessions.map(toSshTunnelSessionSummary);
+});
+
+export const getSessionWorkspaceLayout = query(
+	async (): Promise<SessionWorkspaceLayoutMetadata | null> => {
+		const userId = requireRemoteUser();
+		const [layout] = await termixRepository.listWorkspaceLayouts(userId);
+		if (!layout) return null;
+
+		return {
+			layout: layout.layoutKind,
+			panes: layout.panes,
+			updatedAt: layout.updatedAt.toISOString()
+		};
+	}
+);
+
 export const saveHost = command<HostMutationInput, HostSummary>('unchecked', async (input) => {
 	const userId = requireRemoteUser();
 	const tags =
@@ -287,6 +370,40 @@ export const deleteCredential = command<string, void>('unchecked', async (id) =>
 	void listHosts().refresh();
 });
 
+export const saveSessionWorkspaceLayout = command<
+	{ metadata?: unknown },
+	SessionWorkspaceLayoutMetadata
+>('unchecked', async (input) => {
+	const userId = requireRemoteUser();
+	const metadata = validateSessionWorkspaceLayoutMetadata(input.metadata);
+	const [existing] = await termixRepository.listWorkspaceLayouts(userId);
+	const now = new Date();
+	const saved = existing
+		? await termixRepository.updateWorkspaceLayout(userId, existing.id, {
+				layoutKind: metadata.layout,
+				panes: metadata.panes,
+				updatedAt: now
+			})
+		: await termixRepository.createWorkspaceLayout({
+				id: randomUUID(),
+				userId,
+				workspaceId: null,
+				layoutKind: metadata.layout,
+				panes: metadata.panes,
+				createdAt: now,
+				updatedAt: now
+			});
+
+	if (!saved) throw new ServiceValidationError(['Could not save workspace layout']);
+	void getSessionWorkspaceLayout().refresh();
+
+	return {
+		layout: saved.layoutKind,
+		panes: saved.panes,
+		updatedAt: saved.updatedAt.toISOString()
+	};
+});
+
 export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknown }, SessionLaunch>(
 	'unchecked',
 	async (input) => {
@@ -307,6 +424,36 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 			});
 			const activeSession = await connectionSessionService.markActive(connectionSession.id);
 			if (!activeSession) throw new ServiceValidationError(['Could not start SFTP session']);
+
+			return {
+				hostId,
+				protocol,
+				ticket: null,
+				websocketPath: null,
+				expiresAt: null,
+				connectionSessionId: connectionSession.id,
+				rdp: null,
+				rdpCredentials: null,
+				vncCredentials: null
+			};
+		}
+		if (protocol === 'ftp' || protocol === 'ftps') {
+			const host = await hostService.get(userId, hostId);
+			if (host.protocol !== protocol) {
+				throw new ServiceValidationError([
+					`${String(protocol).toUpperCase()} sessions require a ${String(protocol).toUpperCase()} host`
+				]);
+			}
+			const connectionSession = await connectionSessionService.start({
+				userId,
+				hostId,
+				protocol
+			});
+			const activeSession = await connectionSessionService.markActive(connectionSession.id);
+			if (!activeSession)
+				throw new ServiceValidationError([
+					`Could not start ${String(protocol).toUpperCase()} session`
+				]);
 
 			return {
 				hostId,
@@ -450,6 +597,67 @@ export const closeLiveSshSession = command<string, void>('unchecked', async (ses
 	void listLiveSshSessions().refresh();
 });
 
+export const saveSshTunnelProfile = command<SshTunnelProfileMutationInput, SshTunnelProfileSummary>(
+	'unchecked',
+	async (input) => {
+		const userId = requireRemoteUser();
+		const profile = await sshTunnelService.saveProfile(userId, input);
+		void listSshTunnelProfiles().refresh();
+		return toSshTunnelProfileSummary(profile);
+	}
+);
+
+export const deleteSshTunnelProfile = command<string, void>('unchecked', async (profileId) => {
+	const userId = requireRemoteUser();
+	await sshTunnelService.deleteProfile(userId, profileId);
+	void listSshTunnelProfiles().refresh();
+});
+
+export const startSshTunnelSession = command<StartSshTunnelInput, SshTunnelSessionSummary>(
+	'unchecked',
+	async (input) => {
+		const userId = requireRemoteUser();
+		const session = await sshTunnelService.startSession(userId, input);
+		try {
+			const connectionSession = await connectionSessionService.start({
+				id: session.id,
+				userId,
+				hostId: session.hostId,
+				protocol: 'ssh_tunnel'
+			});
+			await connectionSessionService.markActive(connectionSession.id);
+		} catch (error) {
+			await sshTunnelService
+				.failSession(userId, session.id, 'tunnel_proxy_failed')
+				.catch(() => null);
+			throw error;
+		}
+		void listSshTunnelSessions().refresh();
+		return toSshTunnelSessionSummary(session);
+	}
+);
+
+export const inspectSshTunnelSession = command<string, SshTunnelSessionSummary>(
+	'unchecked',
+	async (sessionId) => {
+		const userId = requireRemoteUser();
+		const session = await sshTunnelService.inspectSession(userId, sessionId);
+		void listSshTunnelSessions().refresh();
+		return toSshTunnelSessionSummary(session);
+	}
+);
+
+export const terminateSshTunnelSession = command<string, SshTunnelSessionSummary>(
+	'unchecked',
+	async (sessionId) => {
+		const userId = requireRemoteUser();
+		const session = await sshTunnelService.terminateSession(userId, sessionId);
+		await connectionSessionService.endForUser(userId, session.id).catch(() => null);
+		void listSshTunnelSessions().refresh();
+		return toSshTunnelSessionSummary(session);
+	}
+);
+
 type ConnectionSessionLifecycleInput = {
 	connectionSessionId?: unknown;
 	event?: unknown;
@@ -521,6 +729,28 @@ function toConnectionHistorySummary(record: ConnectionHistoryRecord): Connection
 	};
 }
 
+function validateSessionWorkspaceLayoutMetadata(value: unknown): SessionWorkspaceLayoutMetadata {
+	if (!isRecord(value)) throw new ServiceValidationError(['metadata is required']);
+	const layout = typeof value.layout === 'string' ? value.layout : '';
+	const panes = Array.isArray(value.panes) ? value.panes.filter(isRecord) : [];
+	if (!['single', 'two-columns', 'two-rows', 'quad'].includes(layout)) {
+		throw new ServiceValidationError(['layout is invalid']);
+	}
+	if (panes.length < 1 || panes.length > 4) {
+		throw new ServiceValidationError(['panes must contain between 1 and 4 entries']);
+	}
+
+	return {
+		layout,
+		panes,
+		updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : undefined
+	};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function rdpLaunchErrorCode(error: unknown): string {
 	if (error instanceof Error && error.name) return sanitizeRdpErrorCode(`rdp_${error.name}`);
 	return 'rdp_launch_failed';
@@ -577,6 +807,36 @@ function toLiveSshSessionSummary(
 		endedAt: session.endedAt?.toISOString() ?? null,
 		terminalCols: session.terminalCols,
 		terminalRows: session.terminalRows,
+		updatedAt: session.updatedAt.toISOString()
+	};
+}
+
+function toSshTunnelProfileSummary(profile: SshTunnelProfileRecord): SshTunnelProfileSummary {
+	return {
+		id: profile.id,
+		hostId: profile.hostId,
+		name: profile.name,
+		targetHost: profile.targetHost,
+		targetPort: profile.targetPort,
+		createdAt: profile.createdAt.toISOString(),
+		updatedAt: profile.updatedAt.toISOString()
+	};
+}
+
+function toSshTunnelSessionSummary(session: SshTunnelSessionRecord): SshTunnelSessionSummary {
+	return {
+		id: session.id,
+		profileId: session.profileId,
+		hostId: session.hostId,
+		targetHost: session.targetHost,
+		targetPort: session.targetPort,
+		status: session.status,
+		failureCode: session.failureCode,
+		publicPath: publicSshTunnelPath(session.id),
+		websocketPath: `/ws/tunnel/${encodeURIComponent(session.id)}`,
+		startedAt: session.startedAt.toISOString(),
+		lastUsedAt: session.lastUsedAt?.toISOString() ?? null,
+		endedAt: session.endedAt?.toISOString() ?? null,
 		updatedAt: session.updatedAt.toISOString()
 	};
 }

@@ -10,6 +10,7 @@ import {
 	hosts,
 	sessions,
 	sshLiveSessions,
+	sshTunnelSessions,
 	users,
 	workspaces,
 	workspaceMemberships
@@ -19,7 +20,7 @@ import { ServiceValidationError } from '$lib/server/services/errors';
 import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
 import { liveSshManager } from '$lib/server/ssh-live/manager';
 import type { BasicAppSettings } from '$lib/server/services/settings';
-import type { HostProtocol } from '$lib/server/services/types';
+import type { ConnectionProtocol } from '$lib/server/services/types';
 
 export type AdminUserSummary = {
 	id: string;
@@ -73,17 +74,61 @@ export type AdminLiveSshSessionSummary = {
 	canTerminate: boolean;
 };
 
+export type AdminConnectionProtocol = ConnectionProtocol;
+
+export type AdminFailureReason = {
+	code: string;
+	category:
+		| 'authentication'
+		| 'authorization'
+		| 'network'
+		| 'timeout'
+		| 'host_key'
+		| 'gateway'
+		| 'protocol'
+		| 'operator'
+		| 'unknown';
+	message: string;
+};
+
+export type AdminSshTunnelSummary = {
+	id: string;
+	userId: string;
+	username: string;
+	hostName: string | null;
+	hostname: string | null;
+	status: 'starting' | 'active' | 'idle';
+	startedAt: string;
+	updatedAt: string;
+	durationMs: number;
+	canTerminate: boolean;
+};
+
+export type AdminFileTransferActivitySummary = {
+	id: string;
+	userId: string;
+	username: string;
+	hostName: string | null;
+	hostname: string | null;
+	protocol: Extract<AdminConnectionProtocol, 'ftp' | 'ftps'>;
+	status: 'starting' | 'active';
+	startedAt: string;
+	updatedAt: string;
+	durationMs: number;
+};
+
 export type AdminConnectionHistoryEntry = {
 	id: string;
 	userId: string;
 	username: string;
 	hostName: string | null;
 	hostname: string | null;
-	protocol: HostProtocol;
+	protocol: AdminConnectionProtocol;
 	status: 'starting' | 'active' | 'ended' | 'failed';
 	startedAt: string;
 	endedAt: string | null;
 	errorCode: string | null;
+	failureReason: AdminFailureReason | null;
 	updatedAt: string;
 };
 
@@ -91,6 +136,8 @@ export type AdminOverview = {
 	users: AdminUserSummary[];
 	workspaces: AdminWorkspaceSummary[];
 	liveSshSessions: AdminLiveSshSessionSummary[];
+	sshTunnels: AdminSshTunnelSummary[];
+	fileTransferActivity: AdminFileTransferActivitySummary[];
 	connectionHistory: AdminConnectionHistoryEntry[];
 	settings: BasicAppSettings;
 	capabilities: {
@@ -98,6 +145,7 @@ export type AdminOverview = {
 		disableUsers: true;
 		promoteUsers: true;
 		terminateLiveSshSessions: true;
+		terminateSshTunnels: true;
 		workspacesSource: 'workspace';
 	};
 };
@@ -122,6 +170,8 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 		workspaceRows,
 		workspaceMembershipRows,
 		liveSshRows,
+		sshTunnelRows,
+		activeConnectionRows,
 		connectionRows,
 		settings
 	] = await Promise.all([
@@ -133,6 +183,16 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 		db.select().from(workspaces),
 		db.select().from(workspaceMemberships),
 		db.select().from(sshLiveSessions).orderBy(desc(sshLiveSessions.updatedAt)),
+		db
+			.select()
+			.from(sshTunnelSessions)
+			.where(inArray(sshTunnelSessions.status, ['starting', 'active', 'idle']))
+			.orderBy(desc(sshTunnelSessions.lastSeenAt)),
+		db
+			.select()
+			.from(connectionSessions)
+			.where(inArray(connectionSessions.status, ['starting', 'active']))
+			.orderBy(desc(connectionSessions.updatedAt)),
 		db.select().from(connectionSessions).orderBy(desc(connectionSessions.startedAt)).limit(50),
 		settingsService.getBasicAppSettings()
 	]);
@@ -208,30 +268,25 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 				)
 			};
 		}),
-		connectionHistory: connectionRows.map((session) => {
-			const owner = usersById.get(session.userId);
-			const host = session.hostId ? hostsById.get(session.hostId) : null;
-
-			return {
-				id: session.id,
-				userId: session.userId,
-				username: owner?.username ?? 'Unknown user',
-				hostName: host?.name ?? null,
-				hostname: host?.hostname ?? null,
-				protocol: session.protocol,
-				status: session.status,
-				startedAt: session.startedAt.toISOString(),
-				endedAt: session.endedAt?.toISOString() ?? null,
-				errorCode: session.errorCode,
-				updatedAt: session.updatedAt.toISOString()
-			};
-		}),
+		sshTunnels: sshTunnelRows.map((session) =>
+			toAdminSshTunnelSummary(session, usersById, hostsById, now)
+		),
+		fileTransferActivity: activeConnectionRows
+			.filter((session) => {
+				const protocol = toAdminConnectionProtocol(session.protocol);
+				return protocol === 'ftp' || protocol === 'ftps';
+			})
+			.map((session) => toAdminFileTransferSummary(session, usersById, hostsById, now)),
+		connectionHistory: connectionRows.map((session) =>
+			toAdminConnectionHistoryEntry(session, usersById, hostsById)
+		),
 		settings,
 		capabilities: {
 			createUsers: true,
 			disableUsers: true,
 			promoteUsers: true,
 			terminateLiveSshSessions: true,
+			terminateSshTunnels: true,
 			workspacesSource: 'workspace'
 		}
 	};
@@ -310,11 +365,162 @@ export const terminateAdminLiveSshSession = command<string, void>(
 	}
 );
 
+export const terminateAdminSshTunnelSession = command<string, void>(
+	'unchecked',
+	async (sessionId) => {
+		requireAdmin();
+		if (typeof sessionId !== 'string' || !sessionId) {
+			throw new ServiceValidationError(['sessionId is required']);
+		}
+
+		const [session] = await db
+			.select({
+				id: sshTunnelSessions.id,
+				status: sshTunnelSessions.status
+			})
+			.from(sshTunnelSessions)
+			.where(eq(sshTunnelSessions.id, sessionId))
+			.limit(1);
+
+		if (
+			!session ||
+			(session.status !== 'starting' && session.status !== 'active' && session.status !== 'idle')
+		) {
+			throw new ServiceValidationError(['SSH tunnel session is not active']);
+		}
+
+		const now = new Date();
+		await db
+			.update(sshTunnelSessions)
+			.set({ status: 'ended', endedAt: now, lastSeenAt: now, errorCode: null })
+			.where(eq(sshTunnelSessions.id, session.id));
+		await db
+			.update(connectionSessions)
+			.set({ status: 'ended', endedAt: now, errorCode: null, updatedAt: now })
+			.where(
+				and(eq(connectionSessions.id, session.id), eq(connectionSessions.protocol, 'ssh_tunnel'))
+			);
+		void getAdminOverview().refresh();
+	}
+);
+
 function requireAdmin(): string {
 	const user = getRequestEvent().locals.user;
 	if (!user) error(401, 'Unauthenticated');
 	if (!user.isAdmin) error(403, 'Admin access required');
 	return user.id;
+}
+
+function toAdminConnectionProtocol(value: string): AdminConnectionProtocol {
+	return value as AdminConnectionProtocol;
+}
+
+function toAdminSshTunnelSummary(
+	session: typeof sshTunnelSessions.$inferSelect,
+	usersById: Map<string, typeof users.$inferSelect>,
+	hostsById: Map<string, typeof hosts.$inferSelect>,
+	now: Date
+): AdminSshTunnelSummary {
+	const owner = usersById.get(session.userId);
+	const host = session.sshHostId ? hostsById.get(session.sshHostId) : null;
+
+	return {
+		id: session.id,
+		userId: session.userId,
+		username: owner?.username ?? 'Unknown user',
+		hostName: host?.name ?? null,
+		hostname: host?.hostname ?? null,
+		status:
+			session.status === 'starting' ? 'starting' : session.status === 'idle' ? 'idle' : 'active',
+		startedAt: session.startedAt.toISOString(),
+		updatedAt: session.lastSeenAt.toISOString(),
+		durationMs: Math.max(0, now.getTime() - session.startedAt.getTime()),
+		canTerminate: true
+	};
+}
+
+function toAdminFileTransferSummary(
+	session: typeof connectionSessions.$inferSelect,
+	usersById: Map<string, typeof users.$inferSelect>,
+	hostsById: Map<string, typeof hosts.$inferSelect>,
+	now: Date
+): AdminFileTransferActivitySummary {
+	const owner = usersById.get(session.userId);
+	const host = session.hostId ? hostsById.get(session.hostId) : null;
+	const protocol = toAdminConnectionProtocol(session.protocol);
+
+	return {
+		id: session.id,
+		userId: session.userId,
+		username: owner?.username ?? 'Unknown user',
+		hostName: host?.name ?? null,
+		hostname: host?.hostname ?? null,
+		protocol: protocol === 'ftps' ? 'ftps' : 'ftp',
+		status: session.status === 'active' ? 'active' : 'starting',
+		startedAt: session.startedAt.toISOString(),
+		updatedAt: session.updatedAt.toISOString(),
+		durationMs: Math.max(0, now.getTime() - session.startedAt.getTime())
+	};
+}
+
+function toAdminConnectionHistoryEntry(
+	session: typeof connectionSessions.$inferSelect,
+	usersById: Map<string, typeof users.$inferSelect>,
+	hostsById: Map<string, typeof hosts.$inferSelect>
+): AdminConnectionHistoryEntry {
+	const owner = usersById.get(session.userId);
+	const host = session.hostId ? hostsById.get(session.hostId) : null;
+	const protocol = toAdminConnectionProtocol(session.protocol);
+
+	return {
+		id: session.id,
+		userId: session.userId,
+		username: owner?.username ?? 'Unknown user',
+		hostName: host?.name ?? null,
+		hostname: host?.hostname ?? null,
+		protocol,
+		status: session.status,
+		startedAt: session.startedAt.toISOString(),
+		endedAt: session.endedAt?.toISOString() ?? null,
+		errorCode: session.errorCode,
+		failureReason: toAdminFailureReason(session.errorCode, protocol),
+		updatedAt: session.updatedAt.toISOString()
+	};
+}
+
+function toAdminFailureReason(
+	errorCode: string | null,
+	protocol: AdminConnectionProtocol
+): AdminFailureReason | null {
+	if (!errorCode) return null;
+	const code = errorCode.toLowerCase();
+	const text = code.replaceAll('_', ' ').replaceAll('-', ' ');
+
+	if (code.includes('auth') || code.includes('credential') || code.includes('password')) {
+		return { code, category: 'authentication', message: `Authentication failed for ${protocol}` };
+	}
+	if (code.includes('forbidden') || code.includes('denied') || code.includes('unauthorized')) {
+		return { code, category: 'authorization', message: `Access was denied for ${protocol}` };
+	}
+	if (code.includes('timeout') || code.includes('timed_out')) {
+		return { code, category: 'timeout', message: `Connection timed out for ${protocol}` };
+	}
+	if (code.includes('host_key') || code.includes('fingerprint')) {
+		return { code, category: 'host_key', message: 'Host key verification failed' };
+	}
+	if (code.includes('gateway') || code.startsWith('rdp_')) {
+		return { code, category: 'gateway', message: `Gateway failure: ${text}` };
+	}
+	if (code.includes('protocol') || code.includes('handshake') || code.includes('negotiation')) {
+		return { code, category: 'protocol', message: `Protocol negotiation failed: ${text}` };
+	}
+	if (code.includes('terminated') || code.includes('cancelled') || code.includes('canceled')) {
+		return { code, category: 'operator', message: `Operator ended the ${protocol} session` };
+	}
+	if (code.includes('network') || code.includes('refused') || code.includes('reset')) {
+		return { code, category: 'network', message: `Network failure: ${text}` };
+	}
+	return { code, category: 'unknown', message: text };
 }
 
 function toWorkspaceSummaries(

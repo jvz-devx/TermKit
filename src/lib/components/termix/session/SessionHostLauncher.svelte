@@ -5,8 +5,9 @@
 	import { Input } from '$lib/components/ui/input';
 	import type { HostSummary } from '$lib/termix.remote';
 	import StatePanel from '../StatePanel.svelte';
+	import type { SessionPaneKind } from './workspace-layout';
 
-	type WorkspaceProtocol = 'ssh' | 'sftp' | 'rdp' | 'vnc' | 'telnet';
+	type WorkspaceProtocol = SessionPaneKind;
 	type LauncherProtocolFilter = WorkspaceProtocol | 'all';
 
 	const launcherProtocolOptions: LauncherProtocolFilter[] = [
@@ -15,7 +16,10 @@
 		'sftp',
 		'rdp',
 		'vnc',
-		'telnet'
+		'telnet',
+		'ftp',
+		'ftps',
+		'ssh-tunnel'
 	];
 
 	let {
@@ -43,7 +47,11 @@
 	} = $props();
 
 	function launcherProtocolLabel(protocol: LauncherProtocolFilter) {
-		return protocol === 'all' ? 'All' : protocol.toUpperCase();
+		return protocol === 'all'
+			? 'All'
+			: protocol === 'ssh-tunnel'
+				? 'Tunnel'
+				: protocol.toUpperCase();
 	}
 </script>
 

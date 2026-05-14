@@ -52,14 +52,18 @@
 		ssh: 'SSH',
 		rdp: 'RDP',
 		vnc: 'VNC',
-		telnet: 'Telnet'
+		telnet: 'Telnet',
+		ftp: 'FTP',
+		ftps: 'FTPS'
 	};
 
 	const defaultPorts: Record<HostProtocol, number> = {
 		ssh: 22,
 		rdp: 3389,
 		vnc: 5900,
-		telnet: 23
+		telnet: 23,
+		ftp: 21,
+		ftps: 21
 	};
 
 	let form = $state(createForm());
@@ -161,6 +165,8 @@
 							<Select.Item value="rdp">RDP</Select.Item>
 							<Select.Item value="vnc">VNC</Select.Item>
 							<Select.Item value="telnet">Telnet</Select.Item>
+							<Select.Item value="ftp">FTP</Select.Item>
+							<Select.Item value="ftps">FTPS</Select.Item>
 						</Select.Content>
 					</Select.Root>
 				</div>

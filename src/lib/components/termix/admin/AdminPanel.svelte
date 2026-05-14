@@ -20,9 +20,12 @@
 		getAdminOverview,
 		promoteAdminUser,
 		terminateAdminLiveSshSession,
+		terminateAdminSshTunnelSession,
 		type AdminConnectionHistoryEntry,
+		type AdminFileTransferActivitySummary,
 		type AdminLiveSshSessionSummary,
 		type AdminOverview,
+		type AdminSshTunnelSummary,
 		type AdminUserSummary,
 		type AdminWorkspaceSummary
 	} from '$lib/admin.remote';
@@ -36,6 +39,12 @@
 	import * as Table from '$lib/components/ui/table';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import type { Component } from 'svelte';
+	import {
+		adminFailureDetail,
+		adminFailureTitle,
+		adminProtocolLabel,
+		formatAdminDuration
+	} from './admin-visibility';
 
 	const overviewQuery = getAdminOverview();
 	const initialOverview = await overviewQuery;
@@ -52,6 +61,10 @@
 	const activeLiveSessions = $derived(
 		overview.liveSshSessions.filter((session) => session.canTerminate).length
 	);
+	const activeSshTunnels = $derived(
+		overview.sshTunnels.filter((session) => session.canTerminate).length
+	);
+	const activeFileTransfers = $derived(overview.fileTransferActivity.length);
 	const failedConnections = $derived(
 		overview.connectionHistory.filter((session) => session.status === 'failed').length
 	);
@@ -84,6 +97,12 @@
 	async function terminateSession(session: AdminLiveSshSessionSummary) {
 		await runAction(`terminate:${session.id}`, `Terminated ${session.title}.`, () =>
 			terminateAdminLiveSshSession(session.id).updates(getAdminOverview)
+		);
+	}
+
+	async function terminateTunnel(session: AdminSshTunnelSummary) {
+		await runAction(`terminate:tunnel:${session.id}`, 'Terminated SSH tunnel.', () =>
+			terminateAdminSshTunnelSession(session.id).updates(getAdminOverview)
 		);
 	}
 
@@ -136,7 +155,7 @@
 		</Button>
 	</div>
 
-	<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+	<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
 		{@render MetricCard({
 			icon: Users,
 			label: 'Users',
@@ -154,6 +173,18 @@
 			label: 'Live SSH',
 			value: activeLiveSessions,
 			detail: 'Attachable'
+		})}
+		{@render MetricCard({
+			icon: Cable,
+			label: 'SSH tunnels',
+			value: activeSshTunnels,
+			detail: 'Active'
+		})}
+		{@render MetricCard({
+			icon: Server,
+			label: 'FTP/FTPS',
+			value: activeFileTransfers,
+			detail: 'Running'
 		})}
 		{@render MetricCard({
 			icon: Activity,
@@ -184,6 +215,8 @@
 			<Tabs.Trigger value="users"><Users class="size-4" />Users</Tabs.Trigger>
 			<Tabs.Trigger value="workspaces"><FolderKanban class="size-4" />Workspaces</Tabs.Trigger>
 			<Tabs.Trigger value="live"><SquareTerminal class="size-4" />Live sessions</Tabs.Trigger>
+			<Tabs.Trigger value="tunnels"><Cable class="size-4" />Tunnels</Tabs.Trigger>
+			<Tabs.Trigger value="transfers"><Server class="size-4" />FTP/FTPS</Tabs.Trigger>
 			<Tabs.Trigger value="history"><Clock3 class="size-4" />History</Tabs.Trigger>
 			<Tabs.Trigger value="settings"><Settings2 class="size-4" />Settings</Tabs.Trigger>
 		</Tabs.List>
@@ -202,6 +235,18 @@
 				pendingAction,
 				terminateSession
 			})}
+		</Tabs.Content>
+
+		<Tabs.Content value="tunnels">
+			{@render SshTunnelsTable({
+				sessions: overview.sshTunnels,
+				pendingAction,
+				terminateTunnel
+			})}
+		</Tabs.Content>
+
+		<Tabs.Content value="transfers">
+			{@render FileTransferActivityTable({ sessions: overview.fileTransferActivity })}
 		</Tabs.Content>
 
 		<Tabs.Content value="history">
@@ -490,6 +535,127 @@
 	</Card.Root>
 {/snippet}
 
+{#snippet SshTunnelsTable({
+	sessions,
+	pendingAction,
+	terminateTunnel
+}: {
+	sessions: AdminSshTunnelSummary[];
+	pendingAction: string | null;
+	terminateTunnel: (session: AdminSshTunnelSummary) => Promise<void>;
+})}
+	<Card.Root>
+		<Card.Header>
+			<Card.Title>SSH tunnels</Card.Title>
+			<Card.Description>{sessions.length} active tunnel sessions</Card.Description>
+		</Card.Header>
+		<Card.Content class="overflow-x-auto">
+			<Table.Root>
+				<Table.Header>
+					<Table.Row>
+						<Table.Head>Tunnel</Table.Head>
+						<Table.Head>User</Table.Head>
+						<Table.Head>Status</Table.Head>
+						<Table.Head>Runtime</Table.Head>
+						<Table.Head>Updated</Table.Head>
+						<Table.Head class="text-right">Actions</Table.Head>
+					</Table.Row>
+				</Table.Header>
+				<Table.Body>
+					{#each sessions as session (session.id)}
+						<Table.Row>
+							<Table.Cell>
+								<div class="font-medium">{session.hostName ?? 'Direct tunnel'}</div>
+								<div class="text-xs text-muted-foreground">
+									{session.hostname ?? shortId(session.id)}
+								</div>
+							</Table.Cell>
+							<Table.Cell>{session.username}</Table.Cell>
+							<Table.Cell>
+								<Badge variant={statusVariant(session.status)}>{session.status}</Badge>
+							</Table.Cell>
+							<Table.Cell>{formatAdminDuration(session.durationMs)}</Table.Cell>
+							<Table.Cell>{formatDate(session.updatedAt)}</Table.Cell>
+							<Table.Cell>
+								<div class="flex justify-end">
+									<Button
+										size="sm"
+										variant="destructive"
+										disabled={!session.canTerminate ||
+											pendingAction === `terminate:tunnel:${session.id}`}
+										onclick={() => terminateTunnel(session)}
+									>
+										<Cable class="size-4" />
+										Terminate
+									</Button>
+								</div>
+							</Table.Cell>
+						</Table.Row>
+					{:else}
+						<Table.Row>
+							<Table.Cell colspan={6} class="text-sm text-muted-foreground">
+								No active SSH tunnels.
+							</Table.Cell>
+						</Table.Row>
+					{/each}
+				</Table.Body>
+			</Table.Root>
+		</Card.Content>
+	</Card.Root>
+{/snippet}
+
+{#snippet FileTransferActivityTable({ sessions }: { sessions: AdminFileTransferActivitySummary[] })}
+	<Card.Root>
+		<Card.Header>
+			<Card.Title>FTP/FTPS activity</Card.Title>
+			<Card.Description>{sessions.length} active transfer sessions</Card.Description>
+		</Card.Header>
+		<Card.Content class="overflow-x-auto">
+			<Table.Root>
+				<Table.Header>
+					<Table.Row>
+						<Table.Head>Session</Table.Head>
+						<Table.Head>User</Table.Head>
+						<Table.Head>Protocol</Table.Head>
+						<Table.Head>Status</Table.Head>
+						<Table.Head>Runtime</Table.Head>
+						<Table.Head>Updated</Table.Head>
+					</Table.Row>
+				</Table.Header>
+				<Table.Body>
+					{#each sessions as session (session.id)}
+						<Table.Row>
+							<Table.Cell>
+								<div class="font-medium">{session.hostName ?? 'Direct transfer'}</div>
+								<div class="text-xs text-muted-foreground">
+									{session.hostname ?? shortId(session.id)}
+								</div>
+							</Table.Cell>
+							<Table.Cell>{session.username}</Table.Cell>
+							<Table.Cell>
+								<Badge variant="outline"
+									><Server class="size-3" />{adminProtocolLabel(session.protocol)}</Badge
+								>
+							</Table.Cell>
+							<Table.Cell>
+								<Badge variant={statusVariant(session.status)}>{session.status}</Badge>
+							</Table.Cell>
+							<Table.Cell>{formatAdminDuration(session.durationMs)}</Table.Cell>
+							<Table.Cell>{formatDate(session.updatedAt)}</Table.Cell>
+						</Table.Row>
+					{:else}
+						<Table.Row>
+							<Table.Cell colspan={6} class="text-sm text-muted-foreground">
+								No active FTP or FTPS sessions.
+							</Table.Cell>
+						</Table.Row>
+					{/each}
+				</Table.Body>
+			</Table.Root>
+		</Card.Content>
+	</Card.Root>
+{/snippet}
+
 {#snippet ConnectionHistoryTable({ sessions }: { sessions: AdminConnectionHistoryEntry[] })}
 	<Card.Root>
 		<Card.Header>
@@ -519,12 +685,21 @@
 							</Table.Cell>
 							<Table.Cell>{session.username}</Table.Cell>
 							<Table.Cell>
-								<Badge variant="outline"><Cable class="size-3" />{session.protocol}</Badge>
+								<Badge variant="outline"
+									><Cable class="size-3" />{adminProtocolLabel(session.protocol)}</Badge
+								>
 							</Table.Cell>
 							<Table.Cell>
 								<Badge variant={statusVariant(session.status)}>{session.status}</Badge>
-								{#if session.errorCode}
-									<div class="mt-1 text-xs text-destructive">{session.errorCode}</div>
+								{#if session.failureReason || session.errorCode}
+									<div class="mt-1 text-xs text-destructive">
+										{adminFailureTitle(session.failureReason, session.errorCode)}
+									</div>
+									{#if adminFailureDetail(session.failureReason, session.errorCode)}
+										<div class="text-xs text-muted-foreground">
+											{adminFailureDetail(session.failureReason, session.errorCode)}
+										</div>
+									{/if}
 								{/if}
 							</Table.Cell>
 							<Table.Cell>{formatDate(session.startedAt)}</Table.Cell>

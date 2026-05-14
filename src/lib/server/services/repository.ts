@@ -6,13 +6,19 @@ import {
 	credentials,
 	hosts,
 	sessionTickets,
+	sshTunnelProfiles,
+	sshTunnelSessions,
 	users,
+	workspaceLayouts,
 	workspaces,
 	workspaceMemberships,
 	type credentials as credentialsTable,
 	type hosts as hostsTable,
 	type sessionTickets as sessionTicketsTable,
+	type sshTunnelProfiles as sshTunnelProfilesTable,
+	type sshTunnelSessions as sshTunnelSessionsTable,
 	type users as usersTable,
+	type workspaceLayouts as workspaceLayoutsTable,
 	type workspaces as workspacesTable,
 	type workspaceMemberships as workspaceMembershipsTable
 } from '../db/schema';
@@ -26,8 +32,17 @@ import type {
 	SshAttachTicketRecord,
 	SshLiveSessionPatch,
 	SshLiveSessionRecord,
+	SshTunnelProfileFilters,
+	SshTunnelProfilePatch,
+	SshTunnelProfileRecord,
+	SshTunnelSessionFilters,
+	SshTunnelSessionPatch,
+	SshTunnelSessionRecord,
 	SessionTicketRecord,
 	TermixServicesRepository,
+	WorkspaceLayoutFilters,
+	WorkspaceLayoutPatch,
+	WorkspaceLayoutRecord,
 	WorkspaceMembershipRecord,
 	WorkspaceRecord
 } from './types';
@@ -67,6 +82,9 @@ type UserRow = typeof usersTable.$inferSelect;
 type WorkspaceRow = typeof workspacesTable.$inferSelect;
 type WorkspaceMembershipRow = typeof workspaceMembershipsTable.$inferSelect;
 type ConnectionSessionRow = typeof connectionSessions.$inferSelect;
+type SshTunnelProfileRow = typeof sshTunnelProfilesTable.$inferSelect;
+type SshTunnelSessionRow = typeof sshTunnelSessionsTable.$inferSelect;
+type WorkspaceLayoutRow = typeof workspaceLayoutsTable.$inferSelect;
 type SshLiveSessionRow = SshLiveSessionRecord;
 type SshAttachTicketRow = SshAttachTicketRecord;
 
@@ -448,6 +466,8 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 				startedAt: session.startedAt,
 				endedAt: session.endedAt,
 				errorCode: session.errorCode,
+				errorMessage: session.errorMessage ?? null,
+				errorDetails: session.errorDetails ?? null,
 				updatedAt: session.updatedAt
 			})
 			.returning();
@@ -511,6 +531,209 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 				)
 			)
 			.sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime());
+	}
+
+	async listSshTunnelProfiles(
+		userId: string,
+		filters: SshTunnelProfileFilters = {}
+	): Promise<SshTunnelProfileRecord[]> {
+		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
+		const scopeFilter =
+			workspaceIds.length > 0
+				? or(
+						and(eq(sshTunnelProfiles.userId, userId), isNull(sshTunnelProfiles.workspaceId)),
+						inArray(sshTunnelProfiles.workspaceId, workspaceIds)
+					)
+				: and(eq(sshTunnelProfiles.userId, userId), isNull(sshTunnelProfiles.workspaceId));
+		const rows = await this.database.select().from(sshTunnelProfiles).where(scopeFilter);
+
+		return rows
+			.filter((row) => matchesSshTunnelProfileFilters(row, filters))
+			.map(toSshTunnelProfileRecord);
+	}
+
+	async getSshTunnelProfile(userId: string, id: string): Promise<SshTunnelProfileRecord | null> {
+		const profiles = await this.listSshTunnelProfiles(userId);
+		return profiles.find((profile) => profile.id === id) ?? null;
+	}
+
+	async createSshTunnelProfile(profile: SshTunnelProfileRecord): Promise<SshTunnelProfileRecord> {
+		const [row] = await this.database
+			.insert(sshTunnelProfiles)
+			.values({
+				id: profile.id,
+				userId: profile.userId,
+				workspaceId: profile.workspaceId,
+				sshHostId: profile.sshHostId,
+				name: profile.name,
+				targetHost: profile.targetHost,
+				targetPort: profile.targetPort,
+				description: profile.description,
+				createdAt: profile.createdAt,
+				updatedAt: profile.updatedAt
+			})
+			.returning();
+
+		if (!row) throw new Error('Could not create SSH tunnel profile');
+		return toSshTunnelProfileRecord(row);
+	}
+
+	async updateSshTunnelProfile(
+		userId: string,
+		id: string,
+		patch: SshTunnelProfilePatch
+	): Promise<SshTunnelProfileRecord | null> {
+		const existing = await this.getSshTunnelProfile(userId, id);
+		if (!existing) return null;
+		const [row] = await this.database
+			.update(sshTunnelProfiles)
+			.set(sshTunnelProfilePatchToDb(patch))
+			.where(eq(sshTunnelProfiles.id, id))
+			.returning();
+
+		return row ? toSshTunnelProfileRecord(row) : null;
+	}
+
+	async deleteSshTunnelProfile(userId: string, id: string): Promise<boolean> {
+		const existing = await this.getSshTunnelProfile(userId, id);
+		if (!existing) return false;
+		const rows = await this.database
+			.delete(sshTunnelProfiles)
+			.where(eq(sshTunnelProfiles.id, id))
+			.returning({ id: sshTunnelProfiles.id });
+
+		return rows.length > 0;
+	}
+
+	async listSshTunnelSessions(
+		userId: string,
+		filters: SshTunnelSessionFilters = {}
+	): Promise<SshTunnelSessionRecord[]> {
+		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
+		const scopeFilter =
+			workspaceIds.length > 0
+				? or(
+						and(eq(sshTunnelSessions.userId, userId), isNull(sshTunnelSessions.workspaceId)),
+						inArray(sshTunnelSessions.workspaceId, workspaceIds)
+					)
+				: and(eq(sshTunnelSessions.userId, userId), isNull(sshTunnelSessions.workspaceId));
+		const rows = await this.database.select().from(sshTunnelSessions).where(scopeFilter);
+
+		return rows
+			.filter((row) => matchesSshTunnelSessionFilters(row, filters))
+			.map(toSshTunnelSessionRecord)
+			.sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime());
+	}
+
+	async getSshTunnelSession(userId: string, id: string): Promise<SshTunnelSessionRecord | null> {
+		const sessions = await this.listSshTunnelSessions(userId);
+		return sessions.find((session) => session.id === id) ?? null;
+	}
+
+	async createSshTunnelSession(session: SshTunnelSessionRecord): Promise<SshTunnelSessionRecord> {
+		const [row] = await this.database
+			.insert(sshTunnelSessions)
+			.values({
+				id: session.id,
+				profileId: session.profileId,
+				userId: session.userId,
+				workspaceId: session.workspaceId,
+				sshHostId: session.sshHostId,
+				targetHost: session.targetHost,
+				targetPort: session.targetPort,
+				publicPath: session.publicPath,
+				status: session.status,
+				startedAt: session.startedAt,
+				endedAt: session.endedAt,
+				lastSeenAt: session.lastSeenAt,
+				errorCode: session.errorCode,
+				errorMessage: session.errorMessage
+			})
+			.returning();
+
+		if (!row) throw new Error('Could not create SSH tunnel session');
+		return toSshTunnelSessionRecord(row);
+	}
+
+	async updateSshTunnelSession(
+		userId: string,
+		id: string,
+		patch: SshTunnelSessionPatch
+	): Promise<SshTunnelSessionRecord | null> {
+		const existing = await this.getSshTunnelSession(userId, id);
+		if (!existing) return null;
+		const [row] = await this.database
+			.update(sshTunnelSessions)
+			.set(sshTunnelSessionPatchToDb(patch))
+			.where(eq(sshTunnelSessions.id, id))
+			.returning();
+
+		return row ? toSshTunnelSessionRecord(row) : null;
+	}
+
+	async listWorkspaceLayouts(
+		userId: string,
+		filters: WorkspaceLayoutFilters = {}
+	): Promise<WorkspaceLayoutRecord[]> {
+		const rows = await this.database
+			.select()
+			.from(workspaceLayouts)
+			.where(eq(workspaceLayouts.userId, userId));
+
+		return rows
+			.filter((row) => matchesWorkspaceLayoutFilters(row, filters))
+			.map(toWorkspaceLayoutRecord);
+	}
+
+	async getWorkspaceLayout(userId: string, id: string): Promise<WorkspaceLayoutRecord | null> {
+		const [row] = await this.database
+			.select()
+			.from(workspaceLayouts)
+			.where(and(eq(workspaceLayouts.id, id), eq(workspaceLayouts.userId, userId)))
+			.limit(1);
+
+		return row ? toWorkspaceLayoutRecord(row) : null;
+	}
+
+	async createWorkspaceLayout(layout: WorkspaceLayoutRecord): Promise<WorkspaceLayoutRecord> {
+		const [row] = await this.database
+			.insert(workspaceLayouts)
+			.values({
+				id: layout.id,
+				userId: layout.userId,
+				workspaceId: layout.workspaceId,
+				layoutKind: layout.layoutKind,
+				panes: layout.panes,
+				createdAt: layout.createdAt,
+				updatedAt: layout.updatedAt
+			})
+			.returning();
+
+		if (!row) throw new Error('Could not create workspace layout');
+		return toWorkspaceLayoutRecord(row);
+	}
+
+	async updateWorkspaceLayout(
+		userId: string,
+		id: string,
+		patch: WorkspaceLayoutPatch
+	): Promise<WorkspaceLayoutRecord | null> {
+		const [row] = await this.database
+			.update(workspaceLayouts)
+			.set(workspaceLayoutPatchToDb(patch))
+			.where(and(eq(workspaceLayouts.id, id), eq(workspaceLayouts.userId, userId)))
+			.returning();
+
+		return row ? toWorkspaceLayoutRecord(row) : null;
+	}
+
+	async deleteWorkspaceLayout(userId: string, id: string): Promise<boolean> {
+		const rows = await this.database
+			.delete(workspaceLayouts)
+			.where(and(eq(workspaceLayouts.id, id), eq(workspaceLayouts.userId, userId)))
+			.returning({ id: workspaceLayouts.id });
+
+		return rows.length > 0;
 	}
 
 	async listSshLiveSessions(userId: string): Promise<SshLiveSessionRecord[]> {
@@ -707,6 +930,9 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	private readonly credentials = new Map<string, CredentialRecord>();
 	private readonly tickets = new Map<string, SessionTicketRecord>();
 	private readonly connectionSessions = new Map<string, ConnectionSessionRecord>();
+	private readonly sshTunnelProfiles = new Map<string, SshTunnelProfileRecord>();
+	private readonly sshTunnelSessions = new Map<string, SshTunnelSessionRecord>();
+	private readonly workspaceLayouts = new Map<string, WorkspaceLayoutRecord>();
 	private readonly sshLiveSessions = new Map<string, SshLiveSessionRecord>();
 	private readonly sshAttachTickets = new Map<string, SshAttachTicketRecord>();
 
@@ -936,6 +1162,135 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 			.sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime());
 	}
 
+	async listSshTunnelProfiles(
+		userId: string,
+		filters: SshTunnelProfileFilters = {}
+	): Promise<SshTunnelProfileRecord[]> {
+		const workspaceIds = await this.accessibleWorkspaceIds(userId);
+		return [...this.sshTunnelProfiles.values()]
+			.filter(
+				(profile) =>
+					(profile.userId === userId && profile.workspaceId === null) ||
+					(profile.workspaceId !== null && workspaceIds.includes(profile.workspaceId))
+			)
+			.filter((profile) => matchesSshTunnelProfileFilters(profile, filters));
+	}
+
+	async getSshTunnelProfile(userId: string, id: string): Promise<SshTunnelProfileRecord | null> {
+		const profile = this.sshTunnelProfiles.get(id);
+		if (!profile) return null;
+		if (profile.userId === userId && profile.workspaceId === null) return profile;
+		if (profile.workspaceId && (await this.isWorkspaceMember(userId, profile.workspaceId))) {
+			return profile;
+		}
+		return null;
+	}
+
+	async createSshTunnelProfile(profile: SshTunnelProfileRecord): Promise<SshTunnelProfileRecord> {
+		this.sshTunnelProfiles.set(profile.id, profile);
+		return profile;
+	}
+
+	async updateSshTunnelProfile(
+		userId: string,
+		id: string,
+		patch: SshTunnelProfilePatch
+	): Promise<SshTunnelProfileRecord | null> {
+		const profile = await this.getSshTunnelProfile(userId, id);
+		if (!profile) return null;
+
+		const updated = { ...profile, ...patch, id };
+		this.sshTunnelProfiles.set(id, updated);
+		return updated;
+	}
+
+	async deleteSshTunnelProfile(userId: string, id: string): Promise<boolean> {
+		const profile = await this.getSshTunnelProfile(userId, id);
+		if (!profile) return false;
+		return this.sshTunnelProfiles.delete(id);
+	}
+
+	async listSshTunnelSessions(
+		userId: string,
+		filters: SshTunnelSessionFilters = {}
+	): Promise<SshTunnelSessionRecord[]> {
+		const workspaceIds = await this.accessibleWorkspaceIds(userId);
+		return [...this.sshTunnelSessions.values()]
+			.filter(
+				(session) =>
+					(session.userId === userId && session.workspaceId === null) ||
+					(session.workspaceId !== null && workspaceIds.includes(session.workspaceId))
+			)
+			.filter((session) => matchesSshTunnelSessionFilters(session, filters))
+			.sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime());
+	}
+
+	async getSshTunnelSession(userId: string, id: string): Promise<SshTunnelSessionRecord | null> {
+		const session = this.sshTunnelSessions.get(id);
+		if (!session) return null;
+		if (session.userId === userId && session.workspaceId === null) return session;
+		if (session.workspaceId && (await this.isWorkspaceMember(userId, session.workspaceId))) {
+			return session;
+		}
+		return null;
+	}
+
+	async createSshTunnelSession(session: SshTunnelSessionRecord): Promise<SshTunnelSessionRecord> {
+		this.sshTunnelSessions.set(session.id, session);
+		return session;
+	}
+
+	async updateSshTunnelSession(
+		userId: string,
+		id: string,
+		patch: SshTunnelSessionPatch
+	): Promise<SshTunnelSessionRecord | null> {
+		const session = await this.getSshTunnelSession(userId, id);
+		if (!session) return null;
+
+		const updated = { ...session, ...patch, id };
+		this.sshTunnelSessions.set(id, updated);
+		return updated;
+	}
+
+	async listWorkspaceLayouts(
+		userId: string,
+		filters: WorkspaceLayoutFilters = {}
+	): Promise<WorkspaceLayoutRecord[]> {
+		return [...this.workspaceLayouts.values()]
+			.filter((layout) => layout.userId === userId)
+			.filter((layout) => matchesWorkspaceLayoutFilters(layout, filters));
+	}
+
+	async getWorkspaceLayout(userId: string, id: string): Promise<WorkspaceLayoutRecord | null> {
+		const layout = this.workspaceLayouts.get(id);
+		return layout?.userId === userId ? layout : null;
+	}
+
+	async createWorkspaceLayout(layout: WorkspaceLayoutRecord): Promise<WorkspaceLayoutRecord> {
+		this.workspaceLayouts.set(layout.id, layout);
+		return layout;
+	}
+
+	async updateWorkspaceLayout(
+		userId: string,
+		id: string,
+		patch: WorkspaceLayoutPatch
+	): Promise<WorkspaceLayoutRecord | null> {
+		const layout = await this.getWorkspaceLayout(userId, id);
+		if (!layout) return null;
+
+		const updated = { ...layout, ...patch, id, userId };
+		this.workspaceLayouts.set(id, updated);
+		return updated;
+	}
+
+	async deleteWorkspaceLayout(userId: string, id: string): Promise<boolean> {
+		const layout = await this.getWorkspaceLayout(userId, id);
+		if (!layout) return false;
+		return this.workspaceLayouts.delete(id);
+	}
+
 	async listSshLiveSessions(userId: string): Promise<SshLiveSessionRecord[]> {
 		return [...this.sshLiveSessions.values()].filter((session) => session.userId === userId);
 	}
@@ -1118,6 +1473,8 @@ function toConnectionSessionRecord(row: ConnectionSessionRow): ConnectionSession
 		startedAt: row.startedAt,
 		endedAt: row.endedAt,
 		errorCode: row.errorCode,
+		errorMessage: row.errorMessage,
+		errorDetails: row.errorDetails,
 		updatedAt: row.updatedAt
 	};
 }
@@ -1164,7 +1521,56 @@ function toConnectionHistoryRecord(
 		endedAt: session.endedAt,
 		durationMs: session.endedAt ? session.endedAt.getTime() - session.startedAt.getTime() : null,
 		status: session.status,
-		errorReason: session.errorCode
+		errorReason: session.errorMessage ?? session.errorCode,
+		errorCode: session.errorCode,
+		errorMessage: session.errorMessage ?? null,
+		errorDetails: session.errorDetails ?? null
+	};
+}
+
+function toSshTunnelProfileRecord(row: SshTunnelProfileRow): SshTunnelProfileRecord {
+	return {
+		id: row.id,
+		userId: row.userId,
+		workspaceId: row.workspaceId,
+		sshHostId: row.sshHostId,
+		name: row.name,
+		targetHost: row.targetHost,
+		targetPort: row.targetPort,
+		description: row.description,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
+	};
+}
+
+function toSshTunnelSessionRecord(row: SshTunnelSessionRow): SshTunnelSessionRecord {
+	return {
+		id: row.id,
+		profileId: row.profileId,
+		userId: row.userId,
+		workspaceId: row.workspaceId,
+		sshHostId: row.sshHostId,
+		targetHost: row.targetHost,
+		targetPort: row.targetPort,
+		publicPath: row.publicPath,
+		status: row.status,
+		startedAt: row.startedAt,
+		endedAt: row.endedAt,
+		lastSeenAt: row.lastSeenAt,
+		errorCode: row.errorCode,
+		errorMessage: row.errorMessage
+	};
+}
+
+function toWorkspaceLayoutRecord(row: WorkspaceLayoutRow): WorkspaceLayoutRecord {
+	return {
+		id: row.id,
+		userId: row.userId,
+		workspaceId: row.workspaceId,
+		layoutKind: row.layoutKind,
+		panes: row.panes,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
 	};
 }
 
@@ -1238,6 +1644,8 @@ function connectionSessionPatchToDb(
 		status: patch.status,
 		endedAt: patch.endedAt,
 		errorCode: patch.errorCode,
+		errorMessage: patch.errorMessage,
+		errorDetails: patch.errorDetails,
 		updatedAt: patch.updatedAt
 	};
 }
@@ -1261,6 +1669,49 @@ function workspacePatchToDb(
 	};
 }
 
+function sshTunnelProfilePatchToDb(
+	patch: SshTunnelProfilePatch
+): Partial<typeof sshTunnelProfiles.$inferInsert> {
+	return {
+		workspaceId: patch.workspaceId,
+		sshHostId: patch.sshHostId,
+		name: patch.name,
+		targetHost: patch.targetHost,
+		targetPort: patch.targetPort,
+		description: patch.description,
+		updatedAt: patch.updatedAt
+	};
+}
+
+function sshTunnelSessionPatchToDb(
+	patch: SshTunnelSessionPatch
+): Partial<typeof sshTunnelSessions.$inferInsert> {
+	return {
+		profileId: patch.profileId,
+		workspaceId: patch.workspaceId,
+		sshHostId: patch.sshHostId,
+		targetHost: patch.targetHost,
+		targetPort: patch.targetPort,
+		publicPath: patch.publicPath,
+		status: patch.status,
+		endedAt: patch.endedAt,
+		lastSeenAt: patch.lastSeenAt,
+		errorCode: patch.errorCode,
+		errorMessage: patch.errorMessage
+	};
+}
+
+function workspaceLayoutPatchToDb(
+	patch: WorkspaceLayoutPatch
+): Partial<typeof workspaceLayouts.$inferInsert> {
+	return {
+		workspaceId: patch.workspaceId,
+		layoutKind: patch.layoutKind,
+		panes: patch.panes,
+		updatedAt: patch.updatedAt
+	};
+}
+
 function matchesConnectionHistoryFilters(
 	session: ConnectionSessionRecord | ConnectionSessionRow,
 	filters: ConnectionHistoryFilters
@@ -1273,6 +1724,43 @@ function matchesConnectionHistoryFilters(
 	if (filters.status && session.status !== filters.status) return false;
 	if (filters.startedAfter && session.startedAt < filters.startedAfter) return false;
 	if (filters.startedBefore && session.startedAt > filters.startedBefore) return false;
+	return true;
+}
+
+function matchesSshTunnelProfileFilters(
+	profile: SshTunnelProfileRecord | SshTunnelProfileRow,
+	filters: SshTunnelProfileFilters
+): boolean {
+	if (filters.workspaceId !== undefined && profile.workspaceId !== filters.workspaceId) {
+		return false;
+	}
+	if (filters.sshHostId !== undefined && profile.sshHostId !== filters.sshHostId) return false;
+	if (filters.userId !== undefined && profile.userId !== filters.userId) return false;
+	return true;
+}
+
+function matchesSshTunnelSessionFilters(
+	session: SshTunnelSessionRecord | SshTunnelSessionRow,
+	filters: SshTunnelSessionFilters
+): boolean {
+	if (filters.workspaceId !== undefined && session.workspaceId !== filters.workspaceId) {
+		return false;
+	}
+	if (filters.sshHostId !== undefined && session.sshHostId !== filters.sshHostId) return false;
+	if (filters.profileId !== undefined && session.profileId !== filters.profileId) return false;
+	if (filters.userId !== undefined && session.userId !== filters.userId) return false;
+	if (filters.status && session.status !== filters.status) return false;
+	return true;
+}
+
+function matchesWorkspaceLayoutFilters(
+	layout: WorkspaceLayoutRecord | WorkspaceLayoutRow,
+	filters: WorkspaceLayoutFilters
+): boolean {
+	if (filters.workspaceId !== undefined && layout.workspaceId !== filters.workspaceId) {
+		return false;
+	}
+	if (filters.layoutKind && layout.layoutKind !== filters.layoutKind) return false;
 	return true;
 }
 

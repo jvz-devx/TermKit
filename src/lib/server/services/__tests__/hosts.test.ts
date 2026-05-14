@@ -21,12 +21,12 @@ describe('HostService', () => {
 		await expect(
 			service.create('user-1', {
 				name: 'Prod SSH',
-				protocol: 'ftp',
+				protocol: 'smtp',
 				hostname: 'prod.example.test',
 				port: 22
 			})
 		).rejects.toMatchObject({
-			issues: ['protocol must be ssh, rdp, vnc, or telnet']
+			issues: ['protocol must be ssh, rdp, vnc, telnet, ftp, or ftps']
 		});
 
 		const host = await service.create('user-1', {

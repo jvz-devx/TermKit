@@ -121,7 +121,7 @@ export function validateHostInput(
 
 	if (!name) issues.push('name is required');
 	if (!protocols.includes(protocol as HostProtocol))
-		issues.push('protocol must be ssh, rdp, vnc, or telnet');
+		issues.push('protocol must be ssh, rdp, vnc, telnet, ftp, or ftps');
 	if (!hostname) issues.push('hostname is required');
 	if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 		issues.push('port must be an integer between 1 and 65535');

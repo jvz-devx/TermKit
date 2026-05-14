@@ -12,7 +12,16 @@ import {
 	uuid
 } from 'drizzle-orm/pg-core';
 
-export const hostProtocol = pgEnum('host_protocol', ['ssh', 'rdp', 'vnc', 'telnet']);
+export const hostProtocol = pgEnum('host_protocol', ['ssh', 'rdp', 'vnc', 'telnet', 'ftp', 'ftps']);
+export const connectionProtocol = pgEnum('connection_protocol', [
+	'ssh',
+	'rdp',
+	'vnc',
+	'telnet',
+	'ftp',
+	'ftps',
+	'ssh_tunnel'
+]);
 export const credentialKind = pgEnum('credential_kind', ['password', 'ssh_key']);
 export const authIdentityProvider = pgEnum('auth_identity_provider', ['microsoft']);
 export const workspaceMemberRole = pgEnum('workspace_member_role', ['owner', 'member']);
@@ -21,6 +30,14 @@ export const connectionSessionStatus = pgEnum('connection_session_status', [
 	'active',
 	'ended',
 	'failed'
+]);
+export const sshTunnelSessionStatus = pgEnum('ssh_tunnel_session_status', [
+	'starting',
+	'active',
+	'idle',
+	'ended',
+	'failed',
+	'expired'
 ]);
 export const sshLiveSessionStatus = pgEnum('ssh_live_session_status', [
 	'starting',
@@ -192,17 +209,91 @@ export const connectionSessions = pgTable(
 			.references(() => users.id, { onDelete: 'cascade' }),
 		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
 		hostId: uuid('host_id').references(() => hosts.id, { onDelete: 'set null' }),
-		protocol: hostProtocol('protocol').notNull(),
+		protocol: connectionProtocol('protocol').notNull(),
 		status: connectionSessionStatus('status').notNull().default('starting'),
 		startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
 		endedAt: timestamp('ended_at', { withTimezone: true }),
 		errorCode: text('error_code'),
+		errorMessage: text('error_message'),
+		errorDetails: jsonb('error_details').$type<Record<string, unknown>>(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(table) => [
 		index('connection_sessions_user_id_idx').on(table.userId),
 		index('connection_sessions_workspace_id_idx').on(table.workspaceId),
 		index('connection_sessions_host_id_idx').on(table.hostId)
+	]
+);
+
+export const sshTunnelProfiles = pgTable(
+	'ssh_tunnel_profiles',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+		sshHostId: uuid('ssh_host_id')
+			.notNull()
+			.references(() => hosts.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		targetHost: text('target_host').notNull(),
+		targetPort: integer('target_port').notNull(),
+		description: text('description'),
+		...timestamps
+	},
+	(table) => [
+		index('ssh_tunnel_profiles_user_id_idx').on(table.userId),
+		index('ssh_tunnel_profiles_workspace_id_idx').on(table.workspaceId),
+		index('ssh_tunnel_profiles_ssh_host_id_idx').on(table.sshHostId)
+	]
+);
+
+export const sshTunnelSessions = pgTable(
+	'ssh_tunnel_sessions',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		profileId: uuid('profile_id').references(() => sshTunnelProfiles.id, { onDelete: 'set null' }),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+		sshHostId: uuid('ssh_host_id').references(() => hosts.id, { onDelete: 'set null' }),
+		targetHost: text('target_host').notNull(),
+		targetPort: integer('target_port').notNull(),
+		publicPath: text('public_path').notNull(),
+		status: sshTunnelSessionStatus('status').notNull().default('starting'),
+		startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+		endedAt: timestamp('ended_at', { withTimezone: true }),
+		lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+		errorCode: text('error_code'),
+		errorMessage: text('error_message')
+	},
+	(table) => [
+		index('ssh_tunnel_sessions_profile_id_idx').on(table.profileId),
+		index('ssh_tunnel_sessions_user_id_idx').on(table.userId),
+		index('ssh_tunnel_sessions_workspace_id_idx').on(table.workspaceId),
+		index('ssh_tunnel_sessions_ssh_host_id_idx').on(table.sshHostId),
+		index('ssh_tunnel_sessions_status_idx').on(table.status),
+		index('ssh_tunnel_sessions_last_seen_at_idx').on(table.lastSeenAt)
+	]
+);
+
+export const workspaceLayouts = pgTable(
+	'workspace_layouts',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+		layoutKind: text('layout_kind').notNull(),
+		panes: jsonb('panes').$type<Record<string, unknown>[]>().notNull().default([]),
+		...timestamps
+	},
+	(table) => [
+		index('workspace_layouts_user_id_idx').on(table.userId),
+		index('workspace_layouts_workspace_id_idx').on(table.workspaceId)
 	]
 );
 
@@ -356,6 +447,9 @@ export const usersRelations = relations(users, ({ many }) => ({
 	workspaceMemberships: many(workspaceMemberships),
 	hosts: many(hosts),
 	credentials: many(credentials),
+	sshTunnelProfiles: many(sshTunnelProfiles),
+	sshTunnelSessions: many(sshTunnelSessions),
+	workspaceLayouts: many(workspaceLayouts),
 	sshLiveSessions: many(sshLiveSessions),
 	sshAttachTickets: many(sshAttachTickets),
 	importJobs: many(importJobs)
@@ -373,7 +467,10 @@ export const workspacesRelations = relations(workspaces, ({ many }) => ({
 	memberships: many(workspaceMemberships),
 	hosts: many(hosts),
 	credentials: many(credentials),
-	connectionSessions: many(connectionSessions)
+	connectionSessions: many(connectionSessions),
+	sshTunnelProfiles: many(sshTunnelProfiles),
+	sshTunnelSessions: many(sshTunnelSessions),
+	workspaceLayouts: many(workspaceLayouts)
 }));
 
 export const workspaceMembershipsRelations = relations(workspaceMemberships, ({ one }) => ({
@@ -390,6 +487,8 @@ export const hostsRelations = relations(hosts, ({ one, many }) => ({
 	credential: one(credentials, { fields: [hosts.credentialId], references: [credentials.id] }),
 	connectionSessions: many(connectionSessions),
 	sessionTickets: many(sessionTickets),
+	sshTunnelProfiles: many(sshTunnelProfiles),
+	sshTunnelSessions: many(sshTunnelSessions),
 	sshLiveSessions: many(sshLiveSessions)
 }));
 
@@ -414,6 +513,37 @@ export const connectionSessionsRelations = relations(connectionSessions, ({ one 
 export const sessionTicketsRelations = relations(sessionTickets, ({ one }) => ({
 	user: one(users, { fields: [sessionTickets.userId], references: [users.id] }),
 	host: one(hosts, { fields: [sessionTickets.hostId], references: [hosts.id] })
+}));
+
+export const sshTunnelProfilesRelations = relations(sshTunnelProfiles, ({ one, many }) => ({
+	user: one(users, { fields: [sshTunnelProfiles.userId], references: [users.id] }),
+	workspace: one(workspaces, {
+		fields: [sshTunnelProfiles.workspaceId],
+		references: [workspaces.id]
+	}),
+	sshHost: one(hosts, { fields: [sshTunnelProfiles.sshHostId], references: [hosts.id] }),
+	sessions: many(sshTunnelSessions)
+}));
+
+export const sshTunnelSessionsRelations = relations(sshTunnelSessions, ({ one }) => ({
+	profile: one(sshTunnelProfiles, {
+		fields: [sshTunnelSessions.profileId],
+		references: [sshTunnelProfiles.id]
+	}),
+	user: one(users, { fields: [sshTunnelSessions.userId], references: [users.id] }),
+	workspace: one(workspaces, {
+		fields: [sshTunnelSessions.workspaceId],
+		references: [workspaces.id]
+	}),
+	sshHost: one(hosts, { fields: [sshTunnelSessions.sshHostId], references: [hosts.id] })
+}));
+
+export const workspaceLayoutsRelations = relations(workspaceLayouts, ({ one }) => ({
+	user: one(users, { fields: [workspaceLayouts.userId], references: [users.id] }),
+	workspace: one(workspaces, {
+		fields: [workspaceLayouts.workspaceId],
+		references: [workspaces.id]
+	})
 }));
 
 export const sshLiveSessionsRelations = relations(sshLiveSessions, ({ one, many }) => ({

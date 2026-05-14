@@ -17,6 +17,7 @@ TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. The 
 - V3 milestone 2: first-class connection history with filters for user, workspace, protocol, host, status, and date range.
 - V3 milestone 3: RDP clipboard controls, file clipboard transfer states, and session workspace polish.
 - V3 milestone 4: central admin panel for users, workspaces, live sessions, connection history, and settings.
+- V4 milestone 1: admin visibility for active SSH tunnels, FTP/FTPS activity, and structured protocol failure reasons.
 
 ## Application Navigation
 
@@ -35,7 +36,7 @@ V3 adds simple workspaces without full RBAC. Hosts and credentials can stay priv
 
 Connection history is available at `/history`. It records protocol, host, user, workspace, start/end times, duration, status, and structured error reason fields, with filters for common operator questions.
 
-Admins can use `/admin` to view users, create local accounts, promote admins, disable users, inspect workspace inventory, terminate live SSH sessions, review recent connection failures, and jump into app settings. Disabling a user revokes their active app sessions and blocks future password/session authentication.
+Admins can use `/admin` to view users, create local accounts, promote admins, disable users, inspect workspace inventory, terminate live SSH sessions and active SSH tunnels, review FTP/FTPS activity, inspect structured failure reasons for SSH tunnel/FTP/FTPS history, and jump into app settings. Disabling a user revokes their active app sessions and blocks future password/session authentication.
 
 ## Live SSH Sessions
 
