@@ -216,6 +216,8 @@ Smoke-test local protocol loopbacks for Telnet, VNC banner negotiation, SSH, and
 nix develop -c npm run smoke:protocols
 ```
 
+When real test targets are available, the same command can also verify an external SSH host and a real VNC framebuffer handshake. Configure SSH with `TERMIXKIT_SMOKE_SSH_HOST`, `TERMIXKIT_SMOKE_SSH_USERNAME`, `TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256`, and either `TERMIXKIT_SMOKE_SSH_PASSWORD` or `TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PATH`; optional values are `TERMIXKIT_SMOKE_SSH_PORT`, `TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PASSPHRASE`, `TERMIXKIT_SMOKE_SSH_COMMAND`, `TERMIXKIT_SMOKE_SSH_SFTP_PATH`, `TERMIXKIT_SMOKE_SSH_SKIP_SFTP=1`, and `TERMIXKIT_SMOKE_PROTOCOL_TIMEOUT_MS`. The SSH fingerprint accepts OpenSSH `SHA256:<base64>` or a 64-character hex SHA256 digest and is required before credentials are sent. Configure VNC with `TERMIXKIT_SMOKE_VNC_HOST` and optional `TERMIXKIT_SMOKE_VNC_PORT`; the automated VNC target must allow no-auth RFB security so the smoke can reach `ServerInit` without storing a desktop password in the environment.
+
 Smoke-test the production app boundary with disposable SSH/SFTP, Telnet, VNC, and mocked RDP Gateway fixtures. This builds the current production app, creates a temporary admin user, drives first-run/login through Chromium, creates hosts and credentials through the app APIs, opens WebSocket sessions through `/ws/*`, exercises SFTP list/download/upload through the authenticated HTTP API, and verifies that the RDP remote launch path stages a saved password without leaking it into Gateway provisioning:
 
 ```sh

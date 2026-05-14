@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { constants as fsConstants } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { connect, createServer } from 'node:net';
 import { once } from 'node:events';
 
@@ -16,15 +17,26 @@ const NAWS = 31;
 const probeTimeoutMs = Number(process.env.TERMIXKIT_SMOKE_PROTOCOL_TIMEOUT_MS ?? 7000);
 
 const results = [];
+const pendingSocketReads = new WeakMap();
 
 try {
 	await runSmoke('telnet loopback negotiation', smokeTelnet);
 	await runSmoke('vnc loopback rfb banner', smokeVnc);
+	await runSmoke('vnc loopback no-auth handshakes', smokeVncNoAuthVersions);
 	await runSmoke('ssh shell and sftp loopback', smokeSshAndSftp);
-	skipSmoke(
-		'vnc framebuffer authentication',
-		'requires a real VNC desktop/server; local smoke verifies the RFB TCP banner only'
-	);
+	if (process.env.TERMIXKIT_SMOKE_SSH_HOST) {
+		await runSmoke('real SSH target exec and SFTP', smokeRealSshTarget);
+	} else {
+		skipSmoke('real SSH target exec and SFTP', 'missing TERMIXKIT_SMOKE_SSH_HOST');
+	}
+	if (process.env.TERMIXKIT_SMOKE_VNC_HOST) {
+		await runSmoke('real VNC target framebuffer handshake', smokeRealVncTarget);
+	} else {
+		skipSmoke(
+			'real VNC target framebuffer handshake',
+			'missing TERMIXKIT_SMOKE_VNC_HOST; local smoke verifies the RFB TCP banner only'
+		);
+	}
 
 	for (const result of results) {
 		const suffix = result.detail ? ` - ${result.detail}` : '';
@@ -268,6 +280,16 @@ function installSftpSmokeServer(sftp) {
 }
 
 function connectSshClient(client, port) {
+	return connectSshClientWithConfig(client, {
+		host: '127.0.0.1',
+		port,
+		username: 'smoke',
+		password: 'smoke-password',
+		hostVerifier: () => true
+	});
+}
+
+function connectSshClientWithConfig(client, config) {
 	return new Promise((resolve, reject) => {
 		const cleanup = () => {
 			client.off('ready', onReady);
@@ -284,14 +306,306 @@ function connectSshClient(client, port) {
 
 		client.once('ready', onReady);
 		client.once('error', onError);
-		client.connect({
-			host: '127.0.0.1',
-			port,
-			username: 'smoke',
-			password: 'smoke-password',
-			hostVerifier: () => true,
-			readyTimeout: probeTimeoutMs
+		client.connect({ ...config, readyTimeout: probeTimeoutMs });
+	});
+}
+
+async function smokeRealSshTarget({ cleanup }) {
+	const config = await realSshConfig();
+	const client = new Client();
+	cleanup.push(() => destroySshClient(client));
+
+	await connectSshClientWithConfig(client, config);
+	await smokeSshExec(
+		client,
+		process.env.TERMIXKIT_SMOKE_SSH_COMMAND ?? 'printf termixkit-ssh-smoke'
+	);
+	if (process.env.TERMIXKIT_SMOKE_SSH_SKIP_SFTP !== '1') {
+		await smokeSftpReaddir(client, process.env.TERMIXKIT_SMOKE_SSH_SFTP_PATH ?? '.');
+	}
+}
+
+async function realSshConfig() {
+	const host = requiredEnv('TERMIXKIT_SMOKE_SSH_HOST');
+	const username = requiredEnv('TERMIXKIT_SMOKE_SSH_USERNAME');
+	const port = readPort(process.env.TERMIXKIT_SMOKE_SSH_PORT ?? '22', 'TERMIXKIT_SMOKE_SSH_PORT');
+	const privateKey = await readOptionalFile(process.env.TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PATH);
+	const password = process.env.TERMIXKIT_SMOKE_SSH_PASSWORD;
+	const expectedHostHash = normalizeSha256Fingerprint(
+		requiredEnv('TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256')
+	);
+
+	assert(
+		Boolean(password || privateKey),
+		'Set TERMIXKIT_SMOKE_SSH_PASSWORD or TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PATH for real SSH smoke.'
+	);
+
+	return {
+		host,
+		port,
+		username,
+		hostHash: 'sha256',
+		hostVerifier: (hostHash) => hostHash.toLowerCase() === expectedHostHash,
+		...(password ? { password } : {}),
+		...(privateKey ? { privateKey } : {}),
+		...(process.env.TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PASSPHRASE
+			? { passphrase: process.env.TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PASSPHRASE }
+			: {})
+	};
+}
+
+function smokeSshExec(client, command) {
+	return new Promise((resolve, reject) => {
+		client.exec(command, (error, stream) => {
+			if (error) {
+				reject(error);
+				return;
+			}
+
+			let output = '';
+			let stderr = '';
+			stream.setEncoding('utf8');
+			stream.stderr.setEncoding('utf8');
+			stream.on('data', (chunk) => {
+				output += chunk;
+			});
+			stream.stderr.on('data', (chunk) => {
+				stderr += chunk;
+			});
+			stream.once('error', reject);
+			stream.once('close', (code) => {
+				if (code !== 0) {
+					reject(new Error(`real SSH command exited ${code}: ${stderr || output}`));
+					return;
+				}
+				if (!output.trim()) {
+					reject(new Error('real SSH command produced no output.'));
+					return;
+				}
+				resolve();
+			});
 		});
+	});
+}
+
+function smokeSftpReaddir(client, path) {
+	return new Promise((resolve, reject) => {
+		client.sftp((error, sftp) => {
+			if (error) {
+				reject(error);
+				return;
+			}
+
+			sftp.readdir(path, (readError, entries) => {
+				sftp.end();
+				if (readError) {
+					reject(readError);
+					return;
+				}
+				if (!Array.isArray(entries)) {
+					reject(new Error('real SFTP readdir did not return entries.'));
+					return;
+				}
+				resolve();
+			});
+		});
+	});
+}
+
+async function smokeRealVncTarget({ cleanup }) {
+	const host = requiredEnv('TERMIXKIT_SMOKE_VNC_HOST');
+	const port = readPort(process.env.TERMIXKIT_SMOKE_VNC_PORT ?? '5900', 'TERMIXKIT_SMOKE_VNC_PORT');
+	await smokeVncNoAuthHandshake({ host, port, cleanup });
+}
+
+async function smokeVncNoAuthVersions({ cleanup }) {
+	for (const version of ['RFB 003.003\n', 'RFB 003.007\n', 'RFB 003.008\n']) {
+		await smokeVncNoAuthVersion(version, cleanup);
+	}
+}
+
+async function smokeVncNoAuthVersion(version, cleanup) {
+	const server = createVncNoAuthFixture(version);
+	cleanup.push(() => closeServer(server));
+	await listen(server);
+	await smokeVncNoAuthHandshake({
+		host: '127.0.0.1',
+		port: server.address().port,
+		cleanup
+	});
+	await closeServer(server);
+}
+
+function createVncNoAuthFixture(version) {
+	const sockets = new Set();
+	const server = createServer(async (socket) => {
+		sockets.add(socket);
+		socket.once('close', () => sockets.delete(socket));
+		try {
+			const banner = Buffer.from(version);
+			socket.write(banner);
+			const clientBanner = await readExactly(socket, banner.length);
+			if (!clientBanner.equals(banner)) {
+				socket.destroy(new Error('client used the wrong RFB version'));
+				return;
+			}
+
+			if (version.startsWith('RFB 003.003')) {
+				socket.write(Buffer.from([0, 0, 0, 1]));
+			} else {
+				socket.write(Buffer.from([1, 1]));
+				const selectedType = await readExactly(socket, 1);
+				if (selectedType[0] !== 1) {
+					socket.destroy(new Error('client selected the wrong VNC security type'));
+					return;
+				}
+				if (version.startsWith('RFB 003.008')) socket.write(Buffer.from([0, 0, 0, 0]));
+			}
+
+			await readExactly(socket, 1);
+			socket.end(vncServerInit());
+		} catch {
+			socket.destroy();
+		}
+	});
+	server.closeAllClients = () => {
+		for (const socket of sockets) destroySocket(socket);
+		sockets.clear();
+	};
+	return server;
+}
+
+function vncServerInit() {
+	const name = Buffer.from('TermixKit smoke VNC');
+	const serverInit = Buffer.alloc(24);
+	serverInit.writeUInt16BE(800, 0);
+	serverInit.writeUInt16BE(600, 2);
+	serverInit[4] = 32;
+	serverInit[5] = 24;
+	serverInit[6] = 0;
+	serverInit[7] = 1;
+	serverInit.writeUInt16BE(255, 8);
+	serverInit.writeUInt16BE(255, 10);
+	serverInit.writeUInt16BE(255, 12);
+	serverInit[14] = 16;
+	serverInit[15] = 8;
+	serverInit[16] = 0;
+	serverInit.writeUInt32BE(name.length, 20);
+	return Buffer.concat([serverInit, name]);
+}
+
+async function smokeVncNoAuthHandshake({ host, port, cleanup }) {
+	const socket = connect(port, host);
+	cleanup.push(() => destroySocket(socket));
+
+	try {
+		await connectSocket(socket);
+		const banner = await readExactly(socket, 12);
+		assert(/^RFB 00[3-9]\.00[0-9]\n$/.test(banner.toString('ascii')), 'real VNC banner mismatch');
+		socket.write(banner);
+
+		const security = await readVncSecurityTypes(socket, banner);
+		assert(
+			security.types.includes(1),
+			`real VNC target did not offer no-auth security type; saw ${security.types.join(', ') || '<none>'}`
+		);
+		if (security.needsSelection) socket.write(Buffer.from([1]));
+
+		if (security.needsSecurityResult) {
+			const securityResult = await readExactly(socket, 4);
+			assert(securityResult.readUInt32BE(0) === 0, 'real VNC no-auth security handshake failed');
+		}
+		socket.write(Buffer.from([1]));
+
+		const serverInit = await readExactly(socket, 24);
+		const width = serverInit.readUInt16BE(0);
+		const height = serverInit.readUInt16BE(2);
+		assert(width > 0 && height > 0, 'real VNC framebuffer dimensions were empty');
+	} finally {
+		destroySocket(socket);
+	}
+}
+
+async function readVncSecurityTypes(socket, banner) {
+	const version = banner.toString('ascii');
+	if (version.startsWith('RFB 003.003')) {
+		const securityType = (await readExactly(socket, 4)).readUInt32BE(0);
+		return {
+			types: securityType === 0 ? [] : [securityType],
+			needsSelection: false,
+			needsSecurityResult: false
+		};
+	}
+
+	const count = (await readExactly(socket, 1))[0];
+	if (count === 0) {
+		const reasonLength = (await readExactly(socket, 4)).readUInt32BE(0);
+		const reason = (await readExactly(socket, reasonLength)).toString('utf8');
+		throw new Error(`real VNC target rejected security negotiation: ${reason}`);
+	}
+	return {
+		types: [...(await readExactly(socket, count))],
+		needsSelection: true,
+		needsSecurityResult: version.startsWith('RFB 003.008')
+	};
+}
+
+function connectSocket(socket) {
+	return new Promise((resolve, reject) => {
+		const cleanup = () => {
+			socket.off('connect', onConnect);
+			socket.off('error', onError);
+		};
+		const onConnect = () => {
+			cleanup();
+			resolve();
+		};
+		const onError = (error) => {
+			cleanup();
+			reject(error);
+		};
+
+		socket.once('connect', onConnect);
+		socket.once('error', onError);
+	});
+}
+
+function readExactly(socket, length) {
+	return new Promise((resolve, reject) => {
+		let buffer = pendingSocketReads.get(socket) ?? Buffer.alloc(0);
+		pendingSocketReads.delete(socket);
+		const cleanup = () => {
+			socket.off('data', onData);
+			socket.off('error', onError);
+			socket.off('close', onClose);
+		};
+		const resolveIfReady = () => {
+			if (buffer.length < length) return false;
+			cleanup();
+			const head = buffer.subarray(0, length);
+			const tail = buffer.subarray(length);
+			if (tail.length > 0) pendingSocketReads.set(socket, tail);
+			resolve(head);
+			return true;
+		};
+		const onData = (chunk) => {
+			buffer = Buffer.concat([buffer, chunk]);
+			resolveIfReady();
+		};
+		const onError = (error) => {
+			cleanup();
+			reject(error);
+		};
+		const onClose = () => {
+			cleanup();
+			reject(new Error(`socket closed before reading ${length} bytes`));
+		};
+
+		if (!resolveIfReady()) {
+			socket.on('data', onData);
+			socket.once('error', onError);
+			socket.once('close', onClose);
+		}
 	});
 }
 
@@ -408,6 +722,45 @@ function fileAttrs(size) {
 function listen(server) {
 	server.listen(0, '127.0.0.1');
 	return once(server, 'listening');
+}
+
+function requiredEnv(name) {
+	const value = process.env[name]?.trim();
+	if (!value) throw new Error(`${name} is required.`);
+	return value;
+}
+
+function readPort(value, name) {
+	if (!/^\d+$/.test(value)) {
+		throw new Error(`${name} must be an integer from 1 to 65535.`);
+	}
+	const port = Number.parseInt(value, 10);
+	if (!Number.isInteger(port) || port < 1 || port > 65535) {
+		throw new Error(`${name} must be an integer from 1 to 65535.`);
+	}
+	return port;
+}
+
+async function readOptionalFile(path) {
+	if (!path?.trim()) return undefined;
+	return readFile(path, 'utf8');
+}
+
+function normalizeSha256Fingerprint(value) {
+	const trimmed = value.trim();
+	if (/^[0-9a-f]{64}$/i.test(trimmed)) return trimmed.toLowerCase();
+
+	const base64 = trimmed.startsWith('SHA256:') ? trimmed.slice('SHA256:'.length) : trimmed;
+	try {
+		const digest = Buffer.from(base64, 'base64');
+		if (digest.length === 32) return digest.toString('hex');
+	} catch {
+		// Fall through to the explicit validation error below.
+	}
+
+	throw new Error(
+		'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256 must be a SHA256:<base64> OpenSSH fingerprint or 64-character hex SHA256 digest.'
+	);
 }
 
 function closeServer(server) {
