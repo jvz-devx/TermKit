@@ -55,8 +55,8 @@ process.exit(process.exitCode ?? 0);
 
 async function runSmoke(name, callback) {
 	const cleanup = [];
-	await withTimeout(callback({ cleanup }), name, cleanup);
-	results.push({ status: '[pass]', name });
+	const detail = await withTimeout(callback({ cleanup }), name, cleanup);
+	results.push({ status: '[pass]', name, detail });
 }
 
 function skipSmoke(name, detail) {
@@ -322,7 +322,9 @@ async function smokeRealSshTarget({ cleanup }) {
 	);
 	if (process.env.TERMIXKIT_SMOKE_SSH_SKIP_SFTP !== '1') {
 		await smokeSftpReaddir(client, process.env.TERMIXKIT_SMOKE_SSH_SFTP_PATH ?? '.');
+		return 'exec and SFTP verified';
 	}
+	return 'exec verified; SFTP skipped';
 }
 
 async function realSshConfig() {

@@ -51,6 +51,13 @@ if (
 	process.exit(1);
 }
 
+if (forbiddenSecretPattern(output)) {
+	console.error(
+		`Microsoft smoke output appears to include sensitive material (${forbiddenSecretPattern(output)}); proof file was not updated.`
+	);
+	process.exit(1);
+}
+
 proofFile.commit = commit;
 proofFile.generatedAt ??= timestamp;
 proofFile.proofs ??= {};
@@ -110,6 +117,22 @@ function joinOutput(stdout, stderr) {
 		.map((value) => value?.trim())
 		.filter(Boolean)
 		.join('\n');
+}
+
+function forbiddenSecretPattern(value) {
+	const checks = [
+		[
+			/\b(password|private[_ -]?key|access_token|refresh_token|id_token|client_secret|authorization:\s*bearer|set-cookie|cookie:)\b/i,
+			'secret, token, or cookie label'
+		],
+		[/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, 'JWT-like value']
+	];
+
+	for (const [pattern, label] of checks) {
+		if (pattern.test(value)) return label;
+	}
+
+	return null;
 }
 
 function errorText(error) {

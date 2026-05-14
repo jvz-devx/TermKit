@@ -99,9 +99,10 @@ function requireNotes(notes) {
 
 function forbiddenSecretPattern(value) {
 	const checks = [
+		[/\bpassword\b/i, 'password label'],
 		[
 			/\b(access_token|refresh_token|id_token|client_secret|authorization:\s*bearer|set-cookie|cookie:)\b/i,
-			'token or cookie label'
+			'secret, token, or cookie label'
 		],
 		[/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, 'JWT-like value']
 	];

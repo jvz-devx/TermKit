@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 const node = process.execPath;
 const root = process.cwd();
 const cleanupPaths: string[] = [];
+let proofFileCounter = 0;
 
 describe('acceptance proof scripts', () => {
 	afterEach(() => {
@@ -84,12 +85,26 @@ describe('acceptance proof scripts', () => {
 		const result = runNodeScript(['scripts/record-microsoft-interactive-proof.mjs'], {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
 			TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES:
-				'allowed-domain: redacted approved user received a TermixKit session; blocked-domain: redacted outside user was denied; admin-email: redacted configured admin became admin; local login: redacted password login still works'
+				'allowed-domain: redacted approved user received a TermixKit session; blocked-domain: redacted outside user was denied; admin-email: redacted configured admin became admin; local login: redacted local credential sign-in still works'
 		});
 
 		expect(result.status).toBe(0);
 		const proof = JSON.parse(readFileSync(proofPath, 'utf8'));
 		expect(proof.proofs.microsoftInteractive.passed).toBe(true);
+	});
+
+	it('rejects Microsoft interactive proof notes with password labels', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const proofPath = writeProofFile(directory);
+		const result = runNodeScript(['scripts/record-microsoft-interactive-proof.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES:
+				'allowed-domain: redacted approved user received a TermixKit session; blocked-domain: redacted outside user was denied; admin-email: redacted configured admin became admin; local login: redacted password: hunter2'
+		});
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain('password label');
 	});
 
 	it('imports Microsoft smoke artifacts only into current proof files', () => {
@@ -150,6 +165,81 @@ describe('acceptance proof scripts', () => {
 		expect(staleResult.status).toBe(1);
 		expect(staleResult.stderr).toContain('Refusing to re-stamp existing proofs');
 	});
+
+	it('does not accept environment sentinels as external acceptance proof', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const proofPath = writeProofFile(directory);
+		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED: 'not-a-proof',
+			TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED: 'not-a-proof',
+			TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED: 'not-a-proof',
+			TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED: 'not-a-proof',
+			TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF: 'not-a-proof'
+		});
+
+		expect(result.status).toBe(2);
+		expect(result.stdout).toContain('[blocked] V1 real SSH host verification');
+		expect(result.stdout).toContain('[blocked] V2 Microsoft interactive login acceptance');
+	});
+
+	it('accepts only recorder-shaped proof output for external acceptance', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const proofPath = writeAcceptanceProofFile(directory, validAcceptanceProofs());
+		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
+		});
+
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('acceptance audit: no blocked requirements detected');
+	});
+
+	it('rejects hand-edited external proofs with skipped or secret-looking output', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const skippedSftpProofPath = writeAcceptanceProofFile(directory, {
+			...validAcceptanceProofs(),
+			realSsh: {
+				...validAcceptanceProofs().realSsh,
+				output: '[pass] real SSH target exec and SFTP - exec verified; SFTP skipped'
+			}
+		});
+		const secretProofPath = writeAcceptanceProofFile(directory, {
+			...validAcceptanceProofs(),
+			microsoftSmoke: {
+				...validAcceptanceProofs().microsoftSmoke,
+				output:
+					'[pass] Microsoft Entra discovery and JWKS - loaded Microsoft discovery and 3 JWKS keys\nclient_secret leaked'
+			}
+		});
+		const passwordProofPath = writeAcceptanceProofFile(directory, {
+			...validAcceptanceProofs(),
+			microsoftInteractive: {
+				...validAcceptanceProofs().microsoftInteractive,
+				notes:
+					'allowed-domain user received a session; blocked-domain user was denied; admin-email user became admin; local login password: hunter2'
+			}
+		});
+
+		const skippedResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: skippedSftpProofPath
+		});
+		const secretResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: secretProofPath
+		});
+		const passwordResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: passwordProofPath
+		});
+
+		expect(skippedResult.status).toBe(2);
+		expect(skippedResult.stdout).toContain('[blocked] V1 real SSH host verification');
+		expect(secretResult.status).toBe(2);
+		expect(secretResult.stdout).toContain('[blocked] V2 real Microsoft Entra discovery');
+		expect(passwordResult.status).toBe(2);
+		expect(passwordResult.stdout).toContain('[blocked] V2 Microsoft interactive login acceptance');
+	});
 });
 
 function runNodeScript(args: string[], env: NodeJS.ProcessEnv) {
@@ -178,6 +268,80 @@ function writeProofFile(directory: string) {
 		`${JSON.stringify({ commit: currentCommit(), generatedAt: '2026-05-14T00:00:00.000Z', proofs: {} }, null, 2)}\n`
 	);
 	return proofPath;
+}
+
+function writeAcceptanceProofFile(directory: string, proofs: Record<string, unknown>) {
+	const proofPath = join(directory, `acceptance-proof-${(proofFileCounter += 1)}.json`);
+	writeFileSync(
+		proofPath,
+		`${JSON.stringify({ commit: currentCommit(), generatedAt: '2026-05-14T00:00:00.000Z', proofs }, null, 2)}\n`
+	);
+	return proofPath;
+}
+
+function validAcceptanceProofs() {
+	const timestamp = '2026-05-14T00:00:00.000Z';
+	return {
+		realSsh: {
+			passed: true,
+			timestamp,
+			command: 'TERMIXKIT_SMOKE_SSH_HOST=<redacted> npm run smoke:protocols',
+			redactedEnv: [
+				'TERMIXKIT_SMOKE_SSH_HOST',
+				'TERMIXKIT_SMOKE_SSH_USERNAME',
+				'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
+			],
+			output: '[pass] real SSH target exec and SFTP - exec and SFTP verified'
+		},
+		realVnc: {
+			passed: true,
+			timestamp,
+			command: 'TERMIXKIT_SMOKE_VNC_HOST=<redacted> npm run smoke:protocols',
+			redactedEnv: ['TERMIXKIT_SMOKE_VNC_HOST', 'TERMIXKIT_SMOKE_VNC_PORT'],
+			output: '[pass] real VNC target framebuffer handshake'
+		},
+		realRdp: {
+			passed: true,
+			timestamp,
+			command:
+				'GATEWAY_URL=<redacted> TERMIXKIT_SMOKE_RDP_HOST=<redacted> npm run smoke:rdp-gateway',
+			redactedEnv: [
+				'GATEWAY_URL',
+				'GATEWAY_PUBLIC_URL',
+				'GATEWAY_PROVISIONER_KEY',
+				'TERMIXKIT_SMOKE_RDP_HOST'
+			],
+			output: '[pass] real Devolutions Gateway RDP bootstrap - provisioned tcp://127.0.0.1:3389'
+		},
+		microsoftSmoke: {
+			passed: true,
+			timestamp,
+			command: 'TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft',
+			redactedEnv: [
+				'MICROSOFT_AUTH_ENABLED',
+				'MICROSOFT_TENANT_ID',
+				'MICROSOFT_CLIENT_ID',
+				'MICROSOFT_CLIENT_SECRET',
+				'MICROSOFT_ALLOWED_DOMAINS',
+				'MICROSOFT_ADMIN_EMAILS'
+			],
+			output:
+				'[pass] Microsoft Entra discovery and JWKS - loaded Microsoft discovery and 3 JWKS keys'
+		},
+		microsoftInteractive: {
+			passed: true,
+			timestamp,
+			command: 'manual browser acceptance',
+			redactedEnv: [
+				'MICROSOFT_TENANT_ID',
+				'MICROSOFT_CLIENT_ID',
+				'MICROSOFT_ALLOWED_DOMAINS',
+				'MICROSOFT_ADMIN_EMAILS'
+			],
+			notes:
+				'allowed-domain user received a session; blocked-domain user was denied; admin-email user became admin; local login credential sign-in still works'
+		}
+	};
 }
 
 function currentCommit() {

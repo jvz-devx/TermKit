@@ -22,6 +22,7 @@ const configs = {
 		],
 		passLine: '[pass] real SSH target exec and SFTP',
 		skipLine: '[skip] real SSH target exec and SFTP',
+		disallowedOutput: ['SFTP skipped'],
 		proofCommand: 'TERMIXKIT_SMOKE_SSH_HOST=<redacted> npm run smoke:protocols'
 	},
 	realVnc: {
@@ -132,6 +133,9 @@ function validateOutput(config, output) {
 	const errors = [];
 	if (!output.includes(config.passLine)) errors.push(`output must include ${config.passLine}`);
 	if (output.includes(config.skipLine)) errors.push(`output must not include ${config.skipLine}`);
+	for (const fragment of config.disallowedOutput ?? []) {
+		if (output.includes(fragment)) errors.push(`output must not include ${fragment}`);
+	}
 	if (forbiddenSecretPattern(output)) {
 		errors.push(`output appears to include sensitive material (${forbiddenSecretPattern(output)})`);
 	}

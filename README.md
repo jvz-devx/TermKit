@@ -201,12 +201,15 @@ Print the current acceptance evidence map and external proof blockers. This comm
 nix develop -c npm run audit:acceptance
 ```
 
-Set `TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED`, and `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` only after recording those real-target smoke results for the current commit. `npm run smoke:microsoft` always covers the local Microsoft parser fixture, but `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` requires `TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft` to pass with real Microsoft Entra environment variables. Set `TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF` only after recording real browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available.
+External acceptance is proof-file driven. `npm run audit:acceptance` ignores
+environment sentinel variables and accepts only current-commit entries in
+`acceptance-proof.local.json`. Use the proof recorders below instead of
+hand-waving real-target or manual evidence.
 
 Create a local proof file when real targets are available:
 
 ```sh
-npm run acceptance:proof-template -- acceptance-proof.local.json
+nix develop -c npm run acceptance:proof-template -- acceptance-proof.local.json
 ```
 
 Fill each passed proof with the current commit SHA, timestamp, exact command, required redacted environment variable names, and pass output or notes. `acceptance-proof.local.json` is ignored by git, and `npm run audit:acceptance` only accepts it when the file commit matches the current `HEAD`.
@@ -323,8 +326,8 @@ After collecting that browser evidence, replace every template placeholder and
 record the interactive proof with redacted notes:
 
 ```sh
-TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES='allowed-domain: ...; blocked-domain: ...; admin-email: ...; local login: ...' \
-	npm run acceptance:record-microsoft-interactive
+TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES='allowed-domain: redacted approved user received a TermixKit session; blocked-domain: redacted outside user was denied; admin-email: redacted configured admin became admin; local login: redacted local credential sign-in still works' \
+	nix develop -c npm run acceptance:record-microsoft-interactive
 ```
 
 For longer notes, put the redacted text in a local file and point the recorder at it:

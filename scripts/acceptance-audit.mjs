@@ -11,11 +11,16 @@ const proofExpectations = {
 			'TERMIXKIT_SMOKE_SSH_HOST',
 			'TERMIXKIT_SMOKE_SSH_USERNAME',
 			'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
-		]
+		],
+		passLine: '[pass] real SSH target exec and SFTP',
+		skipLine: '[skip] real SSH target exec and SFTP',
+		disallowedOutput: ['SFTP skipped']
 	},
 	realVnc: {
 		commandIncludes: ['npm run smoke:protocols'],
-		redactedEnv: ['TERMIXKIT_SMOKE_VNC_HOST', 'TERMIXKIT_SMOKE_VNC_PORT']
+		redactedEnv: ['TERMIXKIT_SMOKE_VNC_HOST', 'TERMIXKIT_SMOKE_VNC_PORT'],
+		passLine: '[pass] real VNC target framebuffer handshake',
+		skipLine: '[skip] real VNC target framebuffer handshake'
 	},
 	realRdp: {
 		commandIncludes: ['npm run smoke:rdp-gateway'],
@@ -24,7 +29,9 @@ const proofExpectations = {
 			'GATEWAY_PUBLIC_URL',
 			'GATEWAY_PROVISIONER_KEY',
 			'TERMIXKIT_SMOKE_RDP_HOST'
-		]
+		],
+		passLine: '[pass] real Devolutions Gateway RDP bootstrap',
+		skipLine: '[skip] real Devolutions Gateway RDP bootstrap'
 	},
 	microsoftSmoke: {
 		commandIncludes: ['TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1', 'npm run smoke:microsoft'],
@@ -35,7 +42,9 @@ const proofExpectations = {
 			'MICROSOFT_CLIENT_SECRET',
 			'MICROSOFT_ALLOWED_DOMAINS',
 			'MICROSOFT_ADMIN_EMAILS'
-		]
+		],
+		passLine: '[pass] Microsoft Entra discovery and JWKS',
+		skipLine: '[skip] Microsoft Entra discovery and JWKS'
 	},
 	microsoftInteractive: {
 		commandIncludes: ['manual browser acceptance'],
@@ -124,21 +133,19 @@ const checks = [
 	},
 	{
 		name: 'V1 real SSH host verification',
-		status: externalStatus('TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED', 'realSsh'),
-		evidence:
-			'set TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED or record proofs.realSsh after npm run smoke:protocols passes with real SSH env'
+		status: externalStatus('realSsh'),
+		evidence: 'record proofs.realSsh after npm run smoke:protocols passes with real SSH env'
 	},
 	{
 		name: 'V1 real VNC framebuffer verification',
-		status: externalStatus('TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED', 'realVnc'),
-		evidence:
-			'set TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED or record proofs.realVnc after npm run smoke:protocols passes with real VNC env'
+		status: externalStatus('realVnc'),
+		evidence: 'record proofs.realVnc after npm run smoke:protocols passes with real VNC env'
 	},
 	{
 		name: 'V1 real RDP through Devolutions Gateway',
-		status: externalStatus('TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED', 'realRdp'),
+		status: externalStatus('realRdp'),
 		evidence:
-			'set TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED or record proofs.realRdp after npm run smoke:rdp-gateway passes with real Gateway/RDP env'
+			'record proofs.realRdp after npm run smoke:rdp-gateway passes with real Gateway/RDP env'
 	},
 	{
 		name: 'V1 checks, tests, and production build',
@@ -159,13 +166,13 @@ const checks = [
 	},
 	{
 		name: 'V2 real Microsoft Entra discovery and optional client credentials',
-		status: externalStatus('TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED', 'microsoftSmoke'),
+		status: externalStatus('microsoftSmoke'),
 		evidence:
 			'run npm run acceptance:record-microsoft-smoke after exporting real Microsoft env, or record proofs.microsoftSmoke after TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft passes'
 	},
 	{
 		name: 'V2 Microsoft interactive login acceptance',
-		status: externalStatus('TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF', 'microsoftInteractive'),
+		status: externalStatus('microsoftInteractive'),
 		evidence:
 			'run npm run acceptance:record-microsoft-interactive after collecting manual browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available'
 	},
@@ -224,12 +231,8 @@ function label(status) {
 	return '[blocked]';
 }
 
-function hasEnv(name) {
-	return Boolean(process.env[name]?.trim());
-}
-
-function externalStatus(envName, proofKey) {
-	return hasEnv(envName) || hasProof(proofKey) ? 'available' : 'blocked';
+function externalStatus(proofKey) {
+	return hasProof(proofKey) ? 'available' : 'blocked';
 }
 
 function hasProof(proofKey) {
@@ -247,6 +250,7 @@ function hasProof(proofKey) {
 		proof.redactedEnv.every((name) => typeof name === 'string' && name.length > 0) &&
 		hasExpectedCommand(proof, expectation) &&
 		hasExpectedEnv(proof, expectation) &&
+		hasExpectedOutput(proof, expectation) &&
 		hasProofNarrative(proof, expectation)
 	);
 }
@@ -259,6 +263,19 @@ function hasExpectedEnv(proof, expectation) {
 	return expectation.redactedEnv.every((name) => proof.redactedEnv.includes(name));
 }
 
+function hasExpectedOutput(proof, expectation) {
+	const output = typeof proof.output === 'string' ? proof.output : '';
+	const notes = typeof proof.notes === 'string' ? proof.notes : '';
+	const text = `${output}\n${notes}`;
+	if (forbiddenSecretPattern(text)) return false;
+	if (expectation.passLine && !output.includes(expectation.passLine)) return false;
+	if (expectation.skipLine && output.includes(expectation.skipLine)) return false;
+	for (const fragment of expectation.disallowedOutput ?? []) {
+		if (output.includes(fragment)) return false;
+	}
+	return true;
+}
+
 function hasProofNarrative(proof, expectation) {
 	const narrative =
 		(typeof proof.output === 'string' && proof.output.trim().length > 0) ||
@@ -267,6 +284,23 @@ function hasProofNarrative(proof, expectation) {
 	if (!expectation.narrativeIncludes) return true;
 	const text = `${proof.output ?? ''}\n${proof.notes ?? ''}`.toLowerCase();
 	return expectation.narrativeIncludes.every((fragment) => text.includes(fragment));
+}
+
+function forbiddenSecretPattern(value) {
+	const checks = [
+		[/\bpassword\b/i, 'password label'],
+		[
+			/\b(private[_ -]?key|access_token|refresh_token|id_token|client_secret|authorization:\s*bearer|set-cookie|cookie:)\b/i,
+			'secret, token, or cookie label'
+		],
+		[/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, 'JWT-like value']
+	];
+
+	for (const [pattern, label] of checks) {
+		if (pattern.test(value)) return label;
+	}
+
+	return null;
 }
 
 function printProofFileState() {

@@ -1,14 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	AuthError,
+	authenticateUser,
+	createSessionForUser,
 	createFirstRunAdmin,
+	getSessionFromToken,
 	hashSessionToken,
+	revokeSessionToken,
 	shouldUseSecureSessionCookie
 } from './session';
 
 const db = vi.hoisted(() => ({
+	delete: vi.fn(),
+	insert: vi.fn(),
 	transaction: vi.fn(),
-	select: vi.fn()
+	select: vi.fn(),
+	update: vi.fn()
 }));
 
 const password = vi.hoisted(() => ({
@@ -27,6 +34,13 @@ function requestEvent(url: string, headers?: HeadersInit) {
 	return {
 		url: new URL(url),
 		request: new Request(url, { headers })
+	};
+}
+
+function authRequestEvent(url: string, headers?: HeadersInit) {
+	return {
+		...requestEvent(url, headers),
+		getClientAddress: () => '127.0.0.1'
 	};
 }
 
@@ -176,5 +190,104 @@ describe('first-run admin creation', () => {
 			passwordHash: 'hashed:first-password',
 			isAdmin: true
 		});
+	});
+});
+
+describe('local session flow', () => {
+	it('authenticates, creates, looks up, and revokes a local user session', async () => {
+		const now = new Date('2026-01-01T00:00:00.000Z');
+		const user = {
+			id: 'user-1',
+			username: 'admin',
+			passwordHash: 'hashed:correct-password',
+			isAdmin: true,
+			createdAt: now,
+			updatedAt: now
+		};
+		const session = {
+			id: 'session-1',
+			userId: user.id,
+			tokenHash: 'stored-token-hash',
+			expiresAt: new Date('2026-02-01T00:00:00.000Z'),
+			createdAt: now,
+			lastSeenAt: now,
+			userAgent: 'vitest',
+			ipAddress: '127.0.0.1'
+		};
+		const authenticateLimit = vi.fn(async () => [user]);
+		const authenticateWhere = vi.fn(() => ({ limit: authenticateLimit }));
+		const authenticateFrom = vi.fn(() => ({ where: authenticateWhere }));
+		const lookupLimit = vi.fn(async () => [{ session, user }]);
+		const lookupWhere = vi.fn(() => ({ limit: lookupLimit }));
+		const lookupInnerJoin = vi.fn(() => ({ where: lookupWhere }));
+		const lookupFrom = vi.fn(() => ({ innerJoin: lookupInnerJoin }));
+		db.select
+			.mockReturnValueOnce({ from: authenticateFrom })
+			.mockReturnValueOnce({ from: lookupFrom });
+		const insertReturning = vi.fn(async () => [session]);
+		const insertValues = vi.fn(() => ({ returning: insertReturning }));
+		db.insert.mockReturnValue({ values: insertValues });
+		const updateWhere = vi.fn(async () => undefined);
+		const updateSet = vi.fn(() => ({ where: updateWhere }));
+		db.update.mockReturnValue({ set: updateSet });
+		const deleteWhere = vi.fn(async () => undefined);
+		db.delete.mockReturnValue({ where: deleteWhere });
+		password.verifyPassword.mockResolvedValue(true);
+
+		const authenticated = await authenticateUser({
+			username: 'admin',
+			password: 'correct-password'
+		});
+		expect(authenticated).toMatchObject({
+			id: user.id,
+			username: user.username,
+			isAdmin: true
+		});
+		expect(password.verifyPassword).toHaveBeenCalledWith('correct-password', user.passwordHash);
+
+		const event = authRequestEvent('https://termix.test/login', { 'user-agent': 'vitest' });
+		const created = await createSessionForUser(
+			user.id,
+			event as Parameters<typeof createSessionForUser>[1]
+		);
+		expect(created.session).toBe(session);
+		expect(created.token).toHaveLength(43);
+		expect(insertValues).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: user.id,
+				tokenHash: hashSessionToken(created.token),
+				userAgent: 'vitest',
+				ipAddress: '127.0.0.1'
+			})
+		);
+
+		const lookedUp = await getSessionFromToken(created.token);
+		expect(lookedUp).toEqual({ session, user });
+		expect(updateSet).toHaveBeenCalledWith({ lastSeenAt: expect.any(Date) });
+
+		await revokeSessionToken(created.token);
+		expect(deleteWhere).toHaveBeenCalledOnce();
+	});
+
+	it('rejects invalid local credentials without creating a session', async () => {
+		const selectLimit = vi.fn(async () => [
+			{
+				id: 'user-1',
+				username: 'admin',
+				passwordHash: 'hashed:correct-password',
+				isAdmin: true,
+				createdAt: new Date('2026-01-01T00:00:00.000Z'),
+				updatedAt: new Date('2026-01-01T00:00:00.000Z')
+			}
+		]);
+		const selectWhere = vi.fn(() => ({ limit: selectLimit }));
+		const selectFrom = vi.fn(() => ({ where: selectWhere }));
+		db.select.mockReturnValue({ from: selectFrom });
+		password.verifyPassword.mockResolvedValue(false);
+
+		await expect(
+			authenticateUser({ username: 'admin', password: 'wrong-password' })
+		).resolves.toBeNull();
+		expect(db.insert).not.toHaveBeenCalled();
 	});
 });
