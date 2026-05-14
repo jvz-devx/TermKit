@@ -1,4 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const workflowPath = '.github/workflows/microsoft-acceptance.yml';
 const workflowName = 'Microsoft Acceptance Smoke';
@@ -69,6 +72,16 @@ if (workflow.state !== 'active') {
 	process.exit(2);
 }
 
+if (options.importLatestProof) {
+	try {
+		importLatestProof(repo, ref);
+	} catch (error) {
+		if (error instanceof CommandFailedError) process.exit(error.exitCode);
+		throw error;
+	}
+	process.exit(0);
+}
+
 if (missingSecrets.length > 0) {
 	console.error(
 		'Microsoft acceptance workflow is not ready to dispatch until all required secrets exist.'
@@ -90,6 +103,7 @@ function parseArgs(args) {
 		dispatch: false,
 		help: false,
 		clientCredentialsScope: '',
+		importLatestProof: false,
 		syncOrigin: false,
 		syncSecrets: false
 	};
@@ -100,6 +114,8 @@ function parseArgs(args) {
 			parsed.help = true;
 		} else if (arg === '--dispatch') {
 			parsed.dispatch = true;
+		} else if (arg === '--import-latest-proof') {
+			parsed.importLatestProof = true;
 		} else if (arg === '--sync-secrets') {
 			parsed.syncSecrets = true;
 		} else if (arg === '--sync-origin') {
@@ -259,6 +275,76 @@ function dispatchWorkflow(repo, ref, clientCredentialsScope) {
 	}
 }
 
+function importLatestProof(repo, ref) {
+	const commit = currentCommit();
+	const runs = ghJson([
+		'run',
+		'list',
+		'--repo',
+		repo,
+		'--workflow',
+		workflowName,
+		'--branch',
+		ref,
+		'--status',
+		'success',
+		'--json',
+		'databaseId,headSha,status,conclusion,url',
+		'-L',
+		'20'
+	]);
+	const run = runs.find((candidate) => candidate.headSha === commit);
+	if (!run) {
+		console.error(
+			`No successful ${workflowName} run found for current commit ${commit} on ${ref}. Dispatch and wait for the workflow before importing proof.`
+		);
+		process.exit(2);
+	}
+
+	const downloadDir = mkdtempSync(join(tmpdir(), 'termixkit-microsoft-smoke-proof-'));
+	try {
+		runCommand('gh', [
+			'run',
+			'download',
+			String(run.databaseId),
+			'--repo',
+			repo,
+			'-n',
+			artifactName,
+			'-D',
+			downloadDir
+		]);
+		runCommand('node', [
+			'scripts/import-microsoft-smoke-proof.mjs',
+			'--artifact',
+			join(downloadDir, 'acceptance-proof.local.json')
+		]);
+		console.log(`Imported Microsoft smoke proof from workflow run ${run.databaseId}.`);
+		console.log(`Workflow run: ${run.url}`);
+	} finally {
+		rmSync(downloadDir, { force: true, recursive: true });
+	}
+}
+
+function runCommand(command, args) {
+	const result = spawnSync(command, args, {
+		cwd: process.cwd(),
+		encoding: 'utf8',
+		stdio: ['ignore', 'pipe', 'pipe']
+	});
+
+	if (result.stdout.trim()) console.log(result.stdout.trim());
+	if (result.stderr.trim()) console.error(result.stderr.trim());
+	if (result.status !== 0) throw new CommandFailedError(result.status ?? 1);
+}
+
+class CommandFailedError extends Error {
+	constructor(exitCode) {
+		super(`command failed with exit code ${exitCode}`);
+		this.exitCode = exitCode;
+	}
+}
+
 function printDispatchCommands(repo, ref, clientCredentialsScope) {
 	const scopeFlag = clientCredentialsScope.trim()
 		? ` -f client_credentials_scope=${shellValue(clientCredentialsScope.trim())}`
@@ -277,6 +363,7 @@ function printAfterDispatchCommands(repo, ref) {
 	console.log(`  gh run watch <run-id> --repo ${repo}`);
 	console.log(`  gh run download <run-id> --repo ${repo} -n ${artifactName} -D ${artifactName}`);
 	console.log(`  npm run acceptance:import-microsoft-smoke`);
+	console.log(`  npm run acceptance:github-microsoft -- --import-latest-proof`);
 }
 
 function ghJson(args) {
@@ -302,6 +389,14 @@ function currentBranch() {
 	}
 }
 
+function currentCommit() {
+	try {
+		return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+	} catch {
+		return '<commit-sha>';
+	}
+}
+
 function shellValue(value) {
 	if (/^[A-Za-z0-9_./:@+-]+$/.test(value)) return value;
 	return `'${value.replaceAll("'", "'\\''")}'`;
@@ -316,6 +411,7 @@ after the repository is ready.
 
 Options:
   --dispatch                         Trigger the workflow after preflight checks
+  --import-latest-proof              Download/import latest successful proof for current commit
   --sync-secrets                     Set required repo secrets from local env vars
   --sync-origin                      Set MICROSOFT_ACCEPTANCE_ORIGIN from local env
   --repo OWNER/REPO                  Repository to check; defaults to current repo

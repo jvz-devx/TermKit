@@ -300,6 +300,12 @@ hand-editing the local proof JSON. The local proof file must already target the
 current commit; the importer refuses to re-stamp older proof records.
 
 ```sh
+npm run acceptance:github-microsoft -- --import-latest-proof
+```
+
+You can also download a specific run manually:
+
+```sh
 gh run download <run-id> --repo jvz-devx/TermixKit -n microsoft-smoke-proof -D microsoft-smoke-proof
 npm run acceptance:import-microsoft-smoke
 ```
