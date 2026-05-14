@@ -12,6 +12,7 @@
 		"acceptance:import-microsoft-smoke": "node scripts/import-microsoft-smoke-proof.mjs",
 		"acceptance:microsoft-interactive-preflight": "node scripts/microsoft-interactive-preflight.mjs",
 		"acceptance:proof-template": "node scripts/acceptance-proof-template.mjs",
+		"acceptance:refresh-local-v1-proofs": "node scripts/refresh-local-v1-proofs.mjs",
 		"acceptance:record-real-rdp": "node scripts/record-external-proof.mjs realRdp",
 		"acceptance:record-real-ssh": "node scripts/record-external-proof.mjs realSsh",
 		"acceptance:record-real-vnc": "node scripts/record-external-proof.mjs realVnc",

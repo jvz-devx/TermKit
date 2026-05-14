@@ -362,6 +362,20 @@ npm run acceptance:record-real-ssh
 npm run acceptance:record-real-vnc
 ```
 
+On a local Nix dev shell with SSH on localhost, TigerVNC, Docker, the pinned
+Gateway image, and a loopback RDP target, refresh all V1 external proof entries
+sequentially with:
+
+```sh
+nix develop -c npm run acceptance:refresh-local-v1-proofs
+```
+
+Override the defaults with `TERMIXKIT_LOCAL_PROOF_SSH_HOST`,
+`TERMIXKIT_LOCAL_PROOF_SSH_USERNAME`, `TERMIXKIT_LOCAL_PROOF_SSH_PRIVATE_KEY_PATH`,
+`TERMIXKIT_LOCAL_PROOF_VNC_DISPLAY`, `TERMIXKIT_LOCAL_PROOF_VNC_PORT`,
+`TERMIXKIT_LOCAL_PROOF_RDP_HOST`, `TERMIXKIT_LOCAL_PROOF_RDP_PORT`,
+`TERMIXKIT_LOCAL_PROOF_GATEWAY_PORT`, and `TERMIXKIT_LOCAL_PROOF_GATEWAY_IMAGE`.
+
 The Nix dev shell includes TigerVNC for reproducible local VNC proof runs. Start a temporary no-auth server in one shell, then run the smoke in another:
 
 ```sh
