@@ -264,8 +264,9 @@ The same real discovery/JWKS smoke can be run from GitHub Actions with the manua
 `MICROSOFT_ALLOWED_DOMAINS`, and `MICROSOFT_ADMIN_EMAILS`. Optionally set the
 repository variable `MICROSOFT_ACCEPTANCE_ORIGIN` if the redirect origin should
 not use the workflow default placeholder. The workflow never writes proof files
-or prints secret values; copy only the redacted pass output into the local
-acceptance proof when needed.
+to the repository or prints secret values. When it passes, download the
+`microsoft-smoke-proof` artifact and use its `microsoftSmoke` proof entry for the
+current commit.
 
 The browser-only V2 Microsoft proof is manual because it must use real tenant users. Start TermixKit with Microsoft auth enabled, then record operator notes or redacted screenshots proving that an allowed-domain user can sign in and receives a TermixKit session, a blocked-domain user is denied, a configured `MICROSOFT_ADMIN_EMAILS` account covers the admin-email provisioning or promotion case, and local login through username/password remains available. The proof narrative must include the exact fragments `allowed-domain`, `blocked-domain`, `admin-email`, and `local login` so `npm run audit:acceptance` can validate the local proof file.
 

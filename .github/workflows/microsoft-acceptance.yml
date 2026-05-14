@@ -9,6 +9,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -29,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run real Microsoft smoke
+      - name: Record real Microsoft smoke proof
         env:
           MICROSOFT_AUTH_ENABLED: '1'
           MICROSOFT_TENANT_ID: ${{ secrets.MICROSOFT_TENANT_ID }}
@@ -38,6 +39,13 @@ jobs:
           MICROSOFT_ALLOWED_DOMAINS: ${{ secrets.MICROSOFT_ALLOWED_DOMAINS }}
           MICROSOFT_ADMIN_EMAILS: ${{ secrets.MICROSOFT_ADMIN_EMAILS }}
           ORIGIN: ${{ vars.MICROSOFT_ACCEPTANCE_ORIGIN || 'https://termix.example' }}
-          TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL: '1'
           TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE: ${{ inputs.client_credentials_scope }}
-        run: npm run smoke:microsoft
+        run: npm run acceptance:record-microsoft-smoke
+
+      - name: Upload smoke proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: microsoft-smoke-proof
+          path: acceptance-proof.local.json
+          if-no-files-found: error
+          retention-days: 7

@@ -112,7 +112,7 @@ async function smokeMicrosoftDiscovery(parseMicrosoftEntraAuthConfig) {
 	assert(Array.isArray(jwks.keys), 'Microsoft JWKS did not include a keys array');
 	assert(jwks.keys.length > 0, 'Microsoft JWKS did not include signing keys');
 
-	return `loaded ${config.tenantId} discovery and ${jwks.keys.length} JWKS keys`;
+	return `loaded Microsoft discovery and ${jwks.keys.length} JWKS keys`;
 }
 
 async function smokeMicrosoftClientCredentials(parseMicrosoftEntraAuthConfig) {
@@ -141,7 +141,7 @@ async function smokeMicrosoftClientCredentials(parseMicrosoftEntraAuthConfig) {
 
 	assert(typeof payload.access_token === 'string' && payload.access_token, 'access token missing');
 	assert(payload.token_type === 'Bearer', 'unexpected token type');
-	return `client credentials token issued for ${scope}`;
+	return 'client credentials token issued';
 }
 
 function realMicrosoftConfig(parseMicrosoftEntraAuthConfig) {
