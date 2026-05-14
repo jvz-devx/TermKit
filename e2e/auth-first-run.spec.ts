@@ -92,7 +92,15 @@ test.describe.serial('application onboarding and navigation', () => {
 
 		const ticketTtl = page.getByLabel('Ticket TTL seconds');
 		const terminalFontSize = page.getByLabel('Terminal font size');
-		const clipboardSync = page.getByRole('switch', { name: 'Clipboard sync when supported' });
+		const rdpTextClipboard = page.getByRole('switch', { name: 'RDP text clipboard' });
+		const rdpFileClipboard = page.getByRole('switch', { name: 'RDP file clipboard' });
+		const rdpClientToRemote = page.getByRole('switch', {
+			name: 'RDP client to remote clipboard'
+		});
+		const rdpRemoteToClient = page.getByRole('switch', {
+			name: 'RDP remote to client clipboard'
+		});
+		const rdpFileLimit = page.getByLabel('File transfer limit (MiB)');
 		const rememberLastActiveTab = page.getByRole('switch', {
 			name: 'Remember last active tab per host'
 		});
@@ -100,11 +108,20 @@ test.describe.serial('application onboarding and navigation', () => {
 
 		await expect(ticketTtl).toHaveValue('60');
 		await expect(terminalFontSize).toHaveValue('13');
+		await expectSwitchState(rdpTextClipboard, true);
+		await expectSwitchState(rdpFileClipboard, false);
+		await expectSwitchState(rdpClientToRemote, true);
+		await expectSwitchState(rdpRemoteToClient, true);
+		await expect(rdpFileLimit).toHaveValue('16');
+		await expect(rdpFileLimit).toBeDisabled();
 		await expect(saveButton).toBeDisabled();
 
 		await ticketTtl.fill('90');
 		await terminalFontSize.fill('18');
-		await setSwitch(clipboardSync, false);
+		await setSwitch(rdpFileClipboard, true);
+		await rdpFileLimit.fill('32');
+		await setSwitch(rdpTextClipboard, false);
+		await setSwitch(rdpClientToRemote, false);
 		await setSwitch(rememberLastActiveTab, false);
 
 		await expect(saveButton).toBeEnabled();
@@ -115,7 +132,12 @@ test.describe.serial('application onboarding and navigation', () => {
 		await page.reload();
 		await expect(ticketTtl).toHaveValue('90');
 		await expect(terminalFontSize).toHaveValue('18');
-		await expectSwitchState(clipboardSync, false);
+		await expectSwitchState(rdpTextClipboard, false);
+		await expectSwitchState(rdpFileClipboard, true);
+		await expectSwitchState(rdpClientToRemote, false);
+		await expectSwitchState(rdpRemoteToClient, true);
+		await expect(rdpFileLimit).toHaveValue('32');
+		await expect(rdpFileLimit).toBeEnabled();
 		await expectSwitchState(rememberLastActiveTab, false);
 	});
 });
