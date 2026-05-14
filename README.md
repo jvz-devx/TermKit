@@ -202,6 +202,14 @@ nix develop -c npm run audit:acceptance
 
 Set `TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED`, and `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` only after recording those real-target smoke results for the current commit. `npm run smoke:microsoft` always covers the local Microsoft parser fixture, but `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` requires `TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft` to pass with real Microsoft Entra environment variables. Set `TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF` only after recording real browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available.
 
+Create a local proof file when real targets are available:
+
+```sh
+npm run acceptance:proof-template -- acceptance-proof.local.json
+```
+
+Fill each passed proof with the current commit SHA, timestamp, exact command, required redacted environment variable names, and pass output or notes. `acceptance-proof.local.json` is ignored by git, and `npm run audit:acceptance` only accepts it when the file commit matches the current `HEAD`.
+
 For each external proof record, keep the commit SHA, timestamp, exact command, redacted environment variable names, and pass output. For browser-only Microsoft proof, keep screenshots or operator notes showing the allowed user, blocked-domain user, and admin-email result without recording secrets or tokens.
 
 Build the SvelteKit app and custom production server:
