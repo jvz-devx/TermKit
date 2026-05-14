@@ -108,13 +108,13 @@ const checks = [
 		name: 'V2 real Microsoft Entra discovery and optional client credentials',
 		status: externalStatus('TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED', 'microsoftSmoke'),
 		evidence:
-			'set TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED or record proofs.microsoftSmoke after TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft passes with real Microsoft env'
+			'run npm run acceptance:record-microsoft-smoke after exporting real Microsoft env, or record proofs.microsoftSmoke after TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft passes'
 	},
 	{
 		name: 'V2 Microsoft interactive login acceptance',
 		status: externalStatus('TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF', 'microsoftInteractive'),
 		evidence:
-			'set TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF or record proofs.microsoftInteractive with manual browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available'
+			'run npm run acceptance:record-microsoft-interactive after collecting manual browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available'
 	},
 	{
 		name: 'V2 live SSH backend and browser workspace',

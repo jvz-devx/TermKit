@@ -45,7 +45,7 @@ const template = `${JSON.stringify(
 				timestamp,
 				command: 'TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft',
 				instructions:
-					'Run with real Microsoft Entra environment variables. Put only redacted pass output here; never store tenant secrets, authorization codes, access tokens, refresh tokens, ID tokens, or cookies.',
+					'Prefer npm run acceptance:record-microsoft-smoke after exporting real Microsoft Entra environment variables. Put only redacted pass output here; never store tenant secrets, authorization codes, access tokens, refresh tokens, ID tokens, or cookies.',
 				redactedEnv: [
 					'MICROSOFT_AUTH_ENABLED',
 					'MICROSOFT_TENANT_ID',
@@ -61,7 +61,7 @@ const template = `${JSON.stringify(
 				timestamp,
 				command: 'manual browser acceptance',
 				instructions:
-					'Record redacted operator notes or screenshot references proving allowed-domain session creation, blocked-domain denial, admin-email provisioning or promotion, and local login still available. The notes or output field must include the exact fragments allowed-domain, blocked-domain, admin-email, and local login.',
+					'Prefer npm run acceptance:record-microsoft-interactive after collecting real browser evidence. Record redacted operator notes or screenshot references proving allowed-domain session creation, blocked-domain denial, admin-email provisioning or promotion, and local login still available. The notes or output field must include the exact fragments allowed-domain, blocked-domain, admin-email, and local login.',
 				redactedEnv: [
 					'MICROSOFT_TENANT_ID',
 					'MICROSOFT_CLIENT_ID',
