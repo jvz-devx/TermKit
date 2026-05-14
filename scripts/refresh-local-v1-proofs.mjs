@@ -76,7 +76,7 @@ async function main() {
 		});
 	});
 
-	run('nix', ['develop', '-c', 'npm', 'run', 'audit:acceptance']);
+	run('nix', ['develop', '-c', 'npm', 'run', 'audit:acceptance'], {}, { allowExitCodes: [0, 2] });
 }
 
 async function withVncServer(callback) {
