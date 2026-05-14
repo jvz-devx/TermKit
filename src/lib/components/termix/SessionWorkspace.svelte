@@ -15,9 +15,7 @@
 		Server,
 		Terminal
 	} from '@lucide/svelte';
-	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { getAppSettings, type BasicAppSettings } from '$lib/settings.remote';
 	import {
@@ -37,6 +35,7 @@
 	import RdpLaunchPane from './session/RdpLaunchPane.svelte';
 	import RdpPane from './session/RdpPane.svelte';
 	import SftpBrowser from './session/SftpBrowser.svelte';
+	import SessionHostLauncher from './session/SessionHostLauncher.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
 	import VncLaunchPane from './session/VncLaunchPane.svelte';
 
@@ -54,14 +53,6 @@
 		rememberLastActiveTab: true
 	};
 	const lastProtocolStoragePrefix = 'termixkit:last-protocol:';
-	const launcherProtocolOptions: LauncherProtocolFilter[] = [
-		'all',
-		'ssh',
-		'sftp',
-		'rdp',
-		'vnc',
-		'telnet'
-	];
 	const tabIcons = {
 		ssh: Terminal,
 		sftp: Database,
@@ -370,14 +361,6 @@
 		return query ? `/sessions?${query}` : '/sessions';
 	}
 
-	function launcherProtocolLabel(protocol: LauncherProtocolFilter) {
-		return protocol === 'all' ? 'All' : protocol.toUpperCase();
-	}
-
-	function launchProtocolLabel(host: HostSummary) {
-		return protocolForSelectedHost(host).toUpperCase();
-	}
-
 	function toWebSocketUrl(path: string) {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 		return `${protocol}//${window.location.host}${path}`;
@@ -463,80 +446,18 @@
 			/>
 		</div>
 	{:else if !selectedHost}
-		<div class="min-h-0 flex-1 overflow-auto p-4">
-			<div class="mx-auto flex max-w-3xl flex-col gap-3">
-				<StatePanel
-					state={hostSelectionHosts.length ? 'disconnected' : 'error'}
-					title={hostSelectionTitle}
-					detail={hostSelectionDetail}
-				/>
-				<div class="flex flex-col gap-2 rounded-md border bg-background p-3">
-					<div class="flex flex-col gap-2 md:flex-row">
-						<div class="relative min-w-0 flex-1">
-							<Terminal class="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-							<Input
-								class="pl-8"
-								placeholder="Search hosts by name, address, folder, or tag"
-								bind:value={sessionSearch}
-							/>
-						</div>
-						<div class="flex flex-wrap gap-1" aria-label="Protocol filters">
-							{#each launcherProtocolOptions as protocol (protocol)}
-								<Button
-									size="sm"
-									variant={launcherProtocol === protocol ? 'secondary' : 'outline'}
-									aria-pressed={launcherProtocol === protocol}
-									onclick={() => setLauncherProtocol(protocol)}
-								>
-									{launcherProtocolLabel(protocol)}
-								</Button>
-							{/each}
-						</div>
-					</div>
-				</div>
-				{#if hostSelectionHosts.length}
-					<div class="overflow-hidden rounded-md border">
-						{#each hostSelectionHosts as host (host.id)}
-							<Button
-								variant="ghost"
-								class="h-auto w-full justify-start rounded-none border-b p-3 text-left last:border-b-0"
-								onclick={() => selectHost(host)}
-							>
-								<div class="flex min-w-0 flex-1 items-center justify-between gap-3">
-									<div class="min-w-0">
-										<div class="flex items-center gap-2">
-											<span class="truncate font-medium">{host.name}</span>
-											<Badge variant="outline">{launchProtocolLabel(host)}</Badge>
-										</div>
-										<div class="truncate font-mono text-xs text-muted-foreground">
-											{host.username ? `${host.username}@` : ''}{host.hostname}:{host.port}
-										</div>
-										{#if host.folder || host.tags.length}
-											<div class="mt-1 truncate text-xs text-muted-foreground">
-												{host.folder ?? 'No folder'}{host.tags.length
-													? ` · ${host.tags.join(', ')}`
-													: ''}
-											</div>
-										{/if}
-									</div>
-									<div class="flex items-center gap-2">
-										{#each protocolsForHost(host) as protocol (protocol)}
-											<span class="text-xs text-muted-foreground">{protocol.toUpperCase()}</span>
-										{/each}
-									</div>
-								</div>
-							</Button>
-						{/each}
-					</div>
-				{:else if hosts.length}
-					<StatePanel
-						state="error"
-						title="No matching hosts"
-						detail="Adjust the search or protocol filter to launch a session."
-					/>
-				{/if}
-			</div>
-		</div>
+		<SessionHostLauncher
+			hosts={hostSelectionHosts}
+			allHostsCount={hosts.length}
+			title={hostSelectionTitle}
+			detail={hostSelectionDetail}
+			{launcherProtocol}
+			bind:search={sessionSearch}
+			onProtocolChange={setLauncherProtocol}
+			onSelectHost={selectHost}
+			protocolForHost={protocolForSelectedHost}
+			{protocolsForHost}
+		/>
 	{:else}
 		<Tabs.Root value={activeProtocol} class="flex min-h-0 flex-1 flex-col">
 			<Tabs.List class="h-10 justify-start rounded-none border-b bg-muted/20 px-2">
