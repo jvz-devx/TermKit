@@ -198,4 +198,34 @@ describe('Microsoft ID token claim validation', () => {
 			})
 		).toThrow(new OidcValidationError('OIDC ID token nonce did not match'));
 	});
+
+	it('rejects issuer, tenant, not-before, and max-age claim failures', () => {
+		expect(() =>
+			validateMicrosoftIdTokenClaims(
+				unsignedJwt({ ...validClaims, iss: 'https://login.microsoftonline.com/other/v2.0' }),
+				config,
+				{ expectedNonce: 'nonce-value', now }
+			)
+		).toThrow(new OidcValidationError('OIDC ID token issuer did not match'));
+		expect(() =>
+			validateMicrosoftIdTokenClaims(unsignedJwt({ ...validClaims, tid: 'other-tenant' }), config, {
+				expectedNonce: 'nonce-value',
+				now
+			})
+		).toThrow(new OidcValidationError('OIDC ID token tenant did not match'));
+		expect(() =>
+			validateMicrosoftIdTokenClaims(
+				unsignedJwt({ ...validClaims, nbf: nowSeconds + 120 }),
+				config,
+				{ expectedNonce: 'nonce-value', now }
+			)
+		).toThrow(new OidcValidationError('OIDC ID token is not active yet'));
+		expect(() =>
+			validateMicrosoftIdTokenClaims(
+				unsignedJwt({ ...validClaims, iat: nowSeconds - 1_000 }),
+				config,
+				{ expectedNonce: 'nonce-value', now, maxAgeSeconds: 300 }
+			)
+		).toThrow(new OidcValidationError('OIDC ID token is too old'));
+	});
 });

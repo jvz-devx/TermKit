@@ -136,10 +136,12 @@ function createSignedIdToken(input: {
 	email?: string | null;
 	preferredUsername?: string;
 	domain?: string;
+	header?: Record<string, unknown>;
+	tamperSignature?: boolean;
 }) {
 	const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 	const kid = 'test-key';
-	const header = { alg: 'RS256', kid, typ: 'JWT' };
+	const header = { alg: 'RS256', kid, typ: 'JWT', ...input.header };
 	const email = input.email === undefined ? `admin@${input.domain ?? 'example.com'}` : input.email;
 	const preferredUsername =
 		input.preferredUsername ?? email ?? `admin@${input.domain ?? 'example.com'}`;
@@ -156,9 +158,15 @@ function createSignedIdToken(input: {
 	if (email) payload.email = email;
 	const encodedHeader = encodeJwtPart(header);
 	const encodedPayload = encodeJwtPart(payload);
-	const signature = createSign('RSA-SHA256')
+	const validSignature = createSign('RSA-SHA256')
 		.update(`${encodedHeader}.${encodedPayload}`)
 		.sign(privateKey, 'base64url');
+	let signature = validSignature;
+	if (input.tamperSignature) {
+		const signatureBytes = Buffer.from(validSignature, 'base64url');
+		signatureBytes[0] ^= 1;
+		signature = signatureBytes.toString('base64url');
+	}
 	const jwk = publicKey.export({ format: 'jwk' }) as JsonWebKey & { kid?: string };
 	jwk.kid = kid;
 
@@ -166,6 +174,27 @@ function createSignedIdToken(input: {
 		idToken: `${encodedHeader}.${encodedPayload}.${signature}`,
 		jwk
 	};
+}
+
+function mockMicrosoftTokenAndJwks(idToken: string, jwk: JsonWebKey & { kid?: string }) {
+	vi.stubGlobal(
+		'fetch',
+		vi
+			.fn()
+			.mockResolvedValueOnce({
+				ok: true,
+				json: async () => ({
+					access_token: 'access-token',
+					expires_in: 3600,
+					id_token: idToken,
+					token_type: 'Bearer'
+				})
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				json: async () => ({ keys: [jwk] })
+			})
+	);
 }
 
 function encodeJwtPart(value: unknown): string {
@@ -399,33 +428,17 @@ describe('Microsoft auth routes', () => {
 		);
 	});
 
-	it('rejects preferred_username domain fallback when an email claim uses another domain', async () => {
-		expect.assertions(2);
+	it('allows preferred_username domain fallback when an email claim uses another domain', async () => {
+		expect.assertions(4);
 		const nonce = 'expected-nonce';
 		const { idToken, jwk } = createSignedIdToken({
 			nonce,
 			email: 'blocked@blocked.test',
 			preferredUsername: 'user@example.com'
 		});
-		vi.stubGlobal(
-			'fetch',
-			vi
-				.fn()
-				.mockResolvedValueOnce({
-					ok: true,
-					json: async () => ({
-						access_token: 'access-token',
-						expires_in: 3600,
-						id_token: idToken,
-						token_type: 'Bearer'
-					})
-				})
-				.mockResolvedValueOnce({
-					ok: true,
-					json: async () => ({ keys: [jwk] })
-				})
-		);
+		mockMicrosoftTokenAndJwks(idToken, jwk);
 		mockNoExistingIdentity();
+		const transaction = mockProvisionTransaction();
 		const { GET } = await import('./callback/+server');
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
@@ -436,11 +449,14 @@ describe('Microsoft auth routes', () => {
 			})
 		);
 
-		await expect(GET(event as never)).rejects.toMatchObject({
-			status: 403,
-			body: { message: 'Microsoft account domain is not allowed' }
-		});
-		expect(db.transaction).not.toHaveBeenCalled();
+		await expect(GET(event as never)).rejects.toMatchObject({ status: 303, location: '/hosts' });
+		expect(db.transaction).toHaveBeenCalledOnce();
+		expect(transaction.insertValues).toContainEqual(
+			expect.objectContaining({ username: 'user@example.com', isAdmin: false })
+		);
+		expect(transaction.insertValues).toContainEqual(
+			expect.objectContaining({ email: 'user@example.com' })
+		);
 	});
 
 	it('rejects Microsoft users outside the configured allowed domains', async () => {
@@ -478,6 +494,84 @@ describe('Microsoft auth routes', () => {
 		await expect(GET(event as never)).rejects.toMatchObject({
 			status: 403,
 			body: { message: 'Microsoft account domain is not allowed' }
+		});
+		expect(db.transaction).not.toHaveBeenCalled();
+	});
+
+	it('rejects Microsoft id_tokens with unsupported signature headers', async () => {
+		expect.assertions(2);
+		const nonce = 'expected-nonce';
+		const { idToken } = createSignedIdToken({ nonce, header: { alg: 'HS256' } });
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValueOnce({
+				ok: true,
+				json: async () => ({
+					access_token: 'access-token',
+					expires_in: 3600,
+					id_token: idToken,
+					token_type: 'Bearer'
+				})
+			})
+		);
+		const { GET } = await import('./callback/+server');
+		const event = createEvent(
+			'/auth/microsoft/callback?code=code-1&state=expected-state',
+			createCookies({
+				termixkit_microsoft_oauth_state: 'expected-state',
+				termixkit_microsoft_oauth_nonce: nonce,
+				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			})
+		);
+
+		await expect(GET(event as never)).rejects.toMatchObject({
+			status: 400,
+			body: { message: 'Unsupported Microsoft id_token signature' }
+		});
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
+	it('rejects Microsoft id_tokens whose signing key is missing from JWKS', async () => {
+		expect.assertions(2);
+		const nonce = 'expected-nonce';
+		const { idToken, jwk } = createSignedIdToken({ nonce });
+		jwk.kid = 'another-key';
+		mockMicrosoftTokenAndJwks(idToken, jwk);
+		const { GET } = await import('./callback/+server');
+		const event = createEvent(
+			'/auth/microsoft/callback?code=code-1&state=expected-state',
+			createCookies({
+				termixkit_microsoft_oauth_state: 'expected-state',
+				termixkit_microsoft_oauth_nonce: nonce,
+				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			})
+		);
+
+		await expect(GET(event as never)).rejects.toMatchObject({
+			status: 400,
+			body: { message: 'Microsoft id_token signing key was not found' }
+		});
+		expect(db.transaction).not.toHaveBeenCalled();
+	});
+
+	it('rejects Microsoft id_tokens with invalid signatures', async () => {
+		expect.assertions(2);
+		const nonce = 'expected-nonce';
+		const { idToken, jwk } = createSignedIdToken({ nonce, tamperSignature: true });
+		mockMicrosoftTokenAndJwks(idToken, jwk);
+		const { GET } = await import('./callback/+server');
+		const event = createEvent(
+			'/auth/microsoft/callback?code=code-1&state=expected-state',
+			createCookies({
+				termixkit_microsoft_oauth_state: 'expected-state',
+				termixkit_microsoft_oauth_nonce: nonce,
+				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			})
+		);
+
+		await expect(GET(event as never)).rejects.toMatchObject({
+			status: 400,
+			body: { message: 'Invalid Microsoft id_token signature' }
 		});
 		expect(db.transaction).not.toHaveBeenCalled();
 	});
@@ -565,5 +659,31 @@ describe('Microsoft auth routes', () => {
 			body: { message: 'The first Microsoft sign-in must be a configured admin email' }
 		});
 		expect(db.transaction).not.toHaveBeenCalled();
+	});
+
+	it('allows the first Microsoft user when the email is a configured admin', async () => {
+		expect.assertions(4);
+		const nonce = 'expected-nonce';
+		const { idToken, jwk } = createSignedIdToken({ nonce, email: 'admin@example.com' });
+		auth.hasAnyUser.mockResolvedValueOnce(false);
+		mockMicrosoftTokenAndJwks(idToken, jwk);
+		mockNoExistingIdentity();
+		const transaction = mockProvisionTransaction();
+		const { GET } = await import('./callback/+server');
+		const event = createEvent(
+			'/auth/microsoft/callback?code=code-1&state=expected-state',
+			createCookies({
+				termixkit_microsoft_oauth_state: 'expected-state',
+				termixkit_microsoft_oauth_nonce: nonce,
+				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			})
+		);
+
+		await expect(GET(event as never)).rejects.toMatchObject({ status: 303, location: '/hosts' });
+		expect(db.transaction).toHaveBeenCalledOnce();
+		expect(transaction.insertValues).toContainEqual(
+			expect.objectContaining({ username: 'admin@example.com', isAdmin: true })
+		);
+		expect(auth.createSessionForUser).toHaveBeenCalledWith('user-1', event);
 	});
 });

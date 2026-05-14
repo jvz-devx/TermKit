@@ -330,8 +330,8 @@ function clearOAuthCookie(
 }
 
 function identityEmail(claims: OidcIdTokenClaims, allowedDomains: string[]): string | null {
-	const candidates = uniqueStrings([claims.email ? claims.email : claims.preferred_username]).map(
-		(candidate) => candidate.toLowerCase()
+	const candidates = uniqueStrings([claims.email, claims.preferred_username]).map((candidate) =>
+		candidate.toLowerCase()
 	);
 
 	if (candidates.length === 0) return null;
