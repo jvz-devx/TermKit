@@ -192,6 +192,14 @@ nix develop -c npm run check
 nix develop -c npm run lint
 ```
 
+Print the current acceptance evidence map and external proof blockers. This command exits with status `2` while real-target or manual proof is still blocked, so it can be used as a strict release gate:
+
+```sh
+nix develop -c npm run audit:acceptance
+```
+
+Set `TERMIXKIT_ACCEPTANCE_COMPOSE_SMOKE_PASSED=1` only after recording a successful Docker Compose smoke for the current commit. Set `TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED`, and `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` only after recording those real-target smoke results for the current commit. Set `TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF` only after recording a real browser Microsoft Entra login against the configured tenant.
+
 Build the SvelteKit app and custom production server:
 
 ```sh
@@ -202,6 +210,12 @@ Smoke-test the production WebSocket upgrade entrypoint:
 
 ```sh
 nix develop -c npm run smoke:ws
+```
+
+Smoke-test Microsoft Entra configuration. Without real Microsoft env vars this validates the parser fixture and skips live Entra calls; with `MICROSOFT_AUTH_ENABLED=1` plus the normal Microsoft env vars it fetches the tenant discovery document and JWKS. Set `TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE` to also verify a client-credentials token exchange when the app registration supports that flow. Microsoft client-credentials scopes must use the resource `.default` form, for example `https://graph.microsoft.com/.default`.
+
+```sh
+nix develop -c npm run smoke:microsoft
 ```
 
 Smoke-test Postgres migrations in a disposable container:
