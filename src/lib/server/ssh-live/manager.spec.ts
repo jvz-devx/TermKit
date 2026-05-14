@@ -75,6 +75,8 @@ describe('LiveSshManager', () => {
 	it('closes the attached websocket when the remote shell closes', () => {
 		const harness = createHarness();
 		const manager = new LiveSshManager({ createClient: harness.createClient });
+		const closeEvents: unknown[] = [];
+		manager.onSessionClose((event) => closeEvents.push(event));
 		const socket = new FakeWebSocket();
 
 		manager.attach(testTicket(), socket as unknown as WebSocket);
@@ -83,6 +85,37 @@ describe('LiveSshManager', () => {
 
 		expect(socket.closed).toEqual({ code: 1000, reason: 'ssh shell closed' });
 		expect(manager.get('ticket-1')).toBeUndefined();
+		expect(closeEvents).toEqual([
+			{
+				sessionId: 'ticket-1',
+				userId: 'user-1',
+				reason: 'remote',
+				hadActiveAttachment: true
+			}
+		]);
+	});
+
+	it('emits detached remote shell closure for persistence', () => {
+		const harness = createHarness();
+		const manager = new LiveSshManager({ createClient: harness.createClient });
+		const closeEvents: unknown[] = [];
+		manager.onSessionClose((event) => closeEvents.push(event));
+		const socket = new FakeWebSocket();
+
+		manager.attach(testTicket(), socket as unknown as WebSocket);
+		harness.client.emit('ready');
+		socket.emitClose();
+		harness.channel.emit('close');
+
+		expect(manager.get('ticket-1')).toBeUndefined();
+		expect(closeEvents).toEqual([
+			{
+				sessionId: 'ticket-1',
+				userId: 'user-1',
+				reason: 'remote',
+				hadActiveAttachment: false
+			}
+		]);
 	});
 
 	it('ends the ssh client when shell allocation fails', () => {

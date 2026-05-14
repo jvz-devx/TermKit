@@ -353,6 +353,58 @@ describe('SshLiveSessionService', () => {
 		);
 	});
 
+	it('does not let status updates overwrite terminal statuses', async () => {
+		expect.assertions(5);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository);
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const { session } = await service.createOrReuse('user-1', { hostId: host.id });
+		const endedAt = new Date('2026-05-13T12:00:00.000Z');
+
+		await service.end('user-1', session.id, endedAt);
+
+		await expect(
+			repository.updateSshLiveSession('user-1', session.id, {
+				status: 'detached',
+				detachedAt: new Date('2026-05-13T12:00:01.000Z'),
+				updatedAt: new Date('2026-05-13T12:00:01.000Z')
+			})
+		).resolves.toBeNull();
+		await expect(
+			repository.updateSshLiveSession('user-1', session.id, {
+				status: 'attached',
+				updatedAt: new Date('2026-05-13T12:00:02.000Z')
+			})
+		).resolves.toBeNull();
+		await expect(
+			repository.updateSshLiveSession('user-1', session.id, {
+				status: 'failed',
+				endedAt: new Date('2026-05-13T12:00:03.000Z'),
+				expiresAt: null,
+				updatedAt: new Date('2026-05-13T12:00:03.000Z')
+			})
+		).resolves.toBeNull();
+		await expect(
+			repository.updateSshLiveSession('user-1', session.id, {
+				status: 'ended',
+				endedAt: new Date('2026-05-13T12:00:04.000Z'),
+				expiresAt: null,
+				updatedAt: new Date('2026-05-13T12:00:04.000Z')
+			})
+		).resolves.toBeNull();
+		await expect(repository.getSshLiveSession('user-1', session.id)).resolves.toMatchObject({
+			status: 'ended',
+			endedAt
+		});
+	});
+
 	it('lists live, stale, and recent terminal sessions for workspace visibility', async () => {
 		expect.assertions(3);
 

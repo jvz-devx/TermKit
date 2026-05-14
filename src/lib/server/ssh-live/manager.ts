@@ -28,6 +28,13 @@ export type LiveSshStatus = 'starting' | 'open' | 'closed';
 
 type LiveSshCloseReason = 'explicit' | 'remote' | 'connection_error' | 'shell_error';
 
+export type LiveSshCloseEvent = {
+	sessionId: string;
+	userId: string;
+	reason: LiveSshCloseReason;
+	hadActiveAttachment: boolean;
+};
+
 type LiveSshControlFrame =
 	| { type: 'terminal.resize'; cols: number; rows: number }
 	| { type: 'terminal.close' }
@@ -37,7 +44,7 @@ type LiveSshSessionOptions = {
 	ticket: ConsumedTicket;
 	scrollbackBytes: number;
 	createClient: LiveSshClientFactory;
-	onClose: (sessionId: string) => void;
+	onClose: (event: LiveSshCloseEvent) => void;
 	terminalSize?: TerminalSize;
 };
 
@@ -80,6 +87,7 @@ export class LiveSshAttachError extends Error {
 
 export class LiveSshManager {
 	private readonly sessions = new Map<string, LiveSshSession>();
+	private readonly closeListeners = new Set<(event: LiveSshCloseEvent) => void>();
 	private readonly scrollbackBytes: number;
 	private readonly createClient: LiveSshClientFactory;
 
@@ -104,8 +112,10 @@ export class LiveSshManager {
 			ticket,
 			scrollbackBytes: this.scrollbackBytes,
 			createClient: this.createClient,
-			onClose: (sessionId) => {
+			onClose: (event) => {
+				const sessionId = event.sessionId;
 				if (this.sessions.get(sessionId) === session) this.sessions.delete(sessionId);
+				for (const listener of this.closeListeners) listener(event);
 			},
 			terminalSize
 		});
@@ -153,6 +163,13 @@ export class LiveSshManager {
 		return this.sessions.get(sessionId)?.hasActiveAttachment() ?? false;
 	}
 
+	onSessionClose(listener: (event: LiveSshCloseEvent) => void): () => void {
+		this.closeListeners.add(listener);
+		return () => {
+			this.closeListeners.delete(listener);
+		};
+	}
+
 	private getOpenSession(sessionId: string): LiveSshSession {
 		const session = this.sessions.get(sessionId);
 		if (!session) {
@@ -178,7 +195,7 @@ export class LiveSshSession {
 	private readonly ticket: ConsumedTicket;
 	private readonly client: LiveSshClient;
 	private readonly scrollbackBytes: number;
-	private readonly onClose: (sessionId: string) => void;
+	private readonly onClose: (event: LiveSshCloseEvent) => void;
 	private readonly scrollback: Buffer[] = [];
 	private scrollbackSize = 0;
 	private terminalSize: TerminalSize = { ...DEFAULT_TERMINAL_SIZE };
@@ -390,6 +407,7 @@ export class LiveSshSession {
 		this.closed = true;
 		this.status = 'closed';
 		const socket = this.socket;
+		const hadActiveAttachment = socket !== undefined && socket.readyState === socket.OPEN;
 		this.socket = undefined;
 
 		if (reason === 'explicit') {
@@ -407,7 +425,12 @@ export class LiveSshSession {
 			);
 		}
 
-		this.onClose(this.id);
+		this.onClose({
+			sessionId: this.id,
+			userId: this.ticket.userId,
+			reason,
+			hadActiveAttachment
+		});
 	}
 
 	private closeSocket(code: number, reason: string): void {

@@ -21,6 +21,7 @@ import {
 	sshLiveSessionService,
 	type SshLiveSessionService
 } from '$lib/server/services/ssh-live-sessions';
+import type { LiveSshCloseEvent } from '$lib/server/ssh-live/manager';
 
 export type WebSocketUpgradeOptions = {
 	tickets?: TicketConsumer;
@@ -51,6 +52,7 @@ export type SshAttachTicketConsumer = {
 export type LiveSshManager = {
 	handle(socket: WebSocket, attachTicket: SshAttachTicket): unknown | Promise<unknown>;
 	hasActiveAttachment?(sessionId: string): boolean;
+	onSessionClose?(listener: (event: LiveSshCloseEvent) => void): () => void;
 };
 
 export type { SshAttachTicket } from '$lib/server/ssh-live/types';
@@ -82,6 +84,13 @@ export function installWebSocketUpgrades(
 	const webSockets = new WebSocketServer({ noServer: true });
 	const adapterByProtocol = new Map(adapters.map((adapter) => [adapter.protocol, adapter]));
 	const originPolicy = createOriginPolicy({ allowedOrigins, requireOrigin });
+	const liveSshAttachmentPersistence = new Map<string, Promise<void>>();
+	const releaseLiveSshClosePersistence = liveSshManager?.onSessionClose?.((event) => {
+		void persistLiveSshManagerClose(liveSshSessions, event, liveSshAttachmentPersistence);
+	});
+	if (releaseLiveSshClosePersistence) {
+		server.once('close', releaseLiveSshClosePersistence);
+	}
 
 	server.on('upgrade', async (request, socket, head) => {
 		if (isIgnoredUpgradePath(request.url, ignoredPaths)) return;
@@ -131,7 +140,13 @@ export function installWebSocketUpgrades(
 
 			webSockets.handleUpgrade(request, socket, head, (webSocket) => {
 				webSockets.emit('connection', webSocket, request);
-				void handleLiveSshConnection(webSocket, liveSshManager, attachTicket, liveSshSessions);
+				void handleLiveSshConnection(
+					webSocket,
+					liveSshManager,
+					attachTicket,
+					liveSshSessions,
+					liveSshAttachmentPersistence
+				);
 			});
 			return;
 		}
@@ -469,12 +484,14 @@ async function handleLiveSshConnection(
 	webSocket: WebSocket,
 	liveSshManager: LiveSshManager,
 	attachTicket: SshAttachTicket,
-	liveSshSessions: Pick<SshLiveSessionService, 'markAttached' | 'markDetached' | 'end' | 'fail'>
+	liveSshSessions: Pick<SshLiveSessionService, 'markAttached' | 'markDetached' | 'end' | 'fail'>,
+	attachmentPersistence: Map<string, Promise<void>>
 ): Promise<void> {
 	let releaseClosePersistence: () => void;
 	const attachmentRecorded = new Promise<void>((resolve) => {
 		releaseClosePersistence = resolve;
 	});
+	attachmentPersistence.set(attachTicket.sshLiveSessionId, attachmentRecorded);
 
 	webSocket.once('close', (code, reason) => {
 		const closeReason = reason.toString('utf8');
@@ -508,6 +525,7 @@ async function handleLiveSshConnection(
 		}
 	} finally {
 		releaseClosePersistence!();
+		attachmentPersistence.delete(attachTicket.sshLiveSessionId);
 	}
 }
 
@@ -540,6 +558,22 @@ async function persistLiveSshSocketClose(
 	await liveSshSessions
 		.markDetached(attachTicket.userId, attachTicket.sshLiveSessionId)
 		.catch(() => undefined);
+}
+
+async function persistLiveSshManagerClose(
+	liveSshSessions: Pick<SshLiveSessionService, 'end' | 'fail'>,
+	event: LiveSshCloseEvent,
+	attachmentPersistence: Map<string, Promise<void>>
+): Promise<void> {
+	if (event.hadActiveAttachment) return;
+	await attachmentPersistence.get(event.sessionId)?.catch(() => undefined);
+
+	if (event.reason === 'remote' || event.reason === 'explicit') {
+		await liveSshSessions.end(event.userId, event.sessionId).catch(() => undefined);
+		return;
+	}
+
+	await liveSshSessions.fail(event.userId, event.sessionId).catch(() => undefined);
 }
 
 function isFailedCloseCode(code: number): boolean {

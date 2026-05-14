@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
 	installWebSocketUpgrades,
 	parseWebSocketRoute,
-	type AuthenticatedWebSocketSession
+	type AuthenticatedWebSocketSession,
+	type LiveSshManager
 } from './upgrade';
 import { SessionTicketConsumer } from './ticket-consumer';
 import type { ProtocolAdapter } from '$lib/server/protocols';
@@ -390,6 +391,119 @@ describe('websocket upgrade routing', () => {
 		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1000);
 		await waitFor(() => calls.includes('detached:ssh-live-session-1'));
 		expect(calls).toEqual(['attached:ssh-live-session-1', 'detached:ssh-live-session-1']);
+	});
+
+	it('records detached remote live SSH shell closure as ended', async () => {
+		expect.assertions(3);
+
+		const calls: string[] = [];
+		let closeListener: Parameters<NonNullable<LiveSshManager['onSessionClose']>>[0] | undefined;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket) {
+					setTimeout(() => {
+						socket.close(1000, 'browser closed');
+						setTimeout(() => {
+							closeListener?.({
+								sessionId: 'ssh-live-session-1',
+								userId: 'user-1',
+								reason: 'remote',
+								hadActiveAttachment: false
+							});
+						}, 0);
+					}, 0);
+				},
+				onSessionClose(listener) {
+					closeListener = listener;
+					return () => {
+						closeListener = undefined;
+					};
+				}
+			},
+			liveSshSessions: liveSshSessionRecorder(calls)
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1000);
+		await waitFor(() => calls.includes('end:ssh-live-session-1'));
+		expect(calls.at(0)).toBe('attached:ssh-live-session-1');
+		expect(calls.at(-1)).toBe('end:ssh-live-session-1');
+	});
+
+	it('waits for slow live SSH attach persistence before manager-side close persistence', async () => {
+		expect.assertions(2);
+
+		const calls: string[] = [];
+		let closeListener: Parameters<NonNullable<LiveSshManager['onSessionClose']>>[0] | undefined;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket) {
+					setTimeout(() => {
+						socket.close(1000, 'browser closed');
+						closeListener?.({
+							sessionId: 'ssh-live-session-1',
+							userId: 'user-1',
+							reason: 'remote',
+							hadActiveAttachment: false
+						});
+					}, 0);
+				},
+				onSessionClose(listener) {
+					closeListener = listener;
+					return () => {
+						closeListener = undefined;
+					};
+				}
+			},
+			liveSshSessions: {
+				async markAttached(_userId: string, id: string) {
+					calls.push(`attached-start:${id}`);
+					await new Promise((resolve) => setTimeout(resolve, 20));
+					calls.push(`attached:${id}`);
+					return {} as never;
+				},
+				async markDetached(_userId: string, id: string) {
+					calls.push(`detached:${id}`);
+					return {} as never;
+				},
+				async end(_userId: string, id: string) {
+					calls.push(`end:${id}`);
+					return {} as never;
+				},
+				async fail(_userId: string, id: string) {
+					calls.push(`fail:${id}`);
+					return {} as never;
+				}
+			}
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1000);
+		await waitFor(() => calls.includes('end:ssh-live-session-1'));
+		expect(calls).toEqual([
+			'attached-start:ssh-live-session-1',
+			'attached:ssh-live-session-1',
+			'detached:ssh-live-session-1',
+			'end:ssh-live-session-1'
+		]);
 	});
 
 	it('records failed live SSH websocket closure code as failed instead of detached', async () => {
