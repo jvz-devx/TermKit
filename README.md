@@ -144,7 +144,7 @@ Do not commit real values for any secret.
 - `TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU`: production-only override for TOFU enrollment. Prefer seeding `TERMIXKIT_SSH_KNOWN_HOSTS_PATH` and disabling TOFU after enrollment.
 - `GATEWAY_URL`: internal Devolutions Gateway URL, defaulting to `http://gateway:7171` in Compose. Production startup requires an absolute `http://` or `https://` URL.
 - `GATEWAY_PUBLIC_URL`: browser-reachable app proxy URL used by IronRDP, defaulting to `https://localhost:3000/gateway` in Compose. Production requires `https://`, requires the exact `/gateway` app proxy mount, and rejects internal Compose names such as `https://gateway`; direct local Compose can use `http://localhost:3000/gateway` only with `TERMIXKIT_INSECURE_LOCAL_HTTP=1`.
-- `GATEWAY_PROVISIONER_KEY`: Gateway provisioning key shared with the app. Production startup requires this value before accepting traffic.
+- `GATEWAY_PROVISIONER_KEY`: deployment guard for RDP Gateway provisioning. Production startup requires this value before accepting traffic. Compose keeps Devolutions Gateway internal-only, enables its standalone webapp token endpoint, and relies on TermixKit app authentication plus the `/gateway` proxy as the public boundary.
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`: local Compose database settings.
 - `DEVOLUTIONS_GATEWAY_TAG`: Gateway container tag. The Compose file currently pins `2026.1.1` by default.
 

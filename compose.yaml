@@ -66,8 +66,9 @@ services:
     image: devolutions/devolutions-gateway:${DEVOLUTIONS_GATEWAY_TAG:-2026.1.1}
     environment:
       DGW_LISTEN: ${DGW_LISTEN:-0.0.0.0:7171}
-      DGW_PROVISIONER_KEY: ${GATEWAY_PROVISIONER_KEY:?set GATEWAY_PROVISIONER_KEY in .env}
       DGW_SUBJECT: ${DGW_SUBJECT:-localhost}
+      WEB_APP_ENABLED: 'true'
+      WEB_APP_AUTHENTICATION: None
     expose:
       - '7171'
     volumes:
