@@ -46,6 +46,22 @@ Out of scope for V2:
 - Persisting terminal output to Postgres.
 - Dashboards, server stats, Docker management, FTP/FTPS, and desktop/mobile wrappers.
 
+V3 scope:
+
+- Workspaces for sharing hosts and credentials without introducing full RBAC complexity.
+- Connection history for understanding who connected, when, to what, and why failures happened.
+- RDP clipboard controls for safer copy/paste behavior.
+- RDP file copy/paste through IronRDP clipboard file transfer.
+- Admin Panel for users, workspaces, live sessions, connection history, and app settings.
+- Session workspace polish so the core app feels complete and production-ready.
+
+Out of scope for V3:
+
+- Full role/permission builder or organization-wide RBAC.
+- Audit-log compliance exports beyond practical connection history.
+- Docker management, server dashboards, SSH tunnels, FTP/FTPS, and desktop/mobile wrappers.
+- Persisting live SSH sessions across app/container restart.
+
 ## Runtime And Stack
 
 - Framework: SvelteKit with Svelte 5 and TypeScript.
@@ -162,6 +178,13 @@ V2 adds Microsoft Entra ID login:
   - `MICROSOFT_CLIENT_SECRET`
   - `MICROSOFT_ALLOWED_DOMAINS`
   - `MICROSOFT_ADMIN_EMAILS`
+
+Microsoft Entra verification boundary:
+
+- Repo-owned V2 work must include deterministic local tests for configuration parsing, OIDC claim validation, route behavior, domain allowlisting, auto-provisioning, admin-email promotion, identity linking, and V1 session cookie reuse.
+- Real Microsoft Entra discovery, JWKS validation, real app-registration behavior, and browser login with real tenant users require externally supplied Microsoft tenant/client configuration and test accounts.
+- If no Microsoft tenant, client credentials, allowed-domain user, blocked-domain user, and admin-email user are available, V2 implementation may be considered repo-owned complete while the real Microsoft smoke and interactive browser acceptance proofs remain explicitly blocked.
+- The blocked proof state must be documented in the acceptance audit and must not be represented as a passing real Microsoft acceptance result.
 
 ## Session Launch Flow
 
@@ -452,6 +475,53 @@ Required build checks:
 - Document V2 persistence limits, especially that live SSH sessions do not survive app/container restart.
 - Keep all V1 verification gates passing.
 
+### V3.1: Workspaces
+
+- Add workspace records owned by admins or creators.
+- Allow hosts and credentials to belong to a workspace or a private user scope.
+- Allow users to be added to workspaces with simple membership levels such as owner and member.
+- Keep authorization simple: workspace members can use shared hosts and credentials; workspace owners can manage workspace inventory and members.
+- Avoid full custom RBAC in V3.
+
+### V3.2: Connection History
+
+- Expand connection history into a first-class screen.
+- Show protocol, host, user, workspace, start time, end time, duration, status, and failure reason.
+- Preserve structured error codes from SSH, SFTP, Telnet, VNC, and RDP launches.
+- Add filters for user, workspace, protocol, host, status, and date range.
+- Keep history useful for operators without turning it into a compliance-grade audit system.
+
+### V3.3: RDP Clipboard Controls
+
+- Add app-level and per-session controls for RDP clipboard sync.
+- Support separate toggles for text clipboard, file clipboard, client-to-remote, and remote-to-client where IronRDP exposes the distinction.
+- Surface clipboard disabled/restricted states clearly in the RDP session UI.
+- Default to conservative behavior when deployment settings disable clipboard features.
+
+### V3.4: RDP File Copy/Paste
+
+- Add RDP file transfer through IronRDP clipboard file transfer when supported.
+- Support uploading local files into the RDP session through clipboard file copy/paste.
+- Support downloading remote files exposed through clipboard file copy/paste.
+- Enforce size limits and show transfer progress, completion, cancellation, and failure states.
+- Do not add a separate Guacamole-style RDP file drive in V3.
+
+### V3.5: Admin Panel
+
+- Add a central admin area for users, workspaces, live sessions, connection history, and app settings.
+- Let admins view, create, disable, and promote users.
+- Let admins inspect workspace membership and shared inventory.
+- Let admins view and terminate live sessions.
+- Let admins review connection failures and adjust relevant settings without editing the database.
+
+### V3.6: Session Workspace Polish
+
+- Improve session workspace ergonomics for multi-tab SSH, SFTP, RDP, VNC, and Telnet use.
+- Add stronger empty, loading, reconnecting, detached, failed, and closed states.
+- Improve keyboard navigation, focus handling, fullscreen behavior, and responsive layout.
+- Make reconnect and close behavior consistent across protocols where the protocol allows it.
+- Finish visual and interaction details without adding new major product areas.
+
 ## Acceptance Criteria
 
 V1 is complete when:
@@ -468,12 +538,9 @@ V1 is complete when:
 - A Termix import can bring over supported host and credential data with a clear summary.
 - Tests and production build pass.
 
-V2 is complete when:
+V2 repo-owned implementation is complete when:
 
-- Microsoft Entra login works with configured tenant, client credentials, and allowed domains.
-- A domain-allowed Microsoft user can be auto-provisioned and receives a normal TermixKit session.
-- A blocked-domain Microsoft user cannot sign in.
-- Configured Microsoft admin emails become admins on first provisioning.
+- Microsoft Entra configuration, login routes, callback routes, OIDC validation, allowlist checks, auto-provisioning, identity linking, admin-email promotion, and V1 session reuse are implemented and covered by deterministic local tests.
 - A user can open multiple live SSH tabs.
 - Refreshing the browser or signing in from another browser can reattach to a still-running SSH tab while the app process is alive.
 - Browser disconnect does not kill a persistent SSH tab.
@@ -482,3 +549,25 @@ V2 is complete when:
 - App restart marks old live SSH metadata as stale rather than pretending sessions are still alive.
 - Terminal output is not persisted to Postgres.
 - V1 SSH, SFTP, Telnet, VNC, RDP, importer, tests, and production build still pass.
+
+V2 real Microsoft acceptance proof is complete when:
+
+- Real Microsoft Entra login works with an externally supplied tenant, client credentials, and allowed domains.
+- A real domain-allowed Microsoft user can be auto-provisioned and receives a normal TermixKit session.
+- A real blocked-domain Microsoft user cannot sign in.
+- A real configured Microsoft admin email becomes admin on first provisioning or subsequent Microsoft login.
+- Local username/password login remains available alongside the real Microsoft flow.
+
+If the required Microsoft tenant, client credentials, allowed-domain user, blocked-domain user, or admin-email user are not available, these real Microsoft proof items remain blocked external acceptance items rather than repo-owned implementation gaps.
+
+V3 is complete when:
+
+- Users can organize shared hosts and credentials into workspaces without full RBAC configuration.
+- Workspace members can use shared inventory and workspace owners can manage membership.
+- Connection history explains successful and failed sessions with useful timestamps, status, and error reasons.
+- RDP clipboard policy can be controlled by admins and understood by users in-session.
+- RDP file copy/paste works through IronRDP clipboard file transfer with limits and transfer states.
+- Admins have one central panel for users, workspaces, live sessions, connection history, and app settings.
+- Admins can terminate live sessions from the Admin Panel.
+- The session workspace feels complete across reconnect, close, fullscreen, detached, failure, and responsive states.
+- V1 and V2 acceptance criteria still pass.
