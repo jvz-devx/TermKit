@@ -28,6 +28,8 @@ if (!repo) {
 }
 
 const workflow = findWorkflow(repo);
+if (options.syncSecrets) syncRequiredSecrets(repo);
+if (options.syncOrigin) syncOriginVariable(repo);
 const secretNames = new Set(listNames('secret', repo));
 const variableNames = new Set(listNames('variable', repo));
 const missingSecrets = requiredSecrets.filter((name) => !secretNames.has(name));
@@ -87,7 +89,9 @@ function parseArgs(args) {
 	const parsed = {
 		dispatch: false,
 		help: false,
-		clientCredentialsScope: ''
+		clientCredentialsScope: '',
+		syncOrigin: false,
+		syncSecrets: false
 	};
 
 	for (let index = 0; index < args.length; index += 1) {
@@ -96,6 +100,10 @@ function parseArgs(args) {
 			parsed.help = true;
 		} else if (arg === '--dispatch') {
 			parsed.dispatch = true;
+		} else if (arg === '--sync-secrets') {
+			parsed.syncSecrets = true;
+		} else if (arg === '--sync-origin') {
+			parsed.syncOrigin = true;
 		} else if (arg === '--repo') {
 			parsed.repo = requireValue(args, (index += 1), arg);
 		} else if (arg.startsWith('--repo=')) {
@@ -153,6 +161,81 @@ function listNames(kind, repo) {
 		console.error(`Could not list GitHub ${kind}s: ${errorText(error)}`);
 		process.exit(1);
 	}
+}
+
+function syncRequiredSecrets(repo) {
+	const missingEnv = requiredSecrets.filter((name) => !process.env[name]?.trim());
+	if (missingEnv.length > 0) {
+		console.error(
+			`Cannot sync Microsoft GitHub secrets; missing local environment variable(s): ${missingEnv.join(', ')}`
+		);
+		process.exit(1);
+	}
+
+	for (const name of requiredSecrets) {
+		const value = process.env[name]?.trim();
+		const result = spawnSync('gh', ['secret', 'set', name, '--repo', repo], {
+			cwd: process.cwd(),
+			encoding: 'utf8',
+			input: value,
+			stdio: ['pipe', 'pipe', 'pipe']
+		});
+
+		if (result.status !== 0) {
+			if (result.stdout.trim()) console.log(result.stdout.trim());
+			if (result.stderr.trim()) console.error(result.stderr.trim());
+			console.error(`Could not sync GitHub secret ${name}.`);
+			process.exit(result.status ?? 1);
+		}
+		console.log(`Synced GitHub secret ${name}.`);
+	}
+}
+
+function syncOriginVariable(repo) {
+	const origin = process.env.MICROSOFT_ACCEPTANCE_ORIGIN?.trim() ?? process.env.ORIGIN?.trim();
+	if (!origin) {
+		console.error(
+			'Cannot sync MICROSOFT_ACCEPTANCE_ORIGIN; set MICROSOFT_ACCEPTANCE_ORIGIN or ORIGIN locally.'
+		);
+		process.exit(1);
+	}
+
+	let parsed;
+	try {
+		parsed = new URL(origin);
+	} catch {
+		console.error('Cannot sync MICROSOFT_ACCEPTANCE_ORIGIN; origin must be an absolute URL.');
+		process.exit(1);
+	}
+
+	const isLocalHttp =
+		parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+	if (parsed.protocol !== 'https:' && !isLocalHttp) {
+		console.error(
+			'Cannot sync MICROSOFT_ACCEPTANCE_ORIGIN; origin must use HTTPS outside local development.'
+		);
+		process.exit(1);
+	}
+
+	const normalizedOrigin = parsed.origin;
+	const result = spawnSync(
+		'gh',
+		['variable', 'set', 'MICROSOFT_ACCEPTANCE_ORIGIN', '--repo', repo, '--body', normalizedOrigin],
+		{
+			cwd: process.cwd(),
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'pipe']
+		}
+	);
+
+	if (result.status !== 0) {
+		if (result.stdout.trim()) console.log(result.stdout.trim());
+		if (result.stderr.trim()) console.error(result.stderr.trim());
+		console.error('Could not sync GitHub variable MICROSOFT_ACCEPTANCE_ORIGIN.');
+		process.exit(result.status ?? 1);
+	}
+
+	console.log(`Synced GitHub variable MICROSOFT_ACCEPTANCE_ORIGIN to ${normalizedOrigin}.`);
 }
 
 function dispatchWorkflow(repo, ref, clientCredentialsScope) {
@@ -233,6 +316,8 @@ after the repository is ready.
 
 Options:
   --dispatch                         Trigger the workflow after preflight checks
+  --sync-secrets                     Set required repo secrets from local env vars
+  --sync-origin                      Set MICROSOFT_ACCEPTANCE_ORIGIN from local env
   --repo OWNER/REPO                  Repository to check; defaults to current repo
   --ref BRANCH_OR_SHA                Ref to dispatch; defaults to current branch
   --client-credentials-scope SCOPE   Optional .default scope for token exchange

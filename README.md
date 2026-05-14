@@ -274,6 +274,20 @@ Check the repository-side setup before dispatching the workflow:
 npm run acceptance:github-microsoft
 ```
 
+If the Microsoft values are already exported in the current shell, sync the
+required GitHub Actions secrets without printing their values:
+
+```sh
+npm run acceptance:github-microsoft -- --sync-secrets
+```
+
+Optionally sync the workflow origin variable from `MICROSOFT_ACCEPTANCE_ORIGIN`
+or `ORIGIN`:
+
+```sh
+npm run acceptance:github-microsoft -- --sync-origin
+```
+
 After all required secrets are configured, dispatch it from the same preflight
 script:
 
