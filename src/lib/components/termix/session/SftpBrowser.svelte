@@ -207,6 +207,15 @@
 		renamePath = entry.path;
 	}
 
+	function activateEntry(entry: SftpEntry) {
+		selectEntry(entry);
+		if (entry.type === 'directory') {
+			void loadDirectory(entry.path);
+			return;
+		}
+		if (entry.type === 'file') void openText(entry);
+	}
+
 	function downloadUrl(entry: SftpEntry) {
 		return `/api/sftp/${encodeURIComponent(hostId)}/download?path=${encodeURIComponent(entry.path)}`;
 	}
@@ -333,7 +342,7 @@
 										variant="ghost"
 										size="sm"
 										class="justify-start px-1 font-normal"
-										onclick={(event) => (event.stopPropagation(), loadDirectory(entry.path))}
+										onclick={(event) => (event.stopPropagation(), activateEntry(entry))}
 									>
 										<Folder class="size-4 text-amber-500" />{entry.name}
 									</Button>
@@ -342,7 +351,7 @@
 										variant="ghost"
 										size="sm"
 										class="justify-start px-1 font-normal"
-										ondblclick={() => openText(entry)}
+										onclick={(event) => (event.stopPropagation(), activateEntry(entry))}
 									>
 										<File class="size-4 text-muted-foreground" />{entry.name}
 									</Button>

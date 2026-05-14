@@ -62,17 +62,27 @@
 			<Collapsible.Root open={item.isActive ?? isItemActive(item)} class="group/collapsible">
 				{#snippet child({ props })}
 					<Sidebar.MenuItem {...props}>
-						<Collapsible.Trigger>
+						<Sidebar.MenuButton
+							isActive={isPathActive(item.url)}
+							tooltipContent={item.title}
+							class="pr-8"
+						>
 							{#snippet child({ props })}
-								<Sidebar.MenuButton {...props} tooltipContent={item.title}>
+								<a href={resolved(item.url)} {...props}>
 									{#if item.icon}
 										<item.icon />
 									{/if}
 									<span>{item.title}</span>
+								</a>
+							{/snippet}
+						</Sidebar.MenuButton>
+						<Collapsible.Trigger>
+							{#snippet child({ props })}
+								<Sidebar.MenuAction aria-label={`Toggle ${item.title} navigation`} {...props}>
 									<ChevronRightIcon
-										class="ms-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"
+										class="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"
 									/>
-								</Sidebar.MenuButton>
+								</Sidebar.MenuAction>
 							{/snippet}
 						</Collapsible.Trigger>
 						<Collapsible.Content>

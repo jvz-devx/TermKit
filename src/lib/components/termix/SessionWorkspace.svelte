@@ -392,7 +392,7 @@
 	}
 </script>
 
-<section bind:this={workspaceElement} class="flex h-[calc(100vh-3rem)] min-h-[640px] flex-col">
+<section bind:this={workspaceElement} class="flex h-[calc(100dvh-3.5rem)] min-h-0 flex-col">
 	<div class="flex items-center justify-between border-b px-4 py-2">
 		<div>
 			<h1 class="text-sm font-semibold">{selectedHost?.name ?? 'Sessions'}</h1>
