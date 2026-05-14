@@ -62,6 +62,24 @@ Out of scope for V3:
 - Docker management, server dashboards, SSH tunnels, FTP/FTPS, and desktop/mobile wrappers.
 - Persisting live SSH sessions across app/container restart.
 
+V4 scope:
+
+- SSH tunnels for browser-accessible access to private TCP services through saved SSH hosts.
+- FTP and FTPS hosts as first-class connection types, separate from SFTP-over-SSH.
+- Window tiling in the session workspace so operators can run multiple sessions side by side.
+- Admin visibility and termination controls for active tunnels and long-running transfer/session activity.
+- Connection history coverage for SSH tunnels, FTP/FTPS sessions, and tiled workspace launches.
+
+Out of scope for V4:
+
+- Docker management and server monitoring dashboards.
+- Full role/permission builder or organization-wide RBAC.
+- Persisting live SSH sessions across app/container restart.
+- Terminal session recording or terminal-output persistence.
+- Secret templating inside commands or snippets.
+- Browser-native FTP URL handling; FTP/FTPS must go through TermixKit's authenticated file manager.
+- Desktop and mobile wrappers.
+
 ## Runtime And Stack
 
 - Framework: SvelteKit with Svelte 5 and TypeScript.
@@ -74,6 +92,7 @@ Out of scope for V3:
 - Terminal UI: xterm.js.
 - RDP UI: IronRDP WASM web client.
 - VNC UI: noVNC.
+- FTP/FTPS client: server-side Node library selected during V4 implementation.
 - WebSocket server: custom Node server wrapping SvelteKit's `handler`.
 
 The app should use one Node process for HTTP, SvelteKit routes, API routes, and WebSocket upgrades. Do not recreate Termix's fixed multi-port internal service layout.
@@ -110,7 +129,7 @@ Core tables:
   - `id`, `userId`, `tokenHash`, `expiresAt`, `createdAt`, `lastSeenAt`, `userAgent`, `ipAddress`.
 - `hosts`
   - `id`, `userId`, `name`, `protocol`, `hostname`, `port`, `username`, `credentialId`, `folder`, `tags`, `notes`, `createdAt`, `updatedAt`.
-  - `protocol` enum values: `ssh`, `rdp`, `vnc`, `telnet`.
+  - V1 `protocol` enum values: `ssh`, `rdp`, `vnc`, `telnet`.
 - `credentials`
   - `id`, `userId`, `name`, `kind`, `username`, encrypted secret fields, metadata, `createdAt`, `updatedAt`.
   - `kind` enum values: `password`, `ssh_key`.
@@ -136,6 +155,21 @@ V2 tables:
 - `ssh_attach_tickets`
   - Short-lived, single-use tickets for attaching a websocket to an existing live SSH session.
   - Fields: `id`, `userId`, `sshLiveSessionId`, `ticketHash`, `expiresAt`, `consumedAt`, `createdAt`.
+
+V4 tables and schema updates:
+
+- `hosts.protocol` adds `ftp` and `ftps`.
+- `ssh_tunnel_profiles`
+  - Saved tunnel definitions tied to SSH hosts.
+  - Fields: `id`, `userId`, `workspaceId`, `sshHostId`, `name`, `targetHost`, `targetPort`, `description`, `createdAt`, `updatedAt`.
+- `ssh_tunnel_sessions`
+  - Runtime metadata for active or recently ended SSH tunnels.
+  - Fields: `id`, `profileId`, `userId`, `workspaceId`, `sshHostId`, `targetHost`, `targetPort`, `publicPath`, `status`, `startedAt`, `endedAt`, `lastSeenAt`, `errorCode`, `errorMessage`.
+  - Status enum values: `starting`, `active`, `ended`, `failed`, `expired`.
+- `workspace_layouts`
+  - Per-user session workspace layout metadata.
+  - Fields: `id`, `userId`, `workspaceId`, `layoutKind`, `panes`, `createdAt`, `updatedAt`.
+  - Persist pane host/protocol/session references and layout shape, not terminal output or remote screen contents.
 
 Credential encryption:
 
@@ -216,6 +250,24 @@ V2 persistent SSH launch flow:
 
 Only SSH uses V2 live reattach semantics. SFTP, RDP, VNC, and Telnet keep the V1 launch-ticket behavior.
 
+V4 SSH tunnel launch flow:
+
+1. User opens a tunnel profile tied to a saved SSH host.
+2. Server validates auth, workspace access, SSH host access, target host/port, credential availability, and per-user tunnel limits.
+3. Server starts an app-owned SSH forwarding connection and records an `ssh_tunnel_sessions` row.
+4. Server exposes the tunnel through an authenticated app-local route or websocket boundary, depending on the target protocol and UI.
+5. User can copy the browser-accessible tunnel endpoint, inspect tunnel state, and terminate the tunnel.
+6. Browser disconnect does not immediately close the tunnel, but detached tunnels expire after a configured idle timeout.
+7. Admins can see and terminate active tunnels from the Admin Panel.
+
+V4 tiled workspace flow:
+
+1. User chooses a layout such as single pane, two columns, two rows, or 2x2 grid.
+2. Each pane can launch or attach to a supported protocol view.
+3. Layout metadata is persisted per user and workspace.
+4. Refreshing the browser restores pane arrangement and reconnectable session references where the protocol supports reconnect.
+5. Closing a pane removes the pane from the layout; it only terminates a live SSH session, tunnel, or protocol session when the user explicitly chooses the destructive close action.
+
 ## Protocol Adapters
 
 ### SSH Terminal
@@ -259,6 +311,45 @@ Server capabilities:
 - Read and write text files for editor workflows.
 
 V1 does not include FTP or FTPS. If a host needs file transfer in V1, it must be reachable through SFTP.
+
+### SSH Tunnels
+
+V4 adds SSH tunnels through saved SSH hosts.
+
+Behavior:
+
+- Use the same SSH credential resolution and known-host trust policy as SSH and SFTP.
+- Support local-forward style TCP targets for private services such as databases, dashboards, internal APIs, and admin consoles.
+- Expose the tunnel through an authenticated browser-accessible endpoint owned by TermixKit.
+- Show active, starting, failed, expired, and ended states.
+- Enforce per-user and app-level active tunnel limits.
+- Record lifecycle metadata and structured failure reasons in connection history.
+- Let users terminate their own tunnels and admins terminate any active tunnel.
+- Do not log decrypted credentials or raw tunneled payloads.
+- Do not persist tunneled traffic or terminal output to Postgres.
+
+### FTP And FTPS File Manager
+
+V4 adds FTP and FTPS as first-class host protocols separate from SFTP-over-SSH.
+
+Server capabilities:
+
+- List directories.
+- Download files.
+- Upload files.
+- Create folders.
+- Rename and move files.
+- Delete files and folders.
+- Read and write text files for editor workflows when the server supports the needed operations.
+
+Behavior:
+
+- FTP uses plaintext FTP only when the host protocol is explicitly `ftp`.
+- FTPS uses TLS and should support explicit TLS first; implicit TLS is optional if library support is clean.
+- Reuse saved password credentials. SSH key credentials do not apply to FTP/FTPS.
+- Respect workspace host and credential authorization.
+- Record lifecycle state and structured failures in `connection_sessions`.
+- Keep all FTP/FTPS traffic server-side behind authenticated TermixKit routes; do not rely on browser-native FTP URL handling.
 
 ### RDP
 
@@ -329,6 +420,9 @@ Primary screens:
 - RDP canvas view.
 - VNC canvas view.
 - Telnet terminal view.
+- FTP/FTPS file manager tab.
+- SSH tunnel manager/detail view.
+- Tiled session workspace layouts.
 - Basic settings.
 - Termix import page.
 
@@ -337,6 +431,8 @@ Design constraints:
 - Use compact panels, tables, tabs, menus, and icon buttons.
 - Avoid nested cards and decorative hero sections.
 - Keep the session workspace full-height and keyboard friendly.
+- Support single-pane, two-column, two-row, and 2x2 tiled layouts in the session workspace.
+- Let users replace, detach, close, and focus panes without losing the whole workspace.
 - Remote session canvases/terminals must use stable dimensions and respond to container resize.
 - Provide clear connection, loading, error, and disconnected states.
 
@@ -522,6 +618,39 @@ Required build checks:
 - Make reconnect and close behavior consistent across protocols where the protocol allows it.
 - Finish visual and interaction details without adding new major product areas.
 
+### V4.1: SSH Tunnels
+
+- Add saved SSH tunnel profiles tied to SSH hosts.
+- Support local-forward style target host and port configuration.
+- Add tunnel start, inspect, copy endpoint, and terminate flows.
+- Add active tunnel limits and detached tunnel idle expiry.
+- Show active tunnel state in the session workspace and Admin Panel.
+- Record tunnel lifecycle and structured failures in history.
+
+### V4.2: FTP And FTPS
+
+- Add `ftp` and `ftps` host protocols.
+- Add FTP/FTPS connection services using saved password credentials.
+- Reuse the file manager interaction model for list, download, upload, mkdir, rename/move, delete, and text edit flows.
+- Support explicit FTPS first; add implicit FTPS only if the selected library supports it cleanly.
+- Add FTP/FTPS session history, failure states, and browser smoke coverage.
+
+### V4.3: Window Tiling
+
+- Add tiled session workspace layouts: single pane, two columns, two rows, and 2x2 grid.
+- Allow panes to hold SSH, SFTP, RDP, VNC, Telnet, FTP/FTPS, or SSH tunnel views.
+- Persist layout metadata per user and workspace without persisting terminal output or remote screen contents.
+- Let users focus, replace, close, and reconnect panes without losing the whole workspace.
+- Keep route files slim by implementing tiling as session workspace components.
+
+### V4.4: Admin And Verification
+
+- Add admin visibility for active SSH tunnels and long-running FTP/FTPS transfer/session activity.
+- Let admins terminate active tunnels.
+- Add V4 acceptance audit rows and local smoke coverage.
+- Keep V1, V2, and V3 verification gates passing.
+- Keep real Microsoft Entra proof external-blocked unless tenant/client/test-user configuration is supplied.
+
 ## Acceptance Criteria
 
 V1 is complete when:
@@ -571,3 +700,18 @@ V3 is complete when:
 - Admins can terminate live sessions from the Admin Panel.
 - The session workspace feels complete across reconnect, close, fullscreen, detached, failure, and responsive states.
 - V1 and V2 acceptance criteria still pass.
+
+V4 is complete when:
+
+- Users can create saved SSH tunnel profiles tied to saved SSH hosts.
+- Users can open an SSH tunnel, use the browser-accessible endpoint, inspect status, and terminate it.
+- SSH tunnels enforce configured limits and expire idle detached tunnels.
+- Admins can view and terminate active SSH tunnels from the Admin Panel.
+- FTP and FTPS hosts can be created, connected, and used through the authenticated file manager.
+- FTP/FTPS support list, download, upload, mkdir, rename/move, delete, and text edit workflows where the server supports them.
+- The session workspace supports single-pane, two-column, two-row, and 2x2 tiled layouts.
+- Tiled layout metadata survives browser refresh without persisting terminal output or remote screen contents.
+- Panes can host SSH, SFTP, RDP, VNC, Telnet, FTP/FTPS, and SSH tunnel views.
+- Connection history includes SSH tunnel, FTP/FTPS, and tiled workspace launch metadata with structured failure reasons.
+- V1, V2, and V3 acceptance criteria still pass.
+- Real Microsoft Entra login proof remains an external-blocked item unless the required tenant, client credentials, allowed-domain user, blocked-domain user, and admin-email user are available.
