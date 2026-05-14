@@ -49,16 +49,21 @@ const checks = [
 			'set TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED after npm run smoke:rdp-gateway passes with real Gateway/RDP env'
 	},
 	{
-		name: 'V2 Microsoft Entra parser, discovery, and optional client credentials',
-		status: hasEnv('TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED') ? 'available' : 'blocked',
-		evidence:
-			'set TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED after npm run smoke:microsoft passes with real Microsoft env'
+		name: 'V2 Microsoft Entra local parser and configuration smoke',
+		status: 'local',
+		evidence: 'npm run smoke:microsoft validates the local parser fixture without real Entra env'
 	},
 	{
-		name: 'V2 Microsoft interactive login',
+		name: 'V2 real Microsoft Entra discovery and optional client credentials',
+		status: hasEnv('TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED') ? 'available' : 'blocked',
+		evidence:
+			'set TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED after TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft passes with real Microsoft env'
+	},
+	{
+		name: 'V2 Microsoft interactive login acceptance',
 		status: hasEnv('TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF') ? 'available' : 'blocked',
 		evidence:
-			'manual browser sign-in proof against configured tenant; set TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF after recording evidence'
+			'manual browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available'
 	},
 	{
 		name: 'V2 live SSH backend and browser workspace',

@@ -477,21 +477,34 @@ async function handleLiveSshConnection(
 	attachTicket: SshAttachTicket,
 	liveSshSessions: Pick<SshLiveSessionService, 'markAttached' | 'markDetached' | 'end' | 'fail'>
 ): Promise<void> {
-	try {
-		await liveSshManager.handle(webSocket, attachTicket);
-		await liveSshSessions
-			.markAttached(attachTicket.userId, attachTicket.sshLiveSessionId, {
-				terminalCols: attachTicket.terminalCols,
-				terminalRows: attachTicket.terminalRows
-			})
-			.catch(() => undefined);
-		webSocket.once('close', (code, reason) => {
-			const closeReason = reason.toString('utf8');
+	let releaseClosePersistence: () => void;
+	const attachmentRecorded = new Promise<void>((resolve) => {
+		releaseClosePersistence = resolve;
+	});
+
+	webSocket.once('close', (code, reason) => {
+		const closeReason = reason.toString('utf8');
+		void attachmentRecorded.then(() => {
 			if (closeReason === 'ssh session reattached') return;
 			if (liveSshManager.hasActiveAttachment?.(attachTicket.sshLiveSessionId)) return;
 
-			void persistLiveSshSocketClose(liveSshSessions, attachTicket, code, closeReason);
+			return persistLiveSshSocketClose(liveSshSessions, attachTicket, code, closeReason);
 		});
+	});
+
+	try {
+		await liveSshManager.handle(webSocket, attachTicket);
+		await liveSshSessions
+			.markAttached(
+				attachTicket.userId,
+				attachTicket.sshLiveSessionId,
+				{
+					terminalCols: attachTicket.terminalCols,
+					terminalRows: attachTicket.terminalRows
+				},
+				attachTicket.consumedAt ?? new Date()
+			)
+			.catch(() => undefined);
 	} catch {
 		void liveSshSessions
 			.fail(attachTicket.userId, attachTicket.sshLiveSessionId)
@@ -499,6 +512,8 @@ async function handleLiveSshConnection(
 		if (webSocket.readyState === webSocket.OPEN) {
 			webSocket.close(1011, 'live ssh manager failed');
 		}
+	} finally {
+		releaseClosePersistence!();
 	}
 }
 
@@ -508,7 +523,7 @@ async function persistLiveSshSocketClose(
 	closeCode: number,
 	closeReason: string
 ): Promise<void> {
-	if (closeReason === 'ssh shell closed') {
+	if (closeReason === 'ssh shell closed' || closeReason === 'ssh session closed') {
 		await liveSshSessions
 			.end(attachTicket.userId, attachTicket.sshLiveSessionId)
 			.catch(() => undefined);

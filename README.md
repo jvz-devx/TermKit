@@ -192,13 +192,15 @@ nix develop -c npm run check
 nix develop -c npm run lint
 ```
 
-Print the current acceptance evidence map and external proof blockers. This command exits with status `2` while real-target or manual proof is still blocked, so it can be used as a strict release gate:
+Print the current acceptance evidence map and external proof blockers. This command does not run the local gates for you; run it after the listed checks, builds, and smokes. It exits with status `2` while real-target or manual proof is still blocked, so it can be used as the external-proof portion of a strict release gate:
 
 ```sh
 nix develop -c npm run audit:acceptance
 ```
 
-Set `TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED`, and `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` only after recording those real-target smoke results for the current commit. Set `TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF` only after recording a real browser Microsoft Entra login against the configured tenant.
+Set `TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED`, and `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` only after recording those real-target smoke results for the current commit. `npm run smoke:microsoft` always covers the local Microsoft parser fixture, but `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` requires `TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft` to pass with real Microsoft Entra environment variables. Set `TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF` only after recording real browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available.
+
+For each external proof record, keep the commit SHA, timestamp, exact command, redacted environment variable names, and pass output. For browser-only Microsoft proof, keep screenshots or operator notes showing the allowed user, blocked-domain user, and admin-email result without recording secrets or tokens.
 
 Build the SvelteKit app and custom production server:
 
@@ -212,7 +214,7 @@ Smoke-test the production WebSocket upgrade entrypoint:
 nix develop -c npm run smoke:ws
 ```
 
-Smoke-test Microsoft Entra configuration. Without real Microsoft env vars this validates the parser fixture and skips live Entra calls; with `MICROSOFT_AUTH_ENABLED=1` plus the normal Microsoft env vars it fetches the tenant discovery document and JWKS. Set `TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE` to also verify a client-credentials token exchange when the app registration supports that flow. Microsoft client-credentials scopes must use the resource `.default` form, for example `https://graph.microsoft.com/.default`.
+Smoke-test Microsoft Entra configuration. Without real Microsoft env vars this validates the parser fixture and skips live Entra calls; with `MICROSOFT_AUTH_ENABLED=1` plus the normal Microsoft env vars it fetches the tenant discovery document and JWKS. Set `TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1` for the real acceptance run so missing Microsoft env fails instead of being reported as a skip. Set `TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE` to also verify a client-credentials token exchange when the app registration supports that flow. Microsoft client-credentials scopes must use the resource `.default` form, for example `https://graph.microsoft.com/.default`.
 
 ```sh
 nix develop -c npm run smoke:microsoft

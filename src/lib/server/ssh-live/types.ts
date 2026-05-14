@@ -4,6 +4,7 @@ export type SshAttachTicket = {
 	ticketId: string;
 	userId: string;
 	sshLiveSessionId: string;
+	consumedAt?: Date;
 	session: ConsumedTicket;
 	terminalCols: number;
 	terminalRows: number;

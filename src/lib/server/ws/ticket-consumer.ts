@@ -107,7 +107,12 @@ export class LiveSshAttachTicketConsumer {
 	async consume(ticket: string, userId: string): Promise<SshAttachTicket | null> {
 		try {
 			const consumed = await this.liveSessions.consumeAttachTicket(ticket, new Date(), userId);
-			const session = await this.liveSessions.get(consumed.userId, consumed.sshLiveSessionId);
+			const consumedAt = consumed.consumedAt ?? new Date();
+			const session = await this.liveSessions.get(
+				consumed.userId,
+				consumed.sshLiveSessionId,
+				consumedAt
+			);
 			const host = await this.hosts.get(consumed.userId, session.hostId);
 			const credential = await resolveCredential(
 				consumed.userId,
@@ -120,6 +125,7 @@ export class LiveSshAttachTicketConsumer {
 				ticketId: consumed.id,
 				userId: consumed.userId,
 				sshLiveSessionId: consumed.sshLiveSessionId,
+				consumedAt,
 				session: {
 					ticketId: consumed.sshLiveSessionId,
 					userId: consumed.userId,

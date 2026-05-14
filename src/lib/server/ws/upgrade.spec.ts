@@ -279,6 +279,85 @@ describe('websocket upgrade routing', () => {
 		expect(calls).toEqual(['attached:ssh-live-session-1', 'end:ssh-live-session-1']);
 	});
 
+	it('records explicit live SSH tab closure as ended instead of detached', async () => {
+		expect.assertions(2);
+
+		const calls: string[] = [];
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket) {
+					setTimeout(() => socket.close(1000, 'ssh session closed'), 0);
+				}
+			},
+			liveSshSessions: liveSshSessionRecorder(calls)
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1000);
+		await waitFor(() => calls.includes('end:ssh-live-session-1'));
+		expect(calls).toEqual(['attached:ssh-live-session-1', 'end:ssh-live-session-1']);
+	});
+
+	it('records immediate live SSH manager close after attach persistence settles', async () => {
+		expect.assertions(2);
+
+		const calls: string[] = [];
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume() {
+					return testSshAttachTicket();
+				}
+			},
+			liveSshManager: {
+				handle(socket) {
+					socket.close(1011, 'ssh connection failed');
+				}
+			},
+			liveSshSessions: {
+				async markAttached(_userId: string, id: string) {
+					calls.push(`attached-start:${id}`);
+					await new Promise((resolve) => setTimeout(resolve, 20));
+					calls.push(`attached:${id}`);
+					return {} as never;
+				},
+				async markDetached(_userId: string, id: string) {
+					calls.push(`detached:${id}`);
+					return {} as never;
+				},
+				async end(_userId: string, id: string) {
+					calls.push(`end:${id}`);
+					return {} as never;
+				},
+				async fail(_userId: string, id: string) {
+					calls.push(`fail:${id}`);
+					return {} as never;
+				}
+			}
+		});
+
+		await listen(server);
+		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1011);
+		await waitFor(() => calls.includes('fail:ssh-live-session-1'));
+		expect(calls).toEqual([
+			'attached-start:ssh-live-session-1',
+			'attached:ssh-live-session-1',
+			'fail:ssh-live-session-1'
+		]);
+	});
+
 	it('records ordinary live SSH websocket closure as detached', async () => {
 		expect.assertions(2);
 

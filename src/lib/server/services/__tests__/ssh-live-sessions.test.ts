@@ -41,6 +41,7 @@ describe('SshLiveSessionService', () => {
 			hostId: host.id,
 			title: 'Production shell',
 			status: 'starting',
+			expiresAt: new Date('2026-05-13T12:01:00.000Z'),
 			terminalCols: 120,
 			terminalRows: 32
 		});
@@ -145,6 +146,48 @@ describe('SshLiveSessionService', () => {
 
 		expect(afterEnd.reused).toBe(false);
 		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(2);
+	});
+
+	it('expires abandoned starting sessions before enforcing user limits', async () => {
+		expect.assertions(4);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository, {
+			attachTicketTtlMs: 1_000,
+			maxLiveSessionsPerUser: 1
+		});
+		const firstHost = await hosts.create('user-1', {
+			name: 'Pending shell',
+			protocol: 'ssh',
+			hostname: 'pending.example.test',
+			port: 22
+		});
+		const secondHost = await hosts.create('user-1', {
+			name: 'Replacement shell',
+			protocol: 'ssh',
+			hostname: 'replacement.example.test',
+			port: 22
+		});
+
+		const pending = await service.createOrReuse('user-1', {
+			hostId: firstHost.id,
+			now: new Date('2026-05-13T12:00:00.000Z')
+		});
+		const replacement = await service.createOrReuse('user-1', {
+			hostId: secondHost.id,
+			now: new Date('2026-05-13T12:00:01.000Z')
+		});
+
+		await expect(repository.getSshLiveSession('user-1', pending.session.id)).resolves.toMatchObject(
+			{
+				status: 'ended',
+				endedAt: new Date('2026-05-13T12:00:01.000Z')
+			}
+		);
+		expect(replacement.reused).toBe(false);
+		expect(replacement.session.status).toBe('starting');
+		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(1);
 	});
 
 	it('renames sessions and records attach/detach idle metadata', async () => {
@@ -376,8 +419,8 @@ describe('SshLiveSessionService', () => {
 		expect(visibleIds).not.toContain(old.session.id);
 	});
 
-	it('rejects expired attach tickets without consuming them', async () => {
-		expect.assertions(2);
+	it('rejects expired attach tickets, leaves the ticket unused, and ends pending sessions', async () => {
+		expect.assertions(3);
 
 		const repository = new InMemoryTermixServicesRepository();
 		const hosts = new HostService(repository);
@@ -400,8 +443,12 @@ describe('SshLiveSessionService', () => {
 			service.consumeAttachTicket(created.ticket, new Date('2026-05-13T12:00:01.000Z'))
 		).rejects.toBeInstanceOf(TicketExpiredError);
 		await expect(
-			service.consumeAttachTicket(created.ticket, new Date('2026-05-13T12:00:00.500Z'))
-		).resolves.toMatchObject({ consumedAt: new Date('2026-05-13T12:00:00.500Z') });
+			repository.getSshAttachTicketByHash(created.record.ticketHash)
+		).resolves.toMatchObject({ consumedAt: null });
+		await expect(repository.getSshLiveSession('user-1', session.id)).resolves.toMatchObject({
+			status: 'ended',
+			endedAt: new Date('2026-05-13T12:00:01.000Z')
+		});
 	});
 
 	it('rejects attach tickets for sessions expired while detached', async () => {
@@ -434,6 +481,34 @@ describe('SshLiveSessionService', () => {
 			now: new Date('2026-05-13T12:00:02.000Z')
 		});
 		expect(reused.reused).toBe(false);
+	});
+
+	it('rejects attach tickets for sessions expired before attachment', async () => {
+		expect.assertions(2);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository, {
+			attachTicketTtlMs: 1_000
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const { session } = await service.createOrReuse('user-1', {
+			hostId: host.id,
+			now: new Date('2026-05-13T12:00:00.000Z')
+		});
+
+		await expect(
+			service.createAttachTicket('user-1', session.id, new Date('2026-05-13T12:00:01.000Z'))
+		).rejects.toMatchObject({ issues: ['SSH live session expired before attachment'] });
+		await expect(repository.getSshLiveSession('user-1', session.id)).resolves.toMatchObject({
+			status: 'ended',
+			endedAt: new Date('2026-05-13T12:00:01.000Z')
+		});
 	});
 
 	it('marks existing live metadata stale on startup and expires detached sessions', async () => {

@@ -80,8 +80,8 @@ export class SshLiveSessionService {
 		);
 	}
 
-	get(userId: string, id: string): Promise<SshLiveSessionRecord> {
-		return this.getLiveSession(userId, id, new Date());
+	get(userId: string, id: string, now = new Date()): Promise<SshLiveSessionRecord> {
+		return this.getLiveSession(userId, id, now);
 	}
 
 	async createOrReuse(
@@ -97,7 +97,7 @@ export class SshLiveSessionService {
 
 		for (const session of openSessions) {
 			if (!isLiveStatus(session.status)) continue;
-			if (isExpiredDetachedSession(session, now)) {
+			if (isExpiredLiveSession(session, now)) {
 				await this.endExpiredSession(userId, session, now);
 				continue;
 			}
@@ -134,7 +134,7 @@ export class SshLiveSessionService {
 			startedAt: now,
 			lastAttachedAt: null,
 			detachedAt: null,
-			expiresAt: null,
+			expiresAt: new Date(now.getTime() + this.attachTicketTtlMs),
 			endedAt: null,
 			terminalCols,
 			terminalRows,
@@ -173,16 +173,23 @@ export class SshLiveSessionService {
 		}
 
 		const session = await this.getLiveSession(userId, id, now);
+		const expiresAt = new Date(now.getTime() + ttlMs);
 		const ticket = randomBytes(32).toString('base64url');
 		const record = await this.repository.createSshAttachTicket({
 			id: randomUUID(),
 			userId,
 			sshLiveSessionId: session.id,
 			ticketHash: hashToken(ticket),
-			expiresAt: new Date(now.getTime() + ttlMs),
+			expiresAt,
 			consumedAt: null,
 			createdAt: now
 		});
+		if (session.status === 'starting') {
+			await this.repository.updateSshLiveSession(userId, session.id, {
+				expiresAt,
+				updatedAt: now
+			});
+		}
 
 		return { ticket, record };
 	}
@@ -199,14 +206,19 @@ export class SshLiveSessionService {
 		if (!existing) throw new TicketInvalidError();
 		if (userId && existing.userId !== userId) throw new TicketInvalidError();
 		if (existing.consumedAt) throw new TicketConsumedError();
-		if (existing.expiresAt.getTime() <= now.getTime()) throw new TicketExpiredError();
 
 		const session = await this.repository.getSshLiveSession(
 			existing.userId,
 			existing.sshLiveSessionId
 		);
+		if (existing.expiresAt.getTime() <= now.getTime()) {
+			if (session && isExpiredLiveSession(session, now)) {
+				await this.endExpiredSession(existing.userId, session, now);
+			}
+			throw new TicketExpiredError();
+		}
 		if (!session || !isLiveStatus(session.status)) throw new TicketInvalidError();
-		if (isExpiredDetachedSession(session, now)) {
+		if (isExpiredLiveSession(session, now)) {
 			await this.endExpiredSession(existing.userId, session, now);
 			throw new TicketExpiredError();
 		}
@@ -316,9 +328,9 @@ export class SshLiveSessionService {
 		if (!isLiveStatus(session.status)) {
 			throw new ServiceValidationError(['SSH live session is not attachable']);
 		}
-		if (isExpiredDetachedSession(session, now)) {
+		if (isExpiredLiveSession(session, now)) {
 			await this.endExpiredSession(userId, session, now);
-			throw new ServiceValidationError(['SSH live session expired while detached']);
+			throw new ServiceValidationError([expiredLiveSessionMessage(session)]);
 		}
 		return session;
 	}
@@ -386,12 +398,18 @@ function isVisibleLiveSshSession(
 	return now.getTime() - terminalAt.getTime() <= terminalStatusVisibleMs;
 }
 
-function isExpiredDetachedSession(session: SshLiveSessionRecord, now: Date): boolean {
+function isExpiredLiveSession(session: SshLiveSessionRecord, now: Date): boolean {
 	return (
-		session.status === 'detached' &&
+		(session.status === 'starting' || session.status === 'detached') &&
 		session.expiresAt !== null &&
 		session.expiresAt.getTime() <= now.getTime()
 	);
+}
+
+function expiredLiveSessionMessage(session: SshLiveSessionRecord): string {
+	return session.status === 'starting'
+		? 'SSH live session expired before attachment'
+		: 'SSH live session expired while detached';
 }
 
 function uniqueLiveSessionTitle(baseTitle: string, existingTitles: string[]): string {
