@@ -51,20 +51,36 @@ const proofExpectations = {
 
 const checks = [
 	{
-		name: 'V1 Docker Compose stack',
+		name: 'V1 Docker Compose deploys with one public web port',
 		status: 'local',
 		evidence:
 			'npm run smoke:compose verifies generated local Compose env, app readiness, and port exposure'
 	},
 	{
-		name: 'V1 local auth, CRUD, encryption, tickets, importer, build',
+		name: 'V1 first-run admin creation and local login',
 		status: 'local',
-		evidence: 'npm run check && npm run lint && npm test && npm run build'
+		evidence: 'npm run smoke:app-protocols drives first-run admin creation and login'
 	},
 	{
-		name: 'V1 production app protocol boundary',
+		name: 'V1 protected routes, API auth, cookie sessions, and session lookup',
 		status: 'local',
-		evidence: 'npm run smoke:app-protocols'
+		evidence: 'npm test covers auth/session services and npm run smoke:ws covers auth rejection'
+	},
+	{
+		name: 'V1 host and credential CRUD',
+		status: 'local',
+		evidence: 'npm test covers services and npm run smoke:app-protocols creates hosts/credentials'
+	},
+	{
+		name: 'V1 saved secrets are encrypted in Postgres',
+		status: 'local',
+		evidence: 'npm test covers credential encryption/decryption and repository storage'
+	},
+	{
+		name: 'V1 ticket expiration, single-use behavior, and websocket auth rejection',
+		status: 'local',
+		evidence:
+			'npm test covers session tickets and npm run smoke:ws covers production websocket rejection'
 	},
 	{
 		name: 'V1 Postgres migrations',
@@ -72,14 +88,39 @@ const checks = [
 		evidence: 'npm run smoke:postgres'
 	},
 	{
-		name: 'V1 WebSocket auth rejection',
+		name: 'V1 SSH terminal works in the browser',
 		status: 'local',
-		evidence: 'npm run smoke:ws'
+		evidence:
+			'npm run smoke:app-protocols opens SSH websocket through Chromium against disposable SSH target'
 	},
 	{
-		name: 'V1 Telnet, SSH, SFTP, and local VNC handshake',
+		name: 'V1 SFTP file manager list/download/upload/edit/rename/delete',
 		status: 'local',
-		evidence: 'npm run smoke:protocols'
+		evidence: 'npm run smoke:app-protocols exercises authenticated SFTP API workflow'
+	},
+	{
+		name: 'V1 Telnet terminal works in the browser',
+		status: 'local',
+		evidence:
+			'npm run smoke:app-protocols opens Telnet websocket through Chromium; npm run smoke:protocols verifies Telnet negotiation'
+	},
+	{
+		name: 'V1 VNC works without Guacamole',
+		status: 'local',
+		evidence:
+			'npm run smoke:app-protocols opens VNC websocket through Chromium; npm run smoke:protocols verifies no-auth RFB handshakes'
+	},
+	{
+		name: 'V1 RDP launches through IronRDP and Devolutions Gateway without Guacamole',
+		status: 'local',
+		evidence:
+			'npm run smoke:app-protocols validates RDP browser launch metadata and saved-password handling'
+	},
+	{
+		name: 'V1 Termix importer brings supported data with summary and warnings',
+		status: 'local',
+		evidence:
+			'npm test covers Termix JSON/SQLite import mapping, warnings, and import job persistence'
 	},
 	{
 		name: 'V1 real SSH host verification',
@@ -100,9 +141,21 @@ const checks = [
 			'set TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED or record proofs.realRdp after npm run smoke:rdp-gateway passes with real Gateway/RDP env'
 	},
 	{
-		name: 'V2 Microsoft Entra local parser and configuration smoke',
+		name: 'V1 checks, tests, and production build',
 		status: 'local',
-		evidence: 'npm run smoke:microsoft validates the local parser fixture without real Entra env'
+		evidence: 'npm run check && npm run lint && npm test && npm run build'
+	},
+	{
+		name: 'V2 Microsoft Entra config validation, login routes, callback routes, and UI affordance',
+		status: 'local',
+		evidence:
+			'npm test covers Microsoft config/OIDC/routes and npm run smoke:microsoft validates local parser fixture'
+	},
+	{
+		name: 'V2 Microsoft auth_identities schema and local-session reuse',
+		status: 'local',
+		evidence:
+			'npm test covers auth identity schema, Microsoft callback provisioning, and V1 session cookie creation'
 	},
 	{
 		name: 'V2 real Microsoft Entra discovery and optional client credentials',
@@ -117,9 +170,33 @@ const checks = [
 			'run npm run acceptance:record-microsoft-interactive after collecting manual browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available'
 	},
 	{
-		name: 'V2 live SSH backend and browser workspace',
+		name: 'V2 live SSH schema, services, limits, attach tickets, idle cleanup, and stale startup reconciliation',
 		status: 'local',
-		evidence: 'npm test live SSH specs and npm run smoke:app-protocols'
+		evidence:
+			'npm test covers live SSH service/repository behavior and startup stale reconciliation'
+	},
+	{
+		name: 'V2 live SSH manager detach, reattach, takeover, explicit close, and bounded scrollback',
+		status: 'local',
+		evidence: 'npm test covers LiveSshManager and websocket upgrade live SSH lifecycle'
+	},
+	{
+		name: 'V2 persistent SSH workspace UI for open/list/rename/reattach/close and states',
+		status: 'local',
+		evidence:
+			'npm run smoke:app-protocols drives Chromium through live SSH workspace attach; components expose tab strip states/actions'
+	},
+	{
+		name: 'V2 terminal output is not persisted to Postgres',
+		status: 'local',
+		evidence:
+			'npm test covers live SSH metadata tables; LiveSshManager keeps scrollback in bounded in-memory buffers'
+	},
+	{
+		name: 'V2 keeps V1 SSH, SFTP, Telnet, VNC, RDP, importer, tests, and build passing',
+		status: 'local',
+		evidence:
+			'npm run smoke:app-protocols plus npm run check && npm run lint && npm test && npm run build'
 	}
 ];
 
