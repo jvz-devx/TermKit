@@ -243,6 +243,30 @@ Run the full unit suite:
 nix develop -c npm test
 ```
 
+Generate coverage reports:
+
+```sh
+nix develop -c npm run test:coverage
+```
+
+The coverage command prints a text summary and writes HTML, JSON, and lcov
+reports under `coverage/`. Open `coverage/index.html` for local inspection, use
+`coverage/coverage-final.json` for machine-readable detail, and use
+`coverage/lcov.info` for CI/reporting integrations.
+
+The initial V7 baseline and current ratchet gates are recorded in
+`docs/coverage-baseline.md`. The current gates protect the first measured
+baseline; they are not the final V7 targets from `spec.md`.
+
+Coverage currently measures TermixKit-owned JavaScript and TypeScript source
+under `src/`. The Vitest config intentionally excludes test files, test helper
+folders, fixtures and mocks, generated SvelteKit output, shadcn-svelte UI
+primitives under `src/lib/components/ui`, static assets, migration snapshots,
+and route Svelte markup that should be covered by focused helper tests or
+Playwright smokes instead of line coverage. New exclusions should name a
+low-value/generated boundary or a better test surface; do not use exclusions to
+hide reachable product logic.
+
 Run static checks:
 
 ```sh

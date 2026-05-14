@@ -529,7 +529,7 @@ function toHostResult(
 		stdout: captureBulkOutput(result.stdout, policy),
 		stderr: captureBulkOutput(result.stderr, policy),
 		bytesTransferred: result.bytesTransferred ?? null,
-		report: sanitizeReportFields(result.report ?? {})
+		report: sanitizeReportFields(result.report ?? {}, policy.redactionValues)
 	};
 }
 
@@ -918,14 +918,18 @@ function toCsvReport(model: Record<string, unknown>): string {
 }
 
 function sanitizeReportFields(
-	fields: Record<string, string | number | boolean | null>
+	fields: Record<string, string | number | boolean | null>,
+	redactionValues: string[]
 ): Record<string, string | number | boolean | null> {
-	return Object.fromEntries(
-		Object.entries(fields).filter(([key, value]) => {
-			if (secretKeyPattern.test(key)) return false;
-			return ['string', 'number', 'boolean'].includes(typeof value) || value === null;
-		})
-	);
+	const sanitized: Record<string, string | number | boolean | null> = {};
+	for (const [key, value] of Object.entries(fields)) {
+		if (secretKeyPattern.test(key)) continue;
+		if (typeof value === 'string') sanitized[key] = redactText(value, redactionValues).text;
+		else if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
+			sanitized[key] = value;
+		}
+	}
+	return sanitized;
 }
 
 function csvCell(value: string): string {

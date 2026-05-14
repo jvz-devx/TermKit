@@ -179,4 +179,48 @@ describe('bulk job domain', () => {
 		expect(report.body).not.toContain('do-not-emit');
 		expect(report.body).not.toContain('"text"');
 	});
+
+	it('redacts secret-like host report values in JSON and CSV exports', () => {
+		expect.assertions(8);
+
+		const job = markBulkHostFailed(
+			startBulkJob(
+				planBulkJob({
+					id: 'job-4',
+					userId: 'user-1',
+					kind: 'ssh_command',
+					targets: [{ hostId: 'host-1', hostName: 'Prod', protocol: 'ssh' }],
+					reviewedHostIds: ['host-1'],
+					command: { command: 'deploy --token abc123' },
+					output: { maxBytes: 2048, redactionValues: ['abc123', 'hunter2'] },
+					retry: { maxAttempts: 1, retryableCodes: [] }
+				})
+			),
+			'host-1',
+			{
+				code: 'command_failed',
+				message: 'deploy failed with Bearer abc123',
+				retryable: false,
+				stderr: 'password=hunter2',
+				report: {
+					notes: 'password=hunter2 token=abc123',
+					authHeader: 'Bearer abc123',
+					privateKey: 'should-drop-by-key',
+					status: 'failed'
+				}
+			}
+		);
+
+		const jsonReport = buildBulkJobReport(job, 'json');
+		const csvReport = buildBulkJobReport(job, 'csv');
+
+		expect(jsonReport.body).not.toContain('hunter2');
+		expect(jsonReport.body).not.toContain('abc123');
+		expect(jsonReport.body).not.toContain('should-drop-by-key');
+		expect(jsonReport.body).toContain('"notes": "password=[REDACTED] token=[REDACTED]"');
+		expect(jsonReport.body).toContain('"authHeader": "Bearer [REDACTED]"');
+		expect(jsonReport.body).toContain('"status": "failed"');
+		expect(csvReport.body).not.toContain('abc123');
+		expect(csvReport.body).toContain('Bearer [REDACTED]');
+	});
 });

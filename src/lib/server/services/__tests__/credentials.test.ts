@@ -76,6 +76,59 @@ describe('CredentialService', () => {
 		).toThrow();
 	});
 
+	it('redacts normalized sensitive metadata keys from nested returned records', async () => {
+		expect.assertions(4);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const credentials = new CredentialService(repository, {
+			encrypt(plaintext, context) {
+				return {
+					ciphertext: `encrypted:${plaintext}`,
+					metadata: {
+						algorithm: 'aes-256-gcm',
+						keyVersion: 1,
+						iv: 'iv',
+						authTag: 'auth-tag',
+						salt: JSON.stringify(context)
+					}
+				};
+			},
+			decrypt(secret) {
+				return secret.ciphertext.replace(/^encrypted:/, '');
+			}
+		});
+
+		const created = await credentials.create('user-1', {
+			name: 'API token',
+			kind: 'password',
+			username: 'deploy',
+			secret: 'credential-secret',
+			metadata: {
+				label: 'safe-label',
+				'api-key': 'metadata-api-key',
+				access_token: 'metadata-access-token',
+				nested: {
+					'refresh token': 'metadata-refresh-token',
+					notes: ['safe-note', { private_key: 'metadata-private-key', visible: 'safe' }]
+				}
+			}
+		});
+
+		expect(created.metadata).toEqual({
+			label: 'safe-label',
+			nested: {
+				notes: ['safe-note', { visible: 'safe' }]
+			}
+		});
+		await expect(credentials.get('user-1', created.id)).resolves.toMatchObject({
+			metadata: created.metadata
+		});
+		await expect(credentials.list('user-1')).resolves.toMatchObject([
+			{ id: created.id, metadata: created.metadata }
+		]);
+		expect(JSON.stringify(created)).not.toContain('metadata-api-key');
+	});
+
 	it('keeps credential secrets write-only during metadata edits and rotates them on replacement', async () => {
 		expect.assertions(8);
 

@@ -239,6 +239,64 @@ describe('SessionTicketService', () => {
 		});
 		await expect(tickets.consume(created.ticket)).rejects.toBeInstanceOf(TicketInvalidError);
 	});
+
+	it('snapshots credential identity without persisting decryptable credential material', async () => {
+		expect.assertions(7);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const tickets = new SessionTicketService(repository, hosts, repository);
+		const now = new Date('2026-05-13T12:00:00.000Z');
+		await repository.createCredential({
+			id: 'credential-1',
+			userId: 'user-1',
+			workspaceId: null,
+			name: 'Shell password',
+			kind: 'password',
+			username: 'credential-user',
+			encryptedSecret: 'encrypted-super-secret',
+			encryption: {
+				...testEncryptionMetadata(),
+				authTag: 'sensitive-auth-tag',
+				salt: 'sensitive-salt'
+			},
+			metadata: {
+				encryptedPassphrase: {
+					ciphertext: 'encrypted-passphrase',
+					encryption: testEncryptionMetadata()
+				}
+			},
+			createdAt: now,
+			updatedAt: now
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22,
+			credentialId: 'credential-1'
+		});
+
+		const created = await tickets.create('user-1', {
+			hostId: host.id,
+			protocol: 'ssh',
+			now
+		});
+		const snapshot = parseSessionTicketTargetSnapshot(created.record);
+
+		expect(snapshot.credential).toEqual({
+			id: 'credential-1',
+			kind: 'password',
+			username: 'credential-user',
+			fingerprint: expect.any(String)
+		});
+		expect(created.record.target).not.toContain('encrypted-super-secret');
+		expect(created.record.target).not.toContain('sensitive-auth-tag');
+		expect(created.record.target).not.toContain('sensitive-salt');
+		expect(created.record.target).not.toContain('encrypted-passphrase');
+		expect(created.record.target).not.toContain('passwordHash');
+		expect(created.record.ticketHash).not.toBe(created.ticket);
+	});
 });
 
 function testEncryptionMetadata() {

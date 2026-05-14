@@ -54,6 +54,7 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(sidebar).toContainText('Credentials');
 		await expect(sidebar).toContainText('Import from Termix');
 		await expect(sidebar).toContainText('Session workspace');
+		await expect(sidebar).toContainText('Fleet operations');
 		await expect(sidebar).toContainText('Application');
 
 		for (const host of seededHosts) {
@@ -79,6 +80,41 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(protocolFilters.getByRole('button', { name: 'RDP' })).toBeVisible();
 		await expect(protocolFilters.getByRole('button', { name: 'VNC' })).toBeVisible();
 		await expect(protocolFilters.getByRole('button', { name: 'Telnet' })).toBeVisible();
+
+		await expandSidebarGroup(page, 'Fleet operations');
+		await page.getByRole('link', { name: 'Fleet console' }).click();
+		await expect(page).toHaveURL(/\/fleet$/);
+		await expect(page.getByRole('heading', { name: 'Fleet operations' })).toBeVisible();
+		await expect(page.getByText('remote functions', { exact: true })).toBeVisible();
+		await expect(page.getByRole('tab', { name: 'Operations' })).toBeVisible();
+		await expect(page.getByRole('tab', { name: 'Inventory' })).toBeVisible();
+		await expect(page.getByRole('tab', { name: 'Reports' })).toBeVisible();
+		await expect(page.getByRole('tab', { name: 'Policies' })).toBeVisible();
+		const operationsPanel = page.getByRole('tabpanel', { name: 'Operations' });
+		await expect(operationsPanel.getByText('Bulk operations', { exact: true })).toBeVisible();
+		await expect(operationsPanel.getByText('No targets selected.', { exact: true })).toBeVisible();
+		await expect(
+			operationsPanel.getByText('Select at least one target.', { exact: true })
+		).toBeVisible();
+		await expect(operationsPanel.getByRole('button', { name: 'Queue operation' })).toBeDisabled();
+		await expect(
+			operationsPanel.getByRole('heading', { name: 'Host health and inventory' })
+		).toBeVisible();
+		await expect(
+			operationsPanel.getByText('3 of 3 hosts match the current review.', { exact: true })
+		).toBeVisible();
+		for (const host of seededHosts) {
+			await expect(operationsPanel.getByText(host.name, { exact: true })).toBeVisible();
+		}
+		await operationsPanel
+			.getByPlaceholder('Search host, owner, tag, OS')
+			.fill('missing-fleet-host');
+		await expect(
+			operationsPanel.getByText('0 of 3 hosts match the current review.', { exact: true })
+		).toBeVisible();
+		await expect(
+			operationsPanel.getByText('No hosts match these filters.', { exact: true })
+		).toBeVisible();
 
 		await expandSidebarGroup(page, 'Administration');
 		await page.getByRole('link', { name: 'Application' }).click();

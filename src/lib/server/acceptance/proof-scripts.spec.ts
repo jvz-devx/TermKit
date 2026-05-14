@@ -192,7 +192,7 @@ describe('acceptance proof scripts', () => {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
 		});
 
-		expect(result.status).toBe(0);
+		expect(result.status).toBe(2);
 		expect(result.stdout).toContain('[local] V4 admin SSH tunnel visibility and termination');
 		expect(result.stdout).toContain(
 			'[local] V4 admin FTP and FTPS long-running activity visibility'
@@ -220,7 +220,10 @@ describe('acceptance proof scripts', () => {
 			'[local] V6 bulk jobs enforce reviewed targets, concurrency, retry, cancellation, and reports'
 		);
 		expect(result.stdout).toContain('[local] V6 fleet operations UI shell and navigation');
-		expect(result.stdout).toContain('acceptance audit: no blocked requirements detected');
+		expectV7Rows(result.stdout);
+		expect(result.stdout).toContain(
+			'acceptance audit: 4 requirement(s) still need implementation, external env, or manual proof'
+		);
 	});
 
 	it('rejects hand-edited external proofs with skipped or secret-looking output', () => {
@@ -281,7 +284,7 @@ describe('acceptance proof scripts', () => {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
 		});
 
-		expect(result.status).toBe(0);
+		expect(result.status).toBe(2);
 		expect(result.stdout).toContain('[external-blocked] V2 real Microsoft Entra discovery');
 		expect(result.stdout).toContain('[external-blocked] V2 Microsoft interactive login acceptance');
 		expect(result.stdout).toContain(
@@ -298,11 +301,22 @@ describe('acceptance proof scripts', () => {
 			'[local] V6 workspace governance and server-side policy decisions'
 		);
 		expect(result.stdout).toContain('[local] V6 host health and SSH fact intelligence');
+		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: repo-owned requirements passed; 2 external Microsoft proof item(s) remain blocked until tenant/test users are available'
+			'acceptance audit: 4 requirement(s) still need implementation, external env, or manual proof'
 		);
 	});
 });
+
+function expectV7Rows(output: string) {
+	expect(output).toContain('[local] V7 coverage tooling and baseline reporting');
+	expect(output).toContain('[local] V7 server and security regression foundation');
+	expect(output).toContain('[local] V7 fleet wiring and browser workflow foundation');
+	expect(output).toContain('[pending] V7 coverage target thresholds');
+	expect(output).toContain('[pending] V7 full workflow and protocol browser coverage');
+	expect(output).toContain('[pending] V7 reliability and performance test budget');
+	expect(output).toContain('[pending] V7 real FTP and FTPS external proof requirements');
+}
 
 function runNodeScript(args: string[], env: NodeJS.ProcessEnv) {
 	return spawnSync(node, args, {

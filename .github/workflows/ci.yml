@@ -40,6 +40,9 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Coverage
+        run: npm run test:coverage
+
       - name: Playwright e2e
         run: npm run test:e2e
 

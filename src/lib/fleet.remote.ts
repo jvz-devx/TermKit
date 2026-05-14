@@ -7,10 +7,13 @@ import {
 	builtInAutomationTemplates,
 	type AutomationTemplateKind as BuiltInTemplateKind
 } from '$lib/termix/automation-template';
+import {
+	fleetBulkOperations,
+	resolveFleetBulkOperationContract
+} from '$lib/termix/fleet-contracts';
 import type {
 	FleetApprovalStatus,
 	FleetAutomationTemplate,
-	FleetBulkOperation,
 	FleetHealthStatus,
 	FleetHost,
 	FleetJob,
@@ -52,37 +55,6 @@ export type DecideFleetApprovalInput = {
 	reason?: unknown;
 };
 
-const bulkOperations: FleetBulkOperation[] = [
-	{
-		id: 'bulk-ssh-command',
-		name: 'Bulk SSH command',
-		category: 'SSH',
-		description: 'Run a reviewed SSH command job against the selected visible hosts.',
-		risk: 'medium',
-		approvalRequired: false,
-		estimatedDuration: 'queued',
-		guardrails: [
-			'Requires explicit target review',
-			'Limits fan-out concurrency',
-			'Stores bounded, redacted per-host status'
-		]
-	},
-	{
-		id: 'bulk-file-transfer',
-		name: 'Bulk file transfer',
-		category: 'Files',
-		description: 'Queue an SFTP/FTP/FTPS transfer job against the reviewed target set.',
-		risk: 'high',
-		approvalRequired: true,
-		estimatedDuration: 'queued',
-		guardrails: [
-			'Requires visible target selection',
-			'Reports partial failures',
-			'Does not store transferred file contents'
-		]
-	}
-];
-
 export const getFleetOverview = query(async (): Promise<FleetOverview> => {
 	const user = requireRemoteUser();
 	const [hosts, workspaces] = await Promise.all([
@@ -115,7 +87,7 @@ export const getFleetOverview = query(async (): Promise<FleetOverview> => {
 			...builtInAutomationTemplates.map(toBuiltInFleetTemplate),
 			...templates.map(toFleetTemplate)
 		].sort((left, right) => left.name.localeCompare(right.name)),
-		bulkOperations,
+		bulkOperations: fleetBulkOperations,
 		jobs: jobs.map(toFleetJob).sort((left, right) => right.startedAt.localeCompare(left.startedAt)),
 		policies: approvals.map((approval) => ({
 			id: approval.id,
@@ -170,6 +142,10 @@ export const queueFleetBulkOperation = command<QueueFleetBulkOperationInput, Fle
 	async (input) => {
 		const user = requireRemoteUser();
 		const operationId = asTrimmedString(input.operationId) ?? 'bulk-ssh-command';
+		const operation = resolveFleetBulkOperationContract(operationId);
+		if (!operation) {
+			throw new ServiceValidationError(['operationId must be a supported fleet bulk operation']);
+		}
 		const targetHostIds = requireTargetHostIds(input.targetHostIds);
 		const visibleHosts = await hostService.list(user.id);
 		const visibleHostIds = new Set(visibleHosts.map((host) => host.id));
@@ -187,13 +163,13 @@ export const queueFleetBulkOperation = command<QueueFleetBulkOperationInput, Fle
 			workspaceId: targetHosts[0]?.workspaceId ?? null,
 			templateId: asTrimmedString(input.templateId),
 			templateVersion: 1,
-			kind: operationId === 'bulk-file-transfer' ? 'bulk_file_transfer' : 'bulk_ssh_command',
-			title: operationId === 'bulk-file-transfer' ? 'Bulk file transfer' : 'Bulk SSH command',
+			kind: operation.jobKind,
+			title: operation.jobTitle,
 			request: {
 				operationId,
 				templateId: asTrimmedString(input.templateId),
 				reviewedHostIds: targetHostIds,
-				secretPolicy: 'redacted'
+				secretPolicy: operation.secretPolicy
 			},
 			targetHostIds,
 			concurrencyLimit: normalizeConcurrency(input.concurrencyLimit),

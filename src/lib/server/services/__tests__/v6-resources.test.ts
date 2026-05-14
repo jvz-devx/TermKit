@@ -122,28 +122,35 @@ describe('V6ResourcesService', () => {
 			request: {
 				command: 'curl -H "Authorization: Bearer abc123" https://example.test',
 				password: 'hunter2',
-				nested: { apiKey: 'plain-key' }
+				nested: { apiKey: 'plain-key' },
+				auditLines: ['token=abc123', { notes: 'password=hunter2' }]
 			},
-			targetHostIds: ['host-1']
+			targetHostIds: ['host-1'],
+			metadata: {
+				accessToken: 'job-token',
+				annotations: ['Bearer abc123']
+			}
 		});
 		await service.updateJobTarget(result.targets[0].id, {
 			output: {
 				stdout: 'token=abc123',
 				privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----'
 			},
-			report: { password: 'hunter2', status: 'failed' }
+			report: { password: 'hunter2', notes: 'apiKey=plain-key', status: 'failed' },
+			metadata: { refreshToken: 'target-token', notes: ['secret=abc123'] }
 		});
 		await service.recordJobEvent({
 			jobId: result.job.id,
 			code: 'log',
-			message: 'event',
+			message: 'event token=abc123 password=hunter2',
 			details: { token: 'abc123', line: 'password=hunter2' }
 		});
 		await service.createJobReport({
 			jobId: result.job.id,
 			format: 'json',
 			storageKey: 'reports/job.json',
-			summary: { secret: 'abc123', text: 'Bearer abc123' }
+			summary: { secret: 'abc123', text: 'Bearer abc123' },
+			metadata: { password: 'hunter2', text: 'token=abc123' }
 		});
 
 		const persistedJob = await repository.getBackgroundJob(result.job.id);
@@ -157,6 +164,8 @@ describe('V6ResourcesService', () => {
 
 		expect(persistedPayload).not.toContain('hunter2');
 		expect(persistedPayload).not.toContain('plain-key');
+		expect(persistedPayload).not.toContain('job-token');
+		expect(persistedPayload).not.toContain('target-token');
 		expect(persistedPayload).not.toContain('abc123');
 		expect(persistedPayload).not.toContain('OPENSSH PRIVATE KEY');
 		expect(persistedPayload).toContain('[REDACTED]');

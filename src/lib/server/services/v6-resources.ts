@@ -1336,7 +1336,7 @@ function validateJobEventInput(
 		targetId: asNullableString(input.targetId),
 		severity: severity as JobEventSeverity,
 		code: code!,
-		message: message!,
+		message: redactSecretLikeString(message!),
 		details: sanitizeRecordForPersistence(asRecord(input.details)),
 		createdAt: now
 	};

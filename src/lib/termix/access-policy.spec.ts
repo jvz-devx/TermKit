@@ -176,6 +176,58 @@ describe('access policy helpers', () => {
 		);
 	});
 
+	it('keeps explicit action policy checks server authoritative for workspace operators', () => {
+		const policy = {
+			actionRules: {
+				clipboard: { minRole: 'operator' as const, requireReason: true },
+				audio: { enabled: false }
+			}
+		};
+
+		expect(
+			evaluateAccessPolicy({
+				action: 'clipboard',
+				role: 'operator',
+				policy,
+				reason: '   '
+			})
+		).toMatchObject({
+			allowed: false,
+			state: 'reason_required',
+			code: 'action_reason_required',
+			ui: {
+				blocked: true,
+				requirements: ['A reason is required by workspace policy.']
+			}
+		});
+
+		expect(
+			evaluateAccessPolicy({
+				action: 'clipboard',
+				role: 'operator',
+				policy,
+				reason: 'copy maintenance token into rotated config'
+			})
+		).toMatchObject({
+			allowed: true,
+			state: 'allowed',
+			requiredRole: 'operator'
+		});
+
+		expect(
+			evaluateAccessPolicy({
+				action: 'audio',
+				role: 'owner',
+				policy,
+				reason: 'support call'
+			})
+		).toMatchObject({
+			allowed: false,
+			state: 'blocked',
+			code: 'policy_action_disabled'
+		});
+	});
+
 	it('gates risky transfers by path, overwrite, executable, or size policy', () => {
 		expect(
 			isRiskyTransfer(

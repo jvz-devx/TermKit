@@ -1,3 +1,5 @@
+import { fleetBulkOperations } from '$lib/termix/fleet-contracts';
+
 export type FleetHealthStatus = 'healthy' | 'degraded' | 'offline' | 'maintenance';
 export type FleetRiskLevel = 'low' | 'medium' | 'high';
 export type FleetJobStatus = 'queued' | 'running' | 'blocked' | 'completed' | 'failed';
@@ -242,43 +244,7 @@ export const demoFleetOverview: FleetOverview = {
 			parameters: ['probe depth', 'tag overwrite mode']
 		}
 	],
-	bulkOperations: [
-		{
-			id: 'bulk-restart-service',
-			name: 'Restart service',
-			category: 'Runtime',
-			description:
-				'Restart one named service with preflight status capture and failed-host isolation.',
-			risk: 'medium',
-			approvalRequired: false,
-			estimatedDuration: '6m',
-			guardrails: [
-				'Skip offline hosts',
-				'Stop after first production failure',
-				'Attach service logs'
-			]
-		},
-		{
-			id: 'bulk-rotate-keys',
-			name: 'Rotate SSH keys',
-			category: 'Security',
-			description: 'Install a replacement key, verify login, then remove the retired key.',
-			risk: 'high',
-			approvalRequired: true,
-			estimatedDuration: '14m',
-			guardrails: ['Require approver', 'Keep rollback key for 24h', 'Verify every target']
-		},
-		{
-			id: 'bulk-tag-update',
-			name: 'Update tags',
-			category: 'Inventory',
-			description: 'Apply workspace-owned tags to selected hosts without touching credentials.',
-			risk: 'low',
-			approvalRequired: false,
-			estimatedDuration: '2m',
-			guardrails: ['Dry-run diff first', 'Workspace-scoped write', 'Audit every change']
-		}
-	],
+	bulkOperations: fleetBulkOperations,
 	jobs: [
 		{
 			id: 'job-1842',

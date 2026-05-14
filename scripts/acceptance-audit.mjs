@@ -324,6 +324,48 @@ const checks = [
 		status: 'local',
 		evidence:
 			'npm run check validates the slim /fleet route plus shadcn-svelte fleet panels for automation templates, reviewed bulk operations, job history/reporting, policy approvals, and host health inventory'
+	},
+	{
+		name: 'V7 coverage tooling and baseline reporting',
+		status: 'local',
+		evidence:
+			'npm run test:coverage generates text, HTML, JSON, and lcov reports; CI runs coverage; docs/coverage-baseline.md records the first baseline and initial ratchet gates'
+	},
+	{
+		name: 'V7 server and security regression foundation',
+		status: 'local',
+		evidence:
+			'npm test covers added credential metadata redaction, session-ticket credential snapshots, V6 job/event/report redaction, policy reasons, and secret-safe bulk job reports'
+	},
+	{
+		name: 'V7 fleet wiring and browser workflow foundation',
+		status: 'local',
+		evidence:
+			'npm test covers the shared fleet operation contract and route/dashboard remote wiring; npm run test:e2e covers /fleet navigation, disabled no-target queue state, and inventory empty-state filtering'
+	},
+	{
+		name: 'V7 coverage target thresholds',
+		status: 'pending',
+		evidence:
+			'current coverage baseline is below spec.md targets; raise server, security-critical, protocol/websocket, repository, migration, policy, job, and acceptance-audit coverage before V7 completion'
+	},
+	{
+		name: 'V7 full workflow and protocol browser coverage',
+		status: 'pending',
+		evidence:
+			'expand deterministic Playwright and smoke coverage across host/credential CRUD, importer flows, workspaces, SSH live tabs, SFTP/FTP/FTPS workflows, RDP/VNC/Telnet launch states, admin views, and policy-blocked states'
+	},
+	{
+		name: 'V7 reliability and performance test budget',
+		status: 'pending',
+		evidence:
+			'add remaining concurrency, timeout, failure-injection, and lightweight performance budgets for live SSH attach takeover, ticket consumption, tunnel limits, transfer cancellation, bulk retries, protocol adapters, background jobs, importer parsing, file-list transforms, job scheduling, and workspace rendering'
+	},
+	{
+		name: 'V7 real FTP and FTPS external proof requirements',
+		status: 'pending',
+		evidence:
+			'add explicit real FTP and real FTPS acceptance proof scripts, proof-file validation, and audit rows once target infrastructure is available; local FTP/FTPS integration remains fixture/smoke-only'
 	}
 ];
 
