@@ -34,7 +34,7 @@
 	import LiveSshTabStrip from './session/LiveSshTabStrip.svelte';
 	import RdpLaunchPane from './session/RdpLaunchPane.svelte';
 	import RdpPane from './session/RdpPane.svelte';
-	import SftpBrowser from './session/SftpBrowser.svelte';
+	import SftpLaunchPane from './session/SftpLaunchPane.svelte';
 	import SessionHostLauncher from './session/SessionHostLauncher.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
 	import VncLaunchPane from './session/VncLaunchPane.svelte';
@@ -542,9 +542,11 @@
 			</Tabs.Content>
 
 			<Tabs.Content value="sftp" class="m-0 min-h-0 flex-1 p-3">
-				{#key selectedHost.id}
-					<SftpBrowser hostId={selectedHost.id} initialPath="/" />
-				{/key}
+				{#if browser && activeProtocol === 'sftp'}
+					{#key `sftp:${selectedHost.id}:${reconnectNonce}`}
+						<SftpLaunchPane hostId={selectedHost.id} />
+					{/key}
+				{/if}
 			</Tabs.Content>
 
 			<Tabs.Content value="rdp" class="m-0 min-h-0 flex-1 p-3">

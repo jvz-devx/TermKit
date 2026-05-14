@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const db = vi.hoisted(() => ({
 	select: vi.fn(),
-	transaction: vi.fn()
+	transaction: vi.fn(),
+	update: vi.fn()
 }));
 
 const auth = vi.hoisted(() => ({
@@ -89,6 +90,27 @@ function mockNoExistingIdentity() {
 			})
 		})
 	});
+}
+
+function mockExistingIdentity(userId: string) {
+	db.select.mockReturnValue({
+		from: () => ({
+			where: () => ({
+				limit: async () => [{ userId }]
+			})
+		})
+	});
+}
+
+function mockTopLevelUserUpdate() {
+	const updateValues: unknown[] = [];
+	db.update.mockReturnValue({
+		set: (value: unknown) => {
+			updateValues.push(value);
+			return { where: async () => undefined };
+		}
+	});
+	return { updateValues };
 }
 
 function mockProvisionTransaction(
@@ -619,6 +641,32 @@ describe('Microsoft auth routes', () => {
 			expect.objectContaining({ userId: 'existing-user', providerSubject: 'subject-1' })
 		);
 		expect(auth.createSessionForUser).toHaveBeenCalledWith('existing-user', event);
+	});
+
+	it('promotes an existing Microsoft identity when its email becomes configured as admin', async () => {
+		expect.assertions(7);
+		const nonce = 'expected-nonce';
+		const { idToken, jwk } = createSignedIdToken({ nonce, email: 'admin@example.com' });
+		mockMicrosoftTokenAndJwks(idToken, jwk);
+		mockExistingIdentity('linked-user');
+		const update = mockTopLevelUserUpdate();
+		const { GET } = await import('./callback/+server');
+		const event = createEvent(
+			'/auth/microsoft/callback?code=code-1&state=expected-state',
+			createCookies({
+				termixkit_microsoft_oauth_state: 'expected-state',
+				termixkit_microsoft_oauth_nonce: nonce,
+				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			})
+		);
+
+		await expect(GET(event as never)).rejects.toMatchObject({ status: 303, location: '/hosts' });
+		expect(db.select).toHaveBeenCalledOnce();
+		expect(db.transaction).not.toHaveBeenCalled();
+		expect(db.update).toHaveBeenCalledOnce();
+		expect(update.updateValues).toEqual([{ isAdmin: true }]);
+		expect(auth.createSessionForUser).toHaveBeenCalledWith('linked-user', event);
+		expect(auth.setSessionCookie).toHaveBeenCalledWith(event.cookies, 'session-token', true);
 	});
 
 	it('requires the first Microsoft user to be a configured admin email', async () => {

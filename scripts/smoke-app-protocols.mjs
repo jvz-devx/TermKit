@@ -12,6 +12,7 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { chromium } from 'playwright';
+import postgres from 'postgres';
 import { WebSocket } from 'ws';
 
 const require = createRequire(import.meta.url);
@@ -108,6 +109,11 @@ try {
 		'SFTP API file workflow',
 		'verified list, download, upload, mkdir, text read/write, rename/move, and delete'
 	);
+	await smokeSftpWorkspaceUi(auth.page, sshHost.id, app.databaseUrl);
+	pass(
+		'SFTP workspace launch',
+		'created and ended SFTP connection session while listing fixture file'
+	);
 
 	const telnetHost = await createHost(api, {
 		name: 'Smoke Telnet fixture',
@@ -191,6 +197,7 @@ async function startOrUseApp(gatewayUrl) {
 	if (existingBaseUrl) {
 		return {
 			baseUrl: existingBaseUrl.replace(/\/$/, ''),
+			databaseUrl: process.env.TERMIXKIT_SMOKE_DATABASE_URL ?? process.env.DATABASE_URL ?? null,
 			close: async () => {}
 		};
 	}
@@ -239,6 +246,7 @@ async function startOrUseApp(gatewayUrl) {
 	await waitForHttp(baseUrl, appProcess, logs);
 	return {
 		baseUrl,
+		databaseUrl,
 		close: () => stopChild(appProcess)
 	};
 }
@@ -628,7 +636,7 @@ async function smokeLiveSshSessionUi(page, baseUrl, primaryHostId) {
 
 async function createLiveSshTab(page, hostId, title) {
 	await page.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=ssh`);
-	await page.getByRole('button', { name: 'SSH tab' }).click();
+	await page.getByRole('button', { name: 'Create persistent SSH tab', exact: true }).click();
 	await waitForLiveSshTab(page, title);
 	await waitForLiveSshAttach(page, `Live SSH terminal for ${title} did not attach.`);
 }
@@ -769,6 +777,59 @@ async function smokeSftpApi(api, hostId) {
 	const finalNames = finalList.entries.map((entry) => entry.name);
 	if (finalNames.includes('workspace') || finalNames.includes('uploaded.txt')) {
 		throw new Error(`SFTP delete workflow left stale entries: ${finalNames.join(', ')}`);
+	}
+}
+
+async function smokeSftpWorkspaceUi(page, hostId, databaseUrl) {
+	const launchPage = await page.context().newPage();
+
+	try {
+		await launchPage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=sftp`);
+		await waitFor(
+			async () => {
+				const bodyText = (await launchPage.locator('body').textContent()) ?? '';
+				return bodyText.includes('smoke.txt');
+			},
+			async () => {
+				const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
+					.replace(/\s+/g, ' ')
+					.trim();
+				return `SFTP workspace did not list the fixture file: ${bodyText}`;
+			}
+		);
+	} finally {
+		await launchPage.close().catch(() => {});
+	}
+
+	if (!databaseUrl) return;
+
+	await waitFor(
+		async () => {
+			const session = await latestConnectionSession(databaseUrl, hostId);
+			return session?.status === 'ended' && session.ended_at;
+		},
+		async () => {
+			const session = await latestConnectionSession(databaseUrl, hostId);
+			return session
+				? `SFTP workspace session was not ended: ${JSON.stringify(session)}`
+				: 'SFTP workspace did not create a connection session row.';
+		}
+	);
+}
+
+async function latestConnectionSession(databaseUrl, hostId) {
+	const sql = postgres(databaseUrl, { max: 1 });
+	try {
+		const [session] = await sql`
+			select id, status, ended_at
+			from connection_sessions
+			where host_id = ${hostId} and protocol = 'ssh'
+			order by started_at desc
+			limit 1
+		`;
+		return session ?? null;
+	} finally {
+		await sql.end({ timeout: 1 });
 	}
 }
 

@@ -12,6 +12,7 @@ export function validateProductionEnv(env = process.env) {
 
 	validateAppSecret(env.APP_SECRET);
 	validateCredentialMasterKey(env.CREDENTIAL_MASTER_KEY);
+	validateDatabaseUrl(env.DATABASE_URL);
 	validateGatewayUrl(env.GATEWAY_URL);
 	validateGatewayPublicUrl(env.GATEWAY_PUBLIC_URL, allowInsecureLocalHttp);
 	validateGatewayProvisionerKey(env.GATEWAY_PROVISIONER_KEY);
@@ -90,6 +91,30 @@ function validateCredentialMasterKey(masterKey) {
 		throw new Error(
 			'CREDENTIAL_MASTER_KEY must be at least 32 bytes and high-entropy in production.'
 		);
+	}
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function validateDatabaseUrl(value) {
+	if (!value) {
+		throw new Error('DATABASE_URL is required in production.');
+	}
+
+	let url;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error('DATABASE_URL must be an absolute Postgres URL.');
+	}
+
+	if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+		throw new Error('DATABASE_URL must use postgres:// or postgresql:// in production.');
+	}
+
+	if (!url.hostname || !url.pathname || url.pathname === '/') {
+		throw new Error('DATABASE_URL must include a database host and name in production.');
 	}
 }
 

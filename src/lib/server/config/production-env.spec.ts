@@ -86,6 +86,40 @@ describe('production environment validation', () => {
 		).toThrow('CREDENTIAL_MASTER_KEY must be at least 32 bytes and high-entropy');
 	});
 
+	it('requires a production Postgres database URL', () => {
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					DATABASE_URL: ''
+				})
+			)
+		).toThrow('DATABASE_URL is required in production');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					DATABASE_URL: 'termixkit'
+				})
+			)
+		).toThrow('DATABASE_URL must be an absolute Postgres URL');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					DATABASE_URL: 'mysql://termixkit:termixkit@postgres:3306/termixkit'
+				})
+			)
+		).toThrow('DATABASE_URL must use postgres:// or postgresql:// in production');
+
+		expect(() =>
+			validateProductionEnv(
+				productionEnv({
+					DATABASE_URL: 'postgres://termixkit:termixkit@postgres:5432'
+				})
+			)
+		).toThrow('DATABASE_URL must include a database host and name in production');
+	});
+
 	it('requires production Gateway provisioning configuration at startup', () => {
 		expect(() =>
 			validateProductionEnv(
@@ -285,6 +319,7 @@ function productionEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
 		ORIGIN: 'https://termix.example',
 		APP_SECRET: 'd4YmG5uVPKHLb4xikqu47GzDL8RQXmyC4k53YmgW',
 		CREDENTIAL_MASTER_KEY: 'v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL',
+		DATABASE_URL: 'postgres://termixkit:termixkit@postgres:5432/termixkit',
 		GATEWAY_URL: 'http://gateway:7171',
 		GATEWAY_PUBLIC_URL: 'https://rdp.example/gateway',
 		GATEWAY_PROVISIONER_KEY: 'shared-key',

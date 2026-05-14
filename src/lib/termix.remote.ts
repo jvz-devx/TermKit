@@ -81,6 +81,7 @@ export type SessionLaunch = {
 	ticket: string | null;
 	websocketPath: string | null;
 	expiresAt: string | null;
+	connectionSessionId: string | null;
 	rdp: RdpGatewayBootstrap | null;
 	rdpCredentials: RdpLaunchCredentials | null;
 	vncCredentials: VncLaunchCredentials | null;
@@ -271,13 +272,25 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 
 		if (!hostId) throw new ServiceValidationError(['hostId is required']);
 		if (protocol === 'sftp') {
-			await hostService.get(userId, hostId);
+			const host = await hostService.get(userId, hostId);
+			if (host.protocol !== 'ssh') {
+				throw new ServiceValidationError(['SFTP sessions require an SSH host']);
+			}
+			const connectionSession = await connectionSessionService.start({
+				userId,
+				hostId,
+				protocol: 'ssh'
+			});
+			const activeSession = await connectionSessionService.markActive(connectionSession.id);
+			if (!activeSession) throw new ServiceValidationError(['Could not start SFTP session']);
+
 			return {
 				hostId,
 				protocol,
 				ticket: null,
 				websocketPath: null,
 				expiresAt: null,
+				connectionSessionId: connectionSession.id,
 				rdp: null,
 				rdpCredentials: null,
 				vncCredentials: null
@@ -326,6 +339,7 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 				ticket: null,
 				websocketPath: null,
 				expiresAt: created.record.expiresAt.toISOString(),
+				connectionSessionId: connectionSession.id,
 				rdp,
 				rdpCredentials,
 				vncCredentials: null
@@ -346,6 +360,7 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 			ticket,
 			websocketPath: `/ws/${launchProtocol}/${encodeURIComponent(ticket)}`,
 			expiresAt: created.record.expiresAt.toISOString(),
+			connectionSessionId: null,
 			rdp: null,
 			rdpCredentials: null,
 			vncCredentials
@@ -411,10 +426,16 @@ export const closeLiveSshSession = command<string, void>('unchecked', async (ses
 	void listLiveSshSessions().refresh();
 });
 
-export const recordRdpSessionLifecycle = command<
-	{ connectionSessionId?: unknown; event?: unknown; errorCode?: unknown },
-	void
->('unchecked', async (input) => {
+type ConnectionSessionLifecycleInput = {
+	connectionSessionId?: unknown;
+	event?: unknown;
+	errorCode?: unknown;
+};
+
+async function recordConnectionSessionLifecycleEvent(
+	input: ConnectionSessionLifecycleInput,
+	errorCodePrefix = 'connection'
+): Promise<void> {
 	const userId = requireRemoteUser();
 	const connectionSessionId =
 		typeof input.connectionSessionId === 'string' ? input.connectionSessionId : '';
@@ -431,14 +452,24 @@ export const recordRdpSessionLifecycle = command<
 					? await connectionSessionService.failForUser(
 							userId,
 							connectionSessionId,
-							sanitizeRdpErrorCode(input.errorCode)
+							sanitizeConnectionErrorCode(input.errorCode, errorCodePrefix)
 						)
 					: null;
 
 	if (!updated) {
 		throw new ServiceValidationError(['connectionSessionId is invalid or event is unsupported']);
 	}
-});
+}
+
+export const recordConnectionSessionLifecycle = command<ConnectionSessionLifecycleInput, void>(
+	'unchecked',
+	(input) => recordConnectionSessionLifecycleEvent(input)
+);
+
+export const recordRdpSessionLifecycle = command<
+	{ connectionSessionId?: unknown; event?: unknown; errorCode?: unknown },
+	void
+>('unchecked', (input) => recordConnectionSessionLifecycleEvent(input, 'rdp'));
 
 function requireRemoteUser(): string {
 	const userId = getRequestEvent().locals.user?.id;
@@ -452,9 +483,14 @@ function rdpLaunchErrorCode(error: unknown): string {
 }
 
 function sanitizeRdpErrorCode(value: unknown): string {
-	const raw = typeof value === 'string' && value.trim() ? value.trim() : 'rdp_client_failed';
+	return sanitizeConnectionErrorCode(value, 'rdp_client');
+}
+
+function sanitizeConnectionErrorCode(value: unknown, fallbackPrefix: string): string {
+	const fallback = `${fallbackPrefix}_failed`;
+	const raw = typeof value === 'string' && value.trim() ? value.trim() : fallback;
 	const sanitized = raw.toLowerCase().replace(/[^a-z0-9_:-]+/g, '_');
-	return sanitized.slice(0, 120) || 'rdp_client_failed';
+	return sanitized.slice(0, 120) || fallback;
 }
 
 async function createLiveSshAttach(
