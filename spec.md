@@ -116,6 +116,24 @@ Out of scope for V6:
 - Secret exposure in generated commands, job logs, reports, or templates.
 - Storing full terminal output by default for bulk command jobs.
 
+V7 scope:
+
+- Deep, realistic test coverage across the TermixKit codebase after the V1-V6 product surface exists.
+- Bug-seeking tests that deliberately look for incomplete wiring, missing route-to-service connections, stale UI affordances, and cross-layer contract drift.
+- Coverage tooling, coverage reports, and CI gates for the parts of the repo where automated coverage is meaningful.
+- High-confidence unit and integration coverage for server services, protocol adapters, auth, import, migrations, repository mapping, policy enforcement, and job orchestration.
+- Browser and smoke coverage for session workspace workflows, protocol launch paths, file-manager behavior, RDP behavior, and admin/operator flows.
+- Regression suites for security-sensitive behavior: credential encryption, host-key trust, auth boundaries, websocket ticketing, clipboard/file-transfer policy, tunnel access, and secret redaction.
+- Mutation, fuzz/property-style, and fixture-based tests where they catch real classes of bugs without making the suite too slow to run.
+
+Out of scope for V7:
+
+- Chasing 100% global line coverage across Svelte UI wrappers, generated shadcn-svelte components, or purely visual markup.
+- Testing third-party libraries such as xterm.js, noVNC, IronRDP, ssh2, or basic-ftp beyond TermixKit integration contracts.
+- Requiring real Microsoft, RDP, VNC, SSH, FTP, or FTPS infrastructure for ordinary local test success.
+- Storing secrets, terminal output, remote desktop frames, or transferred file contents in test artifacts.
+- Turning external proof-only checks into mandatory local gates when real tenant or target infrastructure is unavailable.
+
 ## Runtime And Stack
 
 - Framework: SvelteKit with Svelte 5 and TypeScript.
@@ -517,6 +535,49 @@ Host intelligence:
 - Keep fact collection on-demand or scheduled by TermixKit; do not require a target-side agent.
 - Let users search inventory by workspace, tags, OS/facts, health state, last-seen state, and failure reason.
 
+### V7 Deep Test And Bug-Seeking Program
+
+V7 makes the repo measurably hard to regress without pretending every file should have the same kind of test. It should actively seek bugs and improper wiring, not merely raise coverage percentages.
+
+Current baseline to preserve and expand:
+
+- Unit tests run through Vitest with `src/**/*.{test,spec}.{js,ts}`.
+- The current checkout has 52 unit test files under `src`, 1 Playwright e2e file, and 318 discovered unit tests.
+- Existing unit coverage is concentrated in server services, protocol helpers, route helpers, auth, import, repository mapping, websocket upgrades, SSH live sessions, and selected component state helpers.
+- Existing smoke coverage includes Postgres migrations, Docker Compose, protocol loopbacks, production websocket rejection, app protocol workflows, Microsoft parser fixtures, and RDP Gateway bootstrap.
+- Coverage reporting is not wired yet; `npm run test:unit -- --run --coverage` currently requires adding `@vitest/coverage-v8` or an equivalent provider before real percentages can be measured.
+
+Coverage targets:
+
+- Capture an initial coverage baseline before enforcing thresholds.
+- After baseline capture, target at least 85% line coverage and 75% branch coverage for `src/lib/server/**`, excluding generated snapshots and test fixtures.
+- Target at least 90% line coverage for security-critical pure logic: credential encryption, host-key trust, session tickets, auth/OIDC validation, route auth helpers, policy checks, and secret redaction helpers.
+- Target at least 80% line coverage for protocol adapter logic owned by TermixKit: SSH, SFTP, FTP/FTPS, Telnet negotiation, VNC proxy setup, RDP Gateway bootstrap, SSH tunnels, websocket upgrade routing, and TCP frame parsing.
+- Target at least 75% line coverage for importer, migration helpers, repository mapping, settings validation, workspace policy, job orchestration, and acceptance-audit scripts.
+- Use focused component/helper tests and Playwright coverage for Svelte UI behavior instead of forcing high line coverage on markup-heavy route files.
+- Keep global coverage thresholds lower at first, around 70% lines and 60% branches, then ratchet upward only after flaky and low-value files are excluded intentionally.
+
+Test types:
+
+- Unit tests for validation, normalization, permissions, policy decisions, serialization, parsing, and deterministic state machines.
+- Repository tests for Drizzle row mapping, enum migrations, cascade/set-null behavior, workspace scoping, and backwards-compatible metadata.
+- Route tests for authentication, authorization, input validation, HTTP status mapping, upload limits, download headers, and secret-safe error responses.
+- Wiring tests that prove user-visible controls reach the intended remote function, route, service, repository method, protocol adapter, lifecycle recorder, and history/admin surface.
+- Protocol fixture tests using disposable in-process SSH/SFTP/Telnet/VNC/FTP/FTPS fixtures where practical.
+- Browser smoke tests for first-run auth, host/credential CRUD, workspace launch, SSH live tabs, SFTP/FTP/FTPS file workflows, RDP launch, admin controls, and policy-blocked states.
+- Production-boundary smoke tests for Docker Compose, migrations, websocket upgrade rejection, Gateway proxying, environment validation, and startup failure modes.
+- Acceptance-proof tests that keep repo-owned requirements deterministic while real Microsoft/RDP/VNC/SSH proofs remain external-proof items.
+
+Hardening tests:
+
+- Add mismatch tests for every feature that has both UI affordances and backend capability, so queued, disabled, or partially implemented features cannot be presented as working.
+- Add table-driven tests for every public validation schema and every structured error code surfaced to users or admins.
+- Add fuzz or property-style tests for path normalization, file-transfer selection, terminal control frames, websocket route parsing, import parsing, and metadata normalization.
+- Add concurrency tests for live SSH session limits, attach-ticket consumption, tunnel limits, bulk jobs, transfer cancellation, and background job retries.
+- Add security regression tests that prove secrets do not appear in logs, job reports, acceptance proof files, route errors, or generated previews.
+- Add migration smoke tests from representative old schemas and dirty metadata shapes for V1 through V6.
+- Add visual or screenshot smoke coverage only where layout regressions can break real workflows, not for every cosmetic component.
+
 ### VNC
 
 Use noVNC in the browser and a backend authenticated WebSocket-to-TCP proxy.
@@ -898,6 +959,64 @@ Required build checks:
 - Ensure policy checks are enforced server-side, not only hidden in the client UI.
 - Add acceptance audit rows for V6 automation, bulk jobs, governance, host intelligence, and policy enforcement.
 
+### V7.1: Coverage Tooling And Baseline
+
+- Add Vitest coverage tooling and a `test:coverage` script.
+- Generate text, HTML, JSON, and CI-friendly coverage reports.
+- Establish explicit coverage include/exclude rules for source files, generated files, shadcn-svelte UI primitives, migration snapshots, fixtures, and test helpers.
+- Capture the first baseline without failing CI on thresholds.
+- Add ratcheting thresholds after the baseline is known: server code first, then protocol adapters, then global coverage.
+- Document how to read coverage reports and how to justify intentional exclusions.
+
+### V7.2: Server And Security Deep Tests
+
+- Expand tests for auth, Microsoft OIDC, local sessions, cookies, route auth helpers, credential encryption, host-key trust, session tickets, and policy enforcement.
+- Add table-driven tests for every structured error code and user/admin-visible failure reason.
+- Add secret-redaction tests for logs, route errors, acceptance proofs, job reports, previews, and generated commands.
+- Add repository and migration tests for row mapping, enum changes, metadata compatibility, cascade deletes, set-null behavior, and old-schema upgrade paths.
+- Keep coverage targets high for security-critical pure logic: 90% lines where practical, with branch coverage tracked separately.
+
+### V7.3: Wiring And Contract Tests
+
+- Add route-to-service tests for every API route, remote function, lifecycle endpoint, websocket upgrade path, and admin action.
+- Add UI-to-capability tests that prove visible protocol tabs, buttons, filters, menus, and admin controls are backed by working handlers or clearly marked unavailable states.
+- Add feature-flag and policy wiring tests so blocked actions are enforced server-side and shown consistently in the UI.
+- Add data-model contract tests that prove host protocols, connection protocols, workspace layouts, session history, and admin visibility agree on enum values and status names.
+- Add regression tests for the exact class of bug where backend/API support exists but the session workspace pane or launcher is still disabled.
+- Add acceptance-audit checks that fail when spec claims, README claims, UI affordances, and implemented routes drift apart.
+
+### V7.4: Protocol And WebSocket Deep Tests
+
+- Expand fixture-backed protocol tests for SSH, SFTP, FTP, FTPS, Telnet, VNC, RDP Gateway bootstrap, SSH tunnels, and websocket upgrades.
+- Add tests for ticket single-use behavior, origin checks, cross-protocol ticket rejection, malformed frames, resize frames, close/detach frames, and idle expiry.
+- Add FTP/FTPS fixture tests for explicit TLS, implicit TLS where supported, certificate failures, auth failures, large transfers, and streamed download failures.
+- Add SFTP fixture tests for symlinks, permissions metadata, recursive operations, upload limits, path traversal rejection, and host-key failures.
+- Add RDP Gateway tests for provisioning failures, saved-password staging, domain handling, audio/clipboard policy, and Gateway proxy hardening.
+
+### V7.5: Browser And Workflow Tests
+
+- Expand Playwright coverage beyond first-run into core operator workflows.
+- Cover host and credential CRUD, importer validation/import, workspace membership, session workspace host selection, SSH live tabs, SFTP/FTP/FTPS file manager actions, RDP launch states, VNC/Telnet launch states, admin views, and policy-blocked UI.
+- Add focused accessibility checks for forms, dialogs, protocol panes, file tables, terminal controls, and admin controls.
+- Add screenshot or visual smoke coverage for dense session workspace layouts only where layout breakage blocks real use.
+- Keep browser tests deterministic with mocked or disposable protocol fixtures instead of real external infrastructure.
+
+### V7.6: Smoke, Acceptance, And External Proof
+
+- Keep local smoke tests for Compose, Postgres migrations, production websocket rejection, app protocol workflows, protocol loopbacks, Microsoft parser fixtures, and RDP Gateway bootstrap.
+- Add smoke coverage for V5 and V6 workflows: FTP/FTPS workspace file manager, terminal recording controls, SSH jump-host validation, bulk job lifecycle, host facts, and policy enforcement.
+- Keep real Microsoft, real RDP, real VNC, real SSH, and real FTP/FTPS target verification as external proof items when infrastructure is not available locally.
+- Ensure acceptance-audit output names the exact local command or external proof required for every V1 through V7 requirement.
+- Add proof-file validation that rejects skipped output, placeholder proof, and secret-looking content.
+
+### V7.7: Reliability And Performance Test Budget
+
+- Add concurrency tests for live SSH attach takeover, ticket consumption, detached cleanup, tunnel limits, transfer cancellation, and bulk job retries.
+- Add timeout and failure-injection tests for protocol adapters and background jobs.
+- Add lightweight performance budgets for importer parsing, file listing transforms, job fan-out scheduling, and workspace rendering helpers.
+- Separate fast local gates from slower smoke and external-proof gates.
+- Keep the default local gate practical: `npm run check`, `npm run lint`, `npm test`, `npm run test:coverage`, and targeted smoke scripts for changed areas.
+
 ## Acceptance Criteria
 
 V1 is complete when:
@@ -988,3 +1107,19 @@ V6 is complete when:
 - Optional SSH-based host facts and health checks expose stale hosts, broken credentials, recent failures, OS/fact filters, and last successful connection state without a target-side agent.
 - Server-side policy enforcement matches the visible UI state for blocked actions.
 - V1, V2, V3, V4, and V5 acceptance criteria still pass.
+
+V7 is complete when:
+
+- Vitest coverage tooling is installed, `test:coverage` exists, and coverage reports are generated in local and CI-friendly formats.
+- The repo has documented coverage include/exclude rules and a recorded baseline before threshold enforcement.
+- Wiring and contract tests catch incomplete feature wiring across UI, remote functions, API routes, services, repositories, protocol adapters, lifecycle recording, history, and admin visibility.
+- Features with visible UI affordances are either proven usable end-to-end or explicitly tested as disabled/queued states.
+- Server-side code reaches at least 85% line coverage and 75% branch coverage, excluding intentional low-value/generated files.
+- Security-critical pure logic reaches at least 90% line coverage where practical: credential encryption, auth/OIDC validation, host-key trust, session tickets, route auth, policy checks, and secret redaction.
+- Protocol adapter and websocket-owned logic reaches at least 80% line coverage where practical, with fixture-backed tests for failure and edge cases.
+- Import, repository, migration, settings, workspace, policy, job, and acceptance-audit logic reaches at least 75% line coverage where practical.
+- Browser tests cover core operator workflows across auth, inventory, workspace launch, SSH, SFTP, FTP/FTPS, RDP, admin, and policy-blocked states.
+- Smoke tests cover production boundaries and protocol workflows without requiring real external infrastructure for local success.
+- External-proof requirements remain explicit for real Microsoft, RDP, VNC, SSH, FTP, and FTPS targets when local fixtures are not enough.
+- Test artifacts, logs, reports, coverage output, and proof files do not contain secrets, terminal output dumps, remote desktop frames, or transferred file contents.
+- V1, V2, V3, V4, V5, and V6 acceptance criteria still pass.

@@ -18,6 +18,7 @@
 		'/history': 'History',
 		'/credentials': 'Credentials',
 		'/import': 'Import',
+		'/fleet': 'Fleet Operations',
 		'/admin': 'Admin',
 		'/settings': 'Settings'
 	};

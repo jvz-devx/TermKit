@@ -1,0 +1,182 @@
+import { describe, expect, it } from 'vitest';
+import {
+	BulkJobValidationError,
+	buildBulkJobReport,
+	captureBulkOutput,
+	getRetryableBulkHostIds,
+	markBulkHostFailed,
+	markBulkHostSucceeded,
+	planBulkJob,
+	queueRetryableBulkHosts,
+	startBulkJob
+} from './bulk-jobs';
+
+describe('bulk job domain', () => {
+	it('requires an explicit reviewed host set and plans concurrency waves', () => {
+		expect.assertions(5);
+
+		expect(() =>
+			planBulkJob({
+				userId: 'user-1',
+				kind: 'ssh_command',
+				targets: [
+					{ hostId: 'host-1', protocol: 'ssh' },
+					{ hostId: 'host-2', protocol: 'ssh' }
+				],
+				reviewedHostIds: ['host-1'],
+				command: { command: 'uptime' }
+			})
+		).toThrow(BulkJobValidationError);
+
+		expect(() =>
+			planBulkJob({
+				userId: 'user-1',
+				kind: 'ssh_command',
+				targets: [{ hostId: 'host-1', protocol: 'ssh' }],
+				reviewedHostIds: ['host-1', 'host-2'],
+				command: { command: 'uptime' }
+			})
+		).toThrow(BulkJobValidationError);
+
+		const job = planBulkJob({
+			id: 'job-1',
+			userId: 'user-1',
+			kind: 'ssh_command',
+			targets: [
+				{ hostId: 'host-1', protocol: 'ssh' },
+				{ hostId: 'host-2', protocol: 'ssh' },
+				{ hostId: 'host-3', protocol: 'ssh' }
+			],
+			reviewedHostIds: ['host-1', 'host-2', 'host-3'],
+			concurrencyLimit: 2,
+			command: { command: 'uptime' }
+		});
+
+		expect(job.concurrency).toMatchObject({ limit: 2, totalHosts: 3, waveCount: 2 });
+		expect(job.concurrency.waves).toEqual([['host-1', 'host-2'], ['host-3']]);
+		expect(job.hosts.map((host) => host.status)).toEqual(['queued', 'queued', 'queued']);
+	});
+
+	it('validates controlled SSH commands and transfer protocols', () => {
+		expect.assertions(3);
+
+		expect(() =>
+			planBulkJob({
+				userId: 'user-1',
+				kind: 'ssh_command',
+				targets: [{ hostId: 'host-1', protocol: 'ftp' }],
+				reviewedHostIds: ['host-1'],
+				command: { command: 'echo ok' }
+			})
+		).toThrow('host host-1 must use ssh for SSH command jobs');
+
+		expect(() =>
+			planBulkJob({
+				userId: 'user-1',
+				kind: 'ssh_command',
+				targets: [{ hostId: 'host-1', protocol: 'ssh' }],
+				reviewedHostIds: ['host-1'],
+				command: {
+					command: 'deploy',
+					env: { PASSWORD: 'super-secret' }
+				}
+			})
+		).toThrow('command.env.PASSWORD cannot contain secret-like values');
+
+		expect(() =>
+			planBulkJob({
+				userId: 'user-1',
+				kind: 'transfer',
+				targets: [{ hostId: 'host-1', protocol: 'ftp' }],
+				reviewedHostIds: ['host-1'],
+				transfer: {
+					protocol: 'sftp',
+					action: 'download',
+					remotePath: '/var/log/app.log',
+					destinationPath: 'reports/app.log'
+				}
+			})
+		).toThrow('host host-1 must use sftp for this transfer job');
+	});
+
+	it('tracks partial failures and retry eligibility per host', () => {
+		expect.assertions(6);
+
+		const planned = startBulkJob(
+			planBulkJob({
+				id: 'job-2',
+				userId: 'user-1',
+				kind: 'ssh_command',
+				targets: [
+					{ hostId: 'host-1', protocol: 'ssh' },
+					{ hostId: 'host-2', protocol: 'ssh' }
+				],
+				reviewedHostIds: ['host-1', 'host-2'],
+				command: { command: 'systemctl status app' },
+				retry: { maxAttempts: 2, retryableCodes: ['connection_failed'] }
+			})
+		);
+		const succeeded = markBulkHostSucceeded(planned, 'host-1', { stdout: 'ok' });
+		const failed = markBulkHostFailed(succeeded, 'host-2', {
+			code: 'connection_failed',
+			message: 'temporary network failure',
+			retryable: true,
+			stderr: 'ssh: connect failed'
+		});
+
+		expect(failed.status).toBe('partial_failed');
+		expect(failed.hosts[0].status).toBe('succeeded');
+		expect(failed.hosts[1].status).toBe('failed');
+		expect(failed.hosts[1].failure).toMatchObject({
+			code: 'connection_failed',
+			retryable: true
+		});
+		expect(getRetryableBulkHostIds(failed)).toEqual(['host-2']);
+		expect(queueRetryableBulkHosts(failed).hosts[1]).toMatchObject({
+			status: 'queued',
+			attempt: 0,
+			failure: null
+		});
+	});
+
+	it('bounds and redacts output and report content', () => {
+		expect.assertions(9);
+
+		const output = captureBulkOutput('token=abc123\n' + 'x'.repeat(1200), {
+			maxBytes: 1024,
+			redactionValues: ['abc123']
+		});
+
+		expect(output.text).not.toContain('abc123');
+		expect(output.text).toContain('token=[REDACTED]');
+		expect(output.truncated).toBe(true);
+		expect(output.originalBytes).toBeGreaterThan(1024);
+
+		const job = markBulkHostSucceeded(
+			startBulkJob(
+				planBulkJob({
+					id: 'job-3',
+					userId: 'user-1',
+					kind: 'ssh_command',
+					targets: [{ hostId: 'host-1', hostName: 'Prod', protocol: 'ssh' }],
+					reviewedHostIds: ['host-1'],
+					command: { command: 'deploy --token abc123' },
+					output: { maxBytes: 2048, redactionValues: ['abc123'] }
+				})
+			),
+			'host-1',
+			{
+				stdout: 'password=hunter2',
+				stderr: '',
+				report: { artifact: 'release.tar', secret: 'do-not-emit' }
+			}
+		);
+		const report = buildBulkJobReport(job);
+
+		expect(report.mimeType).toBe('application/json');
+		expect(report.body).not.toContain('abc123');
+		expect(report.body).not.toContain('hunter2');
+		expect(report.body).not.toContain('do-not-emit');
+		expect(report.body).not.toContain('"text"');
+	});
+});

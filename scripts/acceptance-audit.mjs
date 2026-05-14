@@ -288,6 +288,42 @@ const checks = [
 		status: 'local',
 		evidence:
 			'npm test covers V5 RDP host settings, operator-control helpers, audio gateway capability, and npm run smoke:app-protocols verifies the RDP launch boundary'
+	},
+	{
+		name: 'V6 automation templates support typed previews and secret masking',
+		status: 'local',
+		evidence:
+			'npm test covers SSH command, file-transfer, SSH tunnel, RDP checklist, and operator-note templates with typed variables, validation, version metadata, workspace/private visibility, and secret-safe previews'
+	},
+	{
+		name: 'V6 bulk jobs enforce reviewed targets, concurrency, retry, cancellation, and reports',
+		status: 'local',
+		evidence:
+			'npm test covers bulk SSH and SFTP/FTP/FTPS job planning, explicit host review, hidden-host rejection, concurrency scheduling, cancellation, retry eligibility, per-host status, partial failures, and secret-safe downloadable reports'
+	},
+	{
+		name: 'V6 job history and resource persistence schema',
+		status: 'local',
+		evidence:
+			'npm test covers V6 resource repositories and npm run smoke:postgres verifies automation, job, report, policy, approval, reason, host fact, and host health migration compatibility'
+	},
+	{
+		name: 'V6 workspace governance and server-side policy decisions',
+		status: 'local',
+		evidence:
+			'npm test covers viewer/operator/maintainer/owner policy decisions, blocked UI state parity, approval gates, reason gates, sensitive hosts, dangerous templates, high host counts, and risky transfers'
+	},
+	{
+		name: 'V6 host health and SSH fact intelligence',
+		status: 'local',
+		evidence:
+			'npm test covers SSH fact parsing for OS, kernel, uptime, disk, memory, service hints, and health states for stale hosts, broken credentials, repeated failures, never-used hosts, and healthy hosts'
+	},
+	{
+		name: 'V6 fleet operations UI shell and navigation',
+		status: 'local',
+		evidence:
+			'npm run check validates the slim /fleet route plus shadcn-svelte fleet panels for automation templates, reviewed bulk operations, job history/reporting, policy approvals, and host health inventory'
 	}
 ];
 

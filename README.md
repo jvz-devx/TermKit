@@ -19,6 +19,7 @@ TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. The 
 - V3 milestone 4: central admin panel for users, workspaces, live sessions, connection history, and settings.
 - V4 milestone 1: admin visibility for active SSH tunnels, FTP/FTPS activity, and structured protocol failure reasons.
 - V5 terminal and transfer polish: terminal preferences, snippets, browser-side recording controls, file-manager transfer power tools, FTPS modes, and RDP host settings.
+- V6 fleet operations: automation templates, reviewed bulk operations, job history, approvals, policy checks, and host health inventory.
 
 ## Application Navigation
 
@@ -27,6 +28,7 @@ TermixKit uses logical workspace navigation, not a host tree in the sidebar:
 - **Inventory**: host records at `/hosts`, reusable secrets at `/credentials`, and the Termix importer at `/import`.
 - **Connections**: the session workspace at `/sessions` and connection history at `/history`.
 - **Workspaces**: shared host and credential scopes at `/workspaces`.
+- **Fleet**: automation, reviewed bulk operations, approvals, job history, and host health inventory at `/fleet`.
 - **Administration**: app defaults at `/settings` and the admin overview at `/admin`.
 
 The session workspace is the launcher for every protocol. It stores the selected host and protocol in URL query parameters, provides host search and protocol filters, and only shows protocol tabs supported by the selected host. SSH hosts expose both SSH and SFTP tabs; RDP, VNC, and Telnet hosts expose their own protocol tab.
@@ -65,6 +67,14 @@ V5 adds checked-in migration support, isolated service repositories, and workspa
 The `src/lib/server/services/v5-resources.ts` repository is intentionally UI-neutral so route and remote-function code can share the same migration contract.
 
 Terminal recording is disabled by default and must be started explicitly from an active terminal. Recordings are captured in the browser as asciicast `.cast` files, downloaded on stop, and tracked only as local browser metadata with retention cleanup; terminal output is not stored in normal connection metadata.
+
+## V6 Fleet Operations
+
+V6 adds the `/fleet` workspace for multi-host operator work. The route stays slim and loads through remote functions in `src/lib/fleet.remote.ts`; the page is split into shadcn-svelte panels for automation templates, reviewed bulk operations, host health inventory, job history/reporting, and policy approvals.
+
+Fleet data is backed by `src/lib/server/services/v6-resources.ts` and checked-in migrations for automation templates, background jobs, job targets, job events, job reports, workspace policies, approvals, operation reasons, host facts, and host health. Automation templates support SSH commands, file-transfer actions, SSH tunnels, RDP checklists, and operator notes with typed variables, private/workspace visibility, version metadata, and secret-safe previews.
+
+Bulk operations require an explicit visible host selection before queueing. Server-side policy checks validate workspace membership, high-risk bulk-job policy, approval requirements, and operator reasons before a job record is created. Job metadata, target output, events, reports, and template previews are sanitized so secret-looking values and full terminal output are not persisted by default.
 
 ## Microsoft Entra Login
 

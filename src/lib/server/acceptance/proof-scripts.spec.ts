@@ -201,16 +201,25 @@ describe('acceptance proof scripts', () => {
 			'[local] V4 connection history includes ssh_tunnel, ftp, ftps, and structured failure reasons'
 		);
 		expect(result.stdout).toContain(
-			'[local] V5 SSH terminal preferences, snippets, and recording metadata foundation'
+			'[local] V5 SSH terminal preferences, snippets, jump hosts, and host-key UX'
 		);
 		expect(result.stdout).toContain(
 			'[local] V5 terminal session recording controls, capture, and retention cleanup'
 		);
 		expect(result.stdout).toContain(
-			'[local] V5 SFTP file-manager bookmarks and transfer polish schema'
+			'[local] V5 SFTP file-manager bookmarks and transfer power tools'
 		);
-		expect(result.stdout).toContain('[local] V5 FTP and FTPS mode settings migration support');
-		expect(result.stdout).toContain('[local] V5 RDP operator settings migration support');
+		expect(result.stdout).toContain(
+			'[local] V5 FTP and FTPS mode settings plus runtime TLS behavior'
+		);
+		expect(result.stdout).toContain('[local] V5 RDP operator controls and host settings');
+		expect(result.stdout).toContain(
+			'[local] V6 automation templates support typed previews and secret masking'
+		);
+		expect(result.stdout).toContain(
+			'[local] V6 bulk jobs enforce reviewed targets, concurrency, retry, cancellation, and reports'
+		);
+		expect(result.stdout).toContain('[local] V6 fleet operations UI shell and navigation');
 		expect(result.stdout).toContain('acceptance audit: no blocked requirements detected');
 	});
 
@@ -279,12 +288,16 @@ describe('acceptance proof scripts', () => {
 			'[local] V4 acceptance audit rows preserve Microsoft external-blocked behavior'
 		);
 		expect(result.stdout).toContain(
-			'[local] V5 SSH terminal preferences, snippets, and recording metadata foundation'
+			'[local] V5 SSH terminal preferences, snippets, jump hosts, and host-key UX'
 		);
 		expect(result.stdout).toContain(
 			'[local] V5 terminal session recording controls, capture, and retention cleanup'
 		);
-		expect(result.stdout).toContain('[local] V5 RDP operator settings migration support');
+		expect(result.stdout).toContain('[local] V5 RDP operator controls and host settings');
+		expect(result.stdout).toContain(
+			'[local] V6 workspace governance and server-side policy decisions'
+		);
+		expect(result.stdout).toContain('[local] V6 host health and SSH fact intelligence');
 		expect(result.stdout).toContain(
 			'acceptance audit: repo-owned requirements passed; 2 external Microsoft proof item(s) remain blocked until tenant/test users are available'
 		);
