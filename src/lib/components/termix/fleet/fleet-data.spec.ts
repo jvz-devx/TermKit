@@ -1,7 +1,10 @@
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import {
 	buildBulkOperationReview,
 	demoFleetOverview,
+	fleetRiskLabel,
+	fleetStatusLabel,
 	filterFleetHosts,
 	uniqueFleetValues
 } from './fleet-data';
@@ -40,5 +43,41 @@ describe('fleet operations helpers', () => {
 			canRun: false
 		});
 		expect(review.blockers).toContain('Remove offline targets before running.');
+	});
+
+	it('labels fleet status and risk values without leaking enum casing into rendering helpers', () => {
+		expect(
+			(['healthy', 'degraded', 'offline', 'maintenance'] as const).map(fleetStatusLabel)
+		).toEqual(['Healthy', 'Degraded', 'Offline', 'Maintenance']);
+		expect((['low', 'medium', 'high'] as const).map(fleetRiskLabel)).toEqual([
+			'Low',
+			'Medium',
+			'High'
+		]);
+	});
+
+	it('keeps repeated fleet filtering inside a coarse rendering-helper budget', () => {
+		const hosts = Array.from({ length: 600 }, (_, index) => ({
+			...demoFleetOverview.hosts[index % demoFleetOverview.hosts.length],
+			id: `host-${index}`,
+			name: `host-${index}`,
+			tags: [`tag-${index % 10}`, 'linux']
+		}));
+
+		const startedAt = performance.now();
+		const result = filterFleetHosts(hosts, {
+			search: 'linux',
+			status: 'healthy',
+			workspace: 'all',
+			region: 'all',
+			patchState: 'current'
+		});
+		const elapsedMs = performance.now() - startedAt;
+
+		expect(result.every((host) => host.status === 'healthy' && host.patchState === 'current')).toBe(
+			true
+		);
+		expect(result.length).toBeGreaterThan(0);
+		expect(elapsedMs).toBeLessThan(250);
 	});
 });

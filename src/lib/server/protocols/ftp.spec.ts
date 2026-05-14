@@ -30,9 +30,11 @@ import {
 describe('FTP path validation', () => {
 	it('normalizes absolute remote paths', () => {
 		expect(validateFtpPath('/srv/app//logs/')).toBe('/srv/app/logs');
+		expect(validateFtpPath(' /srv/app/./logs/ ')).toBe('/srv/app/logs');
 	});
 
 	it('rejects relative and traversal paths', () => {
+		expect(() => validateFtpPath('', 'remotePath')).toThrow(ServiceValidationError);
 		expect(() => validateFtpPath('srv/app')).toThrow(ServiceValidationError);
 		expect(() => validateFtpPath('/srv/../etc/passwd')).toThrow(ServiceValidationError);
 	});
@@ -47,6 +49,16 @@ describe('FTP path validation', () => {
 				issues: ['path cannot be the filesystem root']
 			}
 		);
+	});
+
+	it('requires distinct absolute paths for rename operations', async () => {
+		await expect(
+			renameFtpPath(testTarget(), '/srv/app.txt', '/srv/app.txt', () => new FakeFtpClient())
+		).rejects.toMatchObject({ issues: ['from and to must differ'] });
+
+		await expect(
+			renameFtpPath(testTarget(), '/srv/app.txt', '../escape.txt', () => new FakeFtpClient())
+		).rejects.toMatchObject({ issues: ['to must be absolute'] });
 	});
 });
 
@@ -102,6 +114,22 @@ describe('FTP target resolution', () => {
 		await expect(
 			resolveFtpTarget('user-1', 'host-1', implicit.repository, implicit.crypto)
 		).resolves.toMatchObject({ protocol: 'ftps', secure: 'implicit', secureMode: 'implicit' });
+	});
+
+	it('falls back to the host username when the password credential has no username', async () => {
+		const { repository, crypto, credential } = await createEncryptedCredential({
+			kind: 'password',
+			secret: 'saved-password',
+			username: null
+		});
+		await repository.createHost(
+			testHost({ credentialId: credential.id, protocol: 'ftp', username: 'host-user' })
+		);
+
+		await expect(resolveFtpTarget('user-1', 'host-1', repository, crypto)).resolves.toMatchObject({
+			username: 'host-user',
+			password: 'saved-password'
+		});
 	});
 
 	it('passes FTPS certificate policy metadata into TLS access options', async () => {
@@ -163,12 +191,57 @@ describe('FTP target resolution', () => {
 			issues: ['FTP/FTPS does not support SSH key credentials']
 		});
 	});
+
+	it('rejects unsupported hosts, missing credentials, and username-less targets before access', async () => {
+		const unsupported = new InMemoryTermixServicesRepository();
+		await unsupported.createHost(testHost({ protocol: 'ssh', credentialId: null }));
+
+		await expect(resolveFtpTarget('user-1', 'host-1', unsupported)).rejects.toMatchObject({
+			issues: ['FTP is only available for FTP or FTPS hosts']
+		});
+
+		const noCredential = new InMemoryTermixServicesRepository();
+		await noCredential.createHost(testHost({ credentialId: null }));
+
+		await expect(resolveFtpTarget('user-1', 'host-1', noCredential)).rejects.toMatchObject({
+			issues: ['FTP/FTPS requires a saved password credential']
+		});
+
+		const missingCredential = new InMemoryTermixServicesRepository();
+		await missingCredential.createHost(testHost({ credentialId: 'credential-404' }));
+
+		await expect(resolveFtpTarget('user-1', 'host-1', missingCredential)).rejects.toMatchObject({
+			message: 'Credential not found'
+		});
+
+		const usernameLess = await createEncryptedCredential({
+			kind: 'password',
+			secret: 'saved-password',
+			username: null
+		});
+		await usernameLess.repository.createHost(
+			testHost({ credentialId: usernameLess.credential.id, username: null })
+		);
+
+		await expect(
+			resolveFtpTarget('user-1', 'host-1', usernameLess.repository, usernameLess.crypto)
+		).rejects.toMatchObject({
+			issues: ['Host username or credential username is required']
+		});
+	});
 });
 
 describe('FTP file operations', () => {
 	it('lists directories with normalized entries and explicit FTPS access options', async () => {
 		const client = new FakeFtpClient([
-			fileInfo('z.txt', FileType.File, { size: 12, modifiedAt: new Date('2026-05-14T10:00:00Z') }),
+			fileInfo('z.txt', FileType.File, {
+				size: 12,
+				modifiedAt: new Date('2026-05-14T10:00:00Z'),
+				permissions: { user: 6, group: 4, world: 0 },
+				user: 'deploy',
+				group: 'www'
+			}),
+			fileInfo('current', FileType.SymbolicLink, { link: 'z.txt' }),
 			fileInfo('app', FileType.Directory)
 		]);
 
@@ -193,13 +266,41 @@ describe('FTP file operations', () => {
 		expect(entries).toEqual([
 			expect.objectContaining({ name: 'app', path: '/srv/app', type: 'directory' }),
 			expect.objectContaining({
+				name: 'current',
+				path: '/srv/current',
+				type: 'symlink',
+				link: 'z.txt'
+			}),
+			expect.objectContaining({
 				name: 'z.txt',
 				path: '/srv/z.txt',
 				type: 'file',
 				size: 12,
-				mtime: '2026-05-14T10:00:00.000Z'
+				mtime: '2026-05-14T10:00:00.000Z',
+				mode: 0o640,
+				user: 'deploy',
+				group: 'www'
 			})
 		]);
+	});
+
+	it('closes clients when access or path lookup fails', async () => {
+		const accessFailure = new FakeFtpClient();
+		accessFailure.accessError = Object.assign(new Error('530 Login incorrect'), { code: 530 });
+
+		await expect(listFtpDirectory(testTarget(), '/srv', () => accessFailure)).rejects.toThrow(
+			'530 Login incorrect'
+		);
+		expect(accessFailure.closed).toBe(true);
+
+		const missingPath = new FakeFtpClient([fileInfo('other.txt', FileType.File)]);
+
+		await expect(
+			deleteFtpPath(testTarget(), '/srv/missing.txt', () => missingPath)
+		).rejects.toMatchObject({
+			message: 'Path not found'
+		});
+		expect(missingPath.closed).toBe(true);
 	});
 
 	it('downloads and uploads buffers server-side', async () => {
@@ -292,6 +393,12 @@ describe('FTP failures and recorded lifecycle', () => {
 	it('maps FTP response and network errors without leaking credentials', () => {
 		const auth = Object.assign(new Error('530 Login incorrect'), { code: 530 });
 		const refused = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+		const dns = Object.assign(new Error('getaddrinfo ENOTFOUND files.example.test'), {
+			code: 'ENOTFOUND'
+		});
+		const timeout = Object.assign(new Error('control socket timed out'), { code: 'ETIMEDOUT' });
+		const notFound = Object.assign(new Error('550 No such file'), { code: 550 });
+		const denied = Object.assign(new Error('553 Permission denied'), { code: 553 });
 
 		expect(classifyFtpFailure(auth)).toMatchObject({
 			code: 'ftp_auth_failed',
@@ -300,6 +407,24 @@ describe('FTP failures and recorded lifecycle', () => {
 		expect(classifyFtpFailure(refused)).toMatchObject({
 			code: 'ftp_connection_refused',
 			category: 'network'
+		});
+		expect(classifyFtpFailure(dns)).toMatchObject({
+			code: 'ftp_dns_failed',
+			category: 'network'
+		});
+		expect(classifyFtpFailure(timeout)).toMatchObject({
+			code: 'ftp_connection_timeout',
+			category: 'timeout'
+		});
+		expect(classifyFtpFailure(notFound)).toMatchObject({
+			code: 'ftp_path_not_found',
+			category: 'not_found',
+			status: 404
+		});
+		expect(classifyFtpFailure(denied)).toMatchObject({
+			code: 'ftp_permission_denied',
+			category: 'authorization',
+			status: 403
 		});
 	});
 
@@ -383,6 +508,7 @@ describe('FTP failures and recorded lifecycle', () => {
 async function createEncryptedCredential(input: {
 	kind: 'password' | 'ssh_key';
 	secret: string;
+	username?: string | null;
 }): Promise<{
 	repository: InMemoryTermixServicesRepository;
 	crypto: AesGcmCredentialCrypto;
@@ -394,7 +520,7 @@ async function createEncryptedCredential(input: {
 	const created = await service.create('user-1', {
 		name: 'FTP credential',
 		kind: input.kind,
-		username: 'credential-user',
+		username: input.username === undefined ? 'credential-user' : input.username,
 		secret: input.secret
 	});
 	const credential = await repository.getCredential('user-1', created.id);
@@ -443,13 +569,22 @@ function testTarget(patch: Partial<FtpTarget> = {}): FtpTarget {
 function fileInfo(
 	name: string,
 	type: FileType,
-	patch: Partial<Pick<FileInfo, 'size' | 'modifiedAt' | 'rawModifiedAt'>> = {}
+	patch: Partial<
+		Pick<
+			FileInfo,
+			'size' | 'modifiedAt' | 'rawModifiedAt' | 'permissions' | 'link' | 'user' | 'group'
+		>
+	> = {}
 ): FileInfo {
 	const entry = new FileInfo(name);
 	entry.type = type;
 	entry.size = patch.size ?? 0;
 	entry.modifiedAt = patch.modifiedAt;
 	entry.rawModifiedAt = patch.rawModifiedAt ?? '';
+	entry.permissions = patch.permissions;
+	entry.link = patch.link;
+	entry.user = patch.user;
+	entry.group = patch.group;
 	return entry;
 }
 

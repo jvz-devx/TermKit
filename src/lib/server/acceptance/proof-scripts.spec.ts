@@ -93,6 +93,84 @@ describe('acceptance proof scripts', () => {
 		expect(proof.proofs.microsoftInteractive.passed).toBe(true);
 	});
 
+	it('records redacted real FTP and FTPS proof notes', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const proofPath = writeProofFile(directory);
+		const ftpResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMIXKIT_REAL_FTP_HOST: 'ftp.example.test',
+			TERMIXKIT_REAL_FTP_PORT: '21',
+			TERMIXKIT_REAL_FTP_USERNAME: 'ftp-operator',
+			TERMIXKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
+			TERMIXKIT_REAL_FTP_PROOF_NOTES:
+				'ftp login verified against a real server; ftp list showed the fixture directory; ftp download matched the fixture file; ftp upload created a redacted file; ftp mkdir created a directory; ftp rename moved the file; ftp delete removed created files; ftp text edit saved redacted content; connection history recorded the session'
+		});
+		const ftpsResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtps'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMIXKIT_REAL_FTPS_HOST: 'ftps.example.test',
+			TERMIXKIT_REAL_FTPS_PORT: '990',
+			TERMIXKIT_REAL_FTPS_USERNAME: 'ftps-operator',
+			TERMIXKIT_REAL_FTPS_MODE: 'explicit',
+			TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY: 'verified',
+			TERMIXKIT_REAL_FTPS_EVIDENCE_ID: 'ftps-proof-ticket-456',
+			TERMIXKIT_REAL_FTPS_PROOF_NOTES:
+				'ftps login verified against a real server; ftps tls negotiated successfully; ftps certificate policy was observed; ftps list showed the fixture directory; ftps download matched the fixture file; ftps upload created a redacted file; ftps mkdir created a directory; ftps rename moved the file; ftps delete removed created files; ftps text edit saved redacted content; connection history recorded the session'
+		});
+
+		expect(ftpResult.status).toBe(0);
+		expect(ftpsResult.status).toBe(0);
+		const proof = JSON.parse(readFileSync(proofPath, 'utf8'));
+		expect(proof.proofs.realFtp.passed).toBe(true);
+		expect(proof.proofs.realFtps.passed).toBe(true);
+		expect(proof.proofs.realFtp.evidenceId).toBe('ftp-proof-ticket-123');
+		expect(proof.proofs.realFtps.evidenceId).toBe('ftps-proof-ticket-456');
+	});
+
+	it('rejects placeholder real FTP proof notes', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const proofPath = writeProofFile(directory);
+		const result = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMIXKIT_REAL_FTP_HOST: 'ftp.example.test',
+			TERMIXKIT_REAL_FTP_PORT: '21',
+			TERMIXKIT_REAL_FTP_USERNAME: 'ftp-operator',
+			TERMIXKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
+			TERMIXKIT_REAL_FTP_PROOF_NOTES:
+				'ftp login TODO; ftp list TODO; ftp download TODO; ftp upload TODO; ftp mkdir TODO; ftp rename TODO; ftp delete TODO; ftp text edit TODO; connection history TODO'
+		});
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain('TODO marker');
+	});
+
+	it('requires real FTP target identifiers and rejects env-style secret labels in notes', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const proofPath = writeProofFile(directory);
+		const notes =
+			'ftp login verified against a real server; ftp list showed the fixture directory; ftp download matched the fixture file; ftp upload created a redacted file; ftp mkdir created a directory; ftp rename moved the file; ftp delete removed created files; ftp text edit saved redacted content; connection history recorded the session';
+
+		const missingTargetResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMIXKIT_REAL_FTP_PROOF_NOTES: notes
+		});
+		const secretLabelResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMIXKIT_REAL_FTP_HOST: 'ftp.example.test',
+			TERMIXKIT_REAL_FTP_PORT: '21',
+			TERMIXKIT_REAL_FTP_USERNAME: 'ftp-operator',
+			TERMIXKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
+			TERMIXKIT_REAL_FTP_PROOF_NOTES: `${notes}; TERMIXKIT_REAL_FTP_PASSWORD=hunter2`
+		});
+
+		expect(missingTargetResult.status).toBe(1);
+		expect(missingTargetResult.stderr).toContain('TERMIXKIT_REAL_FTP_HOST');
+		expect(secretLabelResult.status).toBe(1);
+		expect(secretLabelResult.stderr).toContain('env-style secret label');
+	});
+
 	it('rejects Microsoft interactive proof notes with password labels', () => {
 		expect.hasAssertions();
 		const directory = tempDirectory();
@@ -222,7 +300,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[local] V6 fleet operations UI shell and navigation');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: 4 requirement(s) still need implementation, external env, or manual proof'
+			'acceptance audit: 3 requirement(s) still need implementation, external env, or manual proof'
 		);
 	});
 
@@ -252,6 +330,14 @@ describe('acceptance proof scripts', () => {
 					'allowed-domain user received a session; blocked-domain user was denied; admin-email user became admin; local login password: hunter2'
 			}
 		});
+		const incompleteFtpsProofPath = writeAcceptanceProofFile(directory, {
+			...validAcceptanceProofs(),
+			realFtps: {
+				...validAcceptanceProofs().realFtps,
+				notes:
+					'ftps login verified against a real server; ftps tls negotiated successfully; ftps list showed the fixture directory; ftps download matched the fixture file; ftps upload created a redacted file; ftps mkdir created a directory; ftps rename moved the file; ftps delete removed created files; ftps text edit saved redacted content; connection history recorded the session'
+			}
+		});
 
 		const skippedResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: skippedSftpProofPath
@@ -262,6 +348,9 @@ describe('acceptance proof scripts', () => {
 		const passwordResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: passwordProofPath
 		});
+		const incompleteFtpsResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: incompleteFtpsProofPath
+		});
 
 		expect(skippedResult.status).toBe(2);
 		expect(skippedResult.stdout).toContain('[blocked] V1 real SSH host verification');
@@ -269,6 +358,8 @@ describe('acceptance proof scripts', () => {
 		expect(secretResult.stdout).toContain('[blocked] V2 real Microsoft Entra discovery');
 		expect(passwordResult.status).toBe(2);
 		expect(passwordResult.stdout).toContain('[blocked] V2 Microsoft interactive login acceptance');
+		expect(incompleteFtpsResult.status).toBe(2);
+		expect(incompleteFtpsResult.stdout).toContain('[blocked] V7 real FTPS external proof');
 	});
 
 	it('treats absent Microsoft proof as external-blocked when repo-owned proofs pass', () => {
@@ -303,7 +394,24 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[local] V6 host health and SSH fact intelligence');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: 4 requirement(s) still need implementation, external env, or manual proof'
+			'acceptance audit: 3 requirement(s) still need implementation, external env, or manual proof'
+		);
+	});
+
+	it('treats absent real FTP and FTPS proof as external-blocked', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const { realFtp: _realFtp, realFtps: _realFtps, ...proofs } = validAcceptanceProofs();
+		const proofPath = writeAcceptanceProofFile(directory, proofs);
+		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
+		});
+
+		expect(result.status).toBe(2);
+		expect(result.stdout).toContain('[external-blocked] V7 real FTP external proof');
+		expect(result.stdout).toContain('[external-blocked] V7 real FTPS external proof');
+		expect(result.stdout).toContain(
+			'acceptance audit: 3 requirement(s) still need implementation, external env, or manual proof'
 		);
 	});
 });
@@ -315,7 +423,8 @@ function expectV7Rows(output: string) {
 	expect(output).toContain('[pending] V7 coverage target thresholds');
 	expect(output).toContain('[pending] V7 full workflow and protocol browser coverage');
 	expect(output).toContain('[pending] V7 reliability and performance test budget');
-	expect(output).toContain('[pending] V7 real FTP and FTPS external proof requirements');
+	expect(output).toContain('[proof-ready] V7 real FTP external proof');
+	expect(output).toContain('[proof-ready] V7 real FTPS external proof');
 }
 
 function runNodeScript(args: string[], env: NodeJS.ProcessEnv) {
@@ -388,6 +497,36 @@ function validAcceptanceProofs() {
 				'TERMIXKIT_SMOKE_RDP_HOST'
 			],
 			output: '[pass] real Devolutions Gateway RDP bootstrap - provisioned tcp://127.0.0.1:3389'
+		},
+		realFtp: {
+			passed: true,
+			timestamp,
+			command: 'TERMIXKIT_REAL_FTP_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftp',
+			redactedEnv: [
+				'TERMIXKIT_REAL_FTP_HOST',
+				'TERMIXKIT_REAL_FTP_PORT',
+				'TERMIXKIT_REAL_FTP_USERNAME',
+				'TERMIXKIT_REAL_FTP_EVIDENCE_ID'
+			],
+			evidenceId: 'ftp-proof-ticket-123',
+			notes:
+				'ftp login verified against a real server; ftp list showed the fixture directory; ftp download matched the fixture file; ftp upload created a redacted file; ftp mkdir created a directory; ftp rename moved the file; ftp delete removed created files; ftp text edit saved redacted content; connection history recorded the session'
+		},
+		realFtps: {
+			passed: true,
+			timestamp,
+			command: 'TERMIXKIT_REAL_FTPS_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftps',
+			redactedEnv: [
+				'TERMIXKIT_REAL_FTPS_HOST',
+				'TERMIXKIT_REAL_FTPS_PORT',
+				'TERMIXKIT_REAL_FTPS_USERNAME',
+				'TERMIXKIT_REAL_FTPS_MODE',
+				'TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY',
+				'TERMIXKIT_REAL_FTPS_EVIDENCE_ID'
+			],
+			evidenceId: 'ftps-proof-ticket-456',
+			notes:
+				'ftps login verified against a real server; ftps tls negotiated successfully; ftps certificate policy was observed; ftps list showed the fixture directory; ftps download matched the fixture file; ftps upload created a redacted file; ftps mkdir created a directory; ftps rename moved the file; ftps delete removed created files; ftps text edit saved redacted content; connection history recorded the session'
 		},
 		microsoftSmoke: {
 			passed: true,

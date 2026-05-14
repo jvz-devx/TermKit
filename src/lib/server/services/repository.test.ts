@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { TermixDb } from '../db';
 import { DrizzleTermixServicesRepository, InMemoryTermixServicesRepository } from './repository';
+import type {
+	ConnectionSessionRecord,
+	HostRecord,
+	WorkspaceMembershipRecord,
+	WorkspaceRecord
+} from './types';
 
 function queryResult<T>(rows: T[]) {
 	return {
@@ -233,4 +239,156 @@ describe('DrizzleTermixServicesRepository', () => {
 			})
 		]);
 	});
+
+	it('filters in-memory connection history across shared workspaces without leaking private rows', async () => {
+		expect.assertions(5);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const now = new Date('2026-05-14T10:00:00.000Z');
+		await repository.createWorkspace(workspaceRecord({ id: 'workspace-1', name: 'Shared Ops' }));
+		await repository.createWorkspaceMembership(
+			workspaceMembership({ id: 'member-1', workspaceId: 'workspace-1', userId: 'member-1' })
+		);
+		await repository.createHost(
+			hostRecord({
+				id: 'shared-host',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				name: 'Shared SSH',
+				hostname: 'shared.example.test',
+				username: 'deploy'
+			})
+		);
+		await repository.createConnectionSession(
+			connectionSession({
+				id: 'private-owner-session',
+				userId: 'owner-1',
+				workspaceId: null,
+				hostId: null,
+				startedAt: new Date('2026-05-14T09:59:00.000Z')
+			})
+		);
+		await repository.createConnectionSession(
+			connectionSession({
+				id: 'shared-failed-session',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				hostId: 'shared-host',
+				status: 'failed',
+				startedAt: now,
+				endedAt: new Date('2026-05-14T10:00:03.000Z'),
+				errorCode: 'auth_failed',
+				errorMessage: 'Credential rejected',
+				errorDetails: { attempts: 2 }
+			})
+		);
+		await repository.createConnectionSession(
+			connectionSession({
+				id: 'shared-rdp-session',
+				userId: 'member-1',
+				workspaceId: 'workspace-1',
+				hostId: null,
+				protocol: 'rdp',
+				startedAt: new Date('2026-05-14T10:01:00.000Z')
+			})
+		);
+
+		await expect(repository.listConnectionHistory('member-1')).resolves.toEqual([
+			expect.objectContaining({ id: 'shared-rdp-session' }),
+			expect.objectContaining({ id: 'shared-failed-session' })
+		]);
+		await expect(
+			repository.listConnectionHistory('member-1', { userId: 'owner-1', status: 'failed' })
+		).resolves.toEqual([
+			expect.objectContaining({
+				id: 'shared-failed-session',
+				workspaceName: 'Shared Ops',
+				hostName: 'Shared SSH',
+				hostname: 'shared.example.test',
+				hostUsername: 'deploy',
+				durationMs: 3000,
+				errorReason: 'Credential rejected',
+				errorDetails: { attempts: 2 }
+			})
+		]);
+		await expect(
+			repository.listConnectionHistory('member-1', {
+				protocol: 'ssh',
+				startedAfter: new Date('2026-05-14T09:59:30.000Z'),
+				startedBefore: new Date('2026-05-14T10:00:30.000Z')
+			})
+		).resolves.toEqual([expect.objectContaining({ id: 'shared-failed-session' })]);
+		await expect(repository.listConnectionHistory('outsider-1')).resolves.toEqual([]);
+		await expect(repository.listConnectionHistory('member-1')).resolves.not.toContainEqual(
+			expect.objectContaining({ id: 'private-owner-session' })
+		);
+	});
 });
+
+function workspaceRecord(patch: Partial<WorkspaceRecord> = {}): WorkspaceRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'workspace-1',
+		name: 'Workspace',
+		metadata: {},
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function workspaceMembership(
+	patch: Partial<WorkspaceMembershipRecord> = {}
+): WorkspaceMembershipRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'membership-1',
+		workspaceId: 'workspace-1',
+		userId: 'member-1',
+		role: 'member',
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function hostRecord(patch: Partial<HostRecord> = {}): HostRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'host-1',
+		userId: 'owner-1',
+		workspaceId: null,
+		name: 'Shell',
+		protocol: 'ssh',
+		hostname: 'shell.example.test',
+		port: 22,
+		username: null,
+		credentialId: null,
+		folder: null,
+		tags: [],
+		notes: null,
+		metadata: {},
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function connectionSession(patch: Partial<ConnectionSessionRecord> = {}): ConnectionSessionRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'connection-1',
+		userId: 'user-1',
+		workspaceId: null,
+		hostId: null,
+		protocol: 'ssh',
+		status: 'starting',
+		startedAt: now,
+		endedAt: null,
+		errorCode: null,
+		errorMessage: null,
+		errorDetails: null,
+		updatedAt: now,
+		...patch
+	};
+}

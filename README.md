@@ -255,17 +255,19 @@ reports under `coverage/`. Open `coverage/index.html` for local inspection, use
 `coverage/lcov.info` for CI/reporting integrations.
 
 The initial V7 baseline and current ratchet gates are recorded in
-`docs/coverage-baseline.md`. The current gates protect the first measured
-baseline; they are not the final V7 targets from `spec.md`.
+`docs/coverage-baseline.md`. The current gates now protect the latest measured
+global ratchet plus scoped auth, crypto, import, and Termix domain thresholds;
+they are still not the final V7 targets from `spec.md`.
 
 Coverage currently measures TermixKit-owned JavaScript and TypeScript source
-under `src/`. The Vitest config intentionally excludes test files, test helper
-folders, fixtures and mocks, generated SvelteKit output, shadcn-svelte UI
-primitives under `src/lib/components/ui`, static assets, migration snapshots,
-and route Svelte markup that should be covered by focused helper tests or
-Playwright smokes instead of line coverage. New exclusions should name a
-low-value/generated boundary or a better test surface; do not use exclusions to
-hide reachable product logic.
+under `src/hooks.server.ts`, `src/lib/**/*.{js,ts}`, API route handlers, and the
+Microsoft OAuth route helper. The Vitest config intentionally excludes test
+files, test helper folders, fixtures and mocks, generated SvelteKit output,
+shadcn-svelte UI primitives under `src/lib/components/ui`, static assets,
+migration snapshots, Svelte route markup, and `.svelte.ts` UI wrappers that
+should be covered by focused helper tests or Playwright smokes instead of line
+coverage. New exclusions should name a low-value/generated boundary or a better
+test surface; do not use exclusions to hide reachable product logic.
 
 Run static checks:
 
@@ -274,7 +276,7 @@ nix develop -c npm run check
 nix develop -c npm run lint
 ```
 
-Print the current acceptance evidence map and external proof blockers. This command does not run the local gates for you; run it after the listed checks, build, Playwright e2e test, and smokes. It exits with status `2` while required V1 real-target proof is blocked. Missing real Microsoft tenant/browser proof is reported as `external-blocked` instead of failing repo-owned V2 acceptance when the required tenant, app registration, and test users are not available:
+Print the current acceptance evidence map and external proof blockers. This command does not run the local gates for you; run it after the listed checks, build, Playwright e2e test, and smokes. It exits with status `2` while required V1 real-target proof is blocked or V7 local hardening work is still pending. Missing real Microsoft tenant/browser proof and missing real FTP/FTPS target proof are reported as `external-blocked` instead of failing repo-owned acceptance when the required tenant, app registration, test users, or protocol infrastructure are not available:
 
 ```sh
 nix develop -c npm run audit:acceptance
@@ -293,7 +295,7 @@ nix develop -c npm run acceptance:proof-template -- acceptance-proof.local.json
 
 Fill each passed proof with the current commit SHA, timestamp, exact command, required redacted environment variable names, and pass output or notes. `acceptance-proof.local.json` is ignored by git, and `npm run audit:acceptance` only accepts it when the file commit matches the current `HEAD`.
 
-For each external proof record, keep the commit SHA, timestamp, exact command, redacted environment variable names, and pass output. For browser-only Microsoft proof, keep screenshots or operator notes showing the allowed user, blocked-domain user, and admin-email result without recording secrets or tokens.
+For each external proof record, keep the commit SHA, timestamp, exact command, redacted environment variable names, and pass output or notes. For browser-only Microsoft proof, keep screenshots or operator notes showing the allowed user, blocked-domain user, and admin-email result without recording secrets or tokens. For real FTP/FTPS proof, keep redacted operator notes proving the listed file-manager actions against real servers; missing real FTP/FTPS infrastructure remains `external-blocked`, not a local test failure.
 
 Build the SvelteKit app and custom production server:
 
@@ -440,8 +442,8 @@ Record current-commit external SSH or VNC proof entries after those real-target
 smokes pass:
 
 ```sh
-npm run acceptance:record-real-ssh
-npm run acceptance:record-real-vnc
+nix develop -c npm run acceptance:record-real-ssh
+nix develop -c npm run acceptance:record-real-vnc
 ```
 
 On a local Nix dev shell with SSH on localhost, TigerVNC, Docker, the pinned
@@ -480,8 +482,55 @@ nix develop -c npm run smoke:rdp-gateway
 Record current-commit RDP proof after the real Gateway/RDP smoke passes:
 
 ```sh
-npm run acceptance:record-real-rdp
+nix develop -c npm run acceptance:record-real-rdp
 ```
+
+Real FTP and FTPS proof is external because V7 must not require permanent real
+protocol infrastructure for ordinary local test success. After an operator has
+verified a real FTP target through the TermixKit file manager, record redacted
+notes with these exact fragments so `npm run audit:acceptance` can validate the
+proof file: `ftp login`, `ftp list`, `ftp download`, `ftp upload`, `ftp mkdir`,
+`ftp rename`, `ftp delete`, `ftp text edit`, and `connection history`.
+
+```sh
+TERMIXKIT_REAL_FTP_HOST=ftp.example.test \
+TERMIXKIT_REAL_FTP_PORT=21 \
+TERMIXKIT_REAL_FTP_USERNAME=redacted-user \
+TERMIXKIT_REAL_FTP_EVIDENCE_ID=ftp-proof-ticket-123 \
+TERMIXKIT_REAL_FTP_PROOF_NOTES='ftp login: redacted real user connected; ftp list: directory listed; ftp download: fixture downloaded; ftp upload: fixture uploaded; ftp mkdir: directory created; ftp rename: file renamed or moved; ftp delete: created files removed; ftp text edit: remote text content saved; connection history: FTP session row recorded' \
+	nix develop -c npm run acceptance:record-real-ftp
+```
+
+For longer FTP notes, use `TERMIXKIT_REAL_FTP_PROOF_NOTES_FILE=/path/to/redacted-ftp-proof-notes.txt`.
+The proof record must list only redacted target identifiers through
+`TERMIXKIT_REAL_FTP_HOST`, `TERMIXKIT_REAL_FTP_PORT`, and
+`TERMIXKIT_REAL_FTP_USERNAME`, plus a non-secret external evidence reference in
+`TERMIXKIT_REAL_FTP_EVIDENCE_ID`; do not store the target credential value.
+
+After an operator has verified a real FTPS target, record redacted notes with
+these exact fragments: `ftps login`, `ftps tls`, `ftps certificate`,
+`ftps list`, `ftps download`, `ftps upload`, `ftps mkdir`, `ftps rename`,
+`ftps delete`, `ftps text edit`, and `connection history`.
+
+```sh
+TERMIXKIT_REAL_FTPS_HOST=ftps.example.test \
+TERMIXKIT_REAL_FTPS_PORT=990 \
+TERMIXKIT_REAL_FTPS_USERNAME=redacted-user \
+TERMIXKIT_REAL_FTPS_MODE=explicit \
+TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY=verified \
+TERMIXKIT_REAL_FTPS_EVIDENCE_ID=ftps-proof-ticket-456 \
+TERMIXKIT_REAL_FTPS_PROOF_NOTES='ftps login: redacted real user connected; ftps tls: TLS negotiated; ftps certificate: certificate policy observed; ftps list: directory listed; ftps download: fixture downloaded; ftps upload: fixture uploaded; ftps mkdir: directory created; ftps rename: file renamed or moved; ftps delete: created files removed; ftps text edit: remote text content saved; connection history: FTPS session row recorded' \
+	nix develop -c npm run acceptance:record-real-ftps
+```
+
+For longer FTPS notes, use
+`TERMIXKIT_REAL_FTPS_PROOF_NOTES_FILE=/path/to/redacted-ftps-proof-notes.txt`.
+The proof record must list only redacted target identifiers and policy names
+through `TERMIXKIT_REAL_FTPS_HOST`, `TERMIXKIT_REAL_FTPS_PORT`,
+`TERMIXKIT_REAL_FTPS_USERNAME`, `TERMIXKIT_REAL_FTPS_MODE`, and
+`TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY`, plus a non-secret external evidence
+reference in `TERMIXKIT_REAL_FTPS_EVIDENCE_ID`; do not store the target
+credential value, session tokens, or cookies.
 
 Run the browser first-run/authentication smoke. The script selects Nix Chromium
 inside `nix develop` and falls back to a system Chrome/Chromium when run outside

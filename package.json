@@ -14,6 +14,8 @@
 		"acceptance:proof-template": "node scripts/acceptance-proof-template.mjs",
 		"acceptance:refresh-local-v1-proofs": "node scripts/refresh-local-v1-proofs.mjs",
 		"acceptance:record-real-rdp": "node scripts/record-external-proof.mjs realRdp",
+		"acceptance:record-real-ftp": "node scripts/record-external-proof.mjs realFtp",
+		"acceptance:record-real-ftps": "node scripts/record-external-proof.mjs realFtps",
 		"acceptance:record-real-ssh": "node scripts/record-external-proof.mjs realSsh",
 		"acceptance:record-real-vnc": "node scripts/record-external-proof.mjs realVnc",
 		"acceptance:record-microsoft-interactive": "node scripts/record-microsoft-interactive-proof.mjs",

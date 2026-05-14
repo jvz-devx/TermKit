@@ -251,4 +251,80 @@ describe('CredentialService', () => {
 		expect(storedAfter?.metadata.passphrase).toBeUndefined();
 		expect(storedAfter?.metadata.password).toBeUndefined();
 	});
+
+	it('enforces workspace owner boundaries before persisting credential secrets', async () => {
+		expect.assertions(4);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const credentials = new CredentialService(repository, {
+			encrypt(plaintext, context) {
+				return {
+					ciphertext: `encrypted:${plaintext}`,
+					metadata: {
+						algorithm: 'aes-256-gcm',
+						keyVersion: 1,
+						iv: 'iv',
+						authTag: 'auth-tag',
+						salt: JSON.stringify(context)
+					}
+				};
+			},
+			decrypt(secret) {
+				return secret.ciphertext.replace(/^encrypted:/, '');
+			}
+		});
+		const now = new Date('2026-05-14T12:00:00.000Z');
+		await repository.createWorkspace({
+			id: 'workspace-1',
+			name: 'Ops',
+			metadata: {},
+			createdAt: now,
+			updatedAt: now
+		});
+		await repository.createWorkspaceMembership({
+			id: 'membership-owner',
+			workspaceId: 'workspace-1',
+			userId: 'owner-1',
+			role: 'owner',
+			createdAt: now,
+			updatedAt: now
+		});
+		await repository.createWorkspaceMembership({
+			id: 'membership-member',
+			workspaceId: 'workspace-1',
+			userId: 'member-1',
+			role: 'member',
+			createdAt: now,
+			updatedAt: now
+		});
+		const shared = await credentials.create('owner-1', {
+			workspaceId: 'workspace-1',
+			name: 'Shared root',
+			kind: 'password',
+			secret: 'shared-secret'
+		});
+
+		await expect(
+			credentials.create('member-1', {
+				workspaceId: 'workspace-1',
+				name: 'Member root',
+				kind: 'password',
+				secret: 'member-secret'
+			})
+		).rejects.toMatchObject({ issues: ['workspace owner role is required'] });
+		await expect(
+			credentials.update('member-1', shared.id, {
+				workspaceId: 'workspace-1',
+				name: 'Tampered root',
+				kind: 'password',
+				secret: 'tampered-secret'
+			})
+		).rejects.toMatchObject({ issues: ['workspace owner role is required'] });
+		await expect(repository.listCredentials('member-1')).resolves.toEqual([
+			expect.objectContaining({ id: shared.id, name: 'Shared root' })
+		]);
+		expect(JSON.stringify(await repository.listCredentials('owner-1'))).not.toContain(
+			'member-secret'
+		);
+	});
 });

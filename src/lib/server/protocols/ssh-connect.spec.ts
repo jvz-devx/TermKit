@@ -7,6 +7,12 @@ import type { HostRecord } from '$lib/server/services/types';
 import { _resolveJumpHostTarget, type SshConnectTarget } from './ssh-connect';
 
 describe('SSH jump-host target resolution', () => {
+	it('requires an explicit jump host target', async () => {
+		await expect(_resolveJumpHostTarget(target())).rejects.toMatchObject({
+			issues: ['SSH jump host is required']
+		});
+	});
+
 	it('resolves jump host credentials through the same credential model as final targets', async () => {
 		const repository = new InMemoryTermixServicesRepository();
 		const crypto = new AesGcmCredentialCrypto('ssh-connect-test-key');
@@ -47,6 +53,30 @@ describe('SSH jump-host target resolution', () => {
 		});
 	});
 
+	it('resolves jump hosts with host usernames and keeps nested jump metadata', async () => {
+		const repository = new InMemoryTermixServicesRepository();
+		await repository.createHost(
+			host({
+				id: 'jump-1',
+				username: 'bastion-host-user',
+				hostname: 'jump.example.test',
+				metadata: { sshJumpHost: { enabled: true, hostId: 'outer-jump' } }
+			})
+		);
+
+		await expect(
+			_resolveJumpHostTarget(target({ jumpHost: { hostId: 'jump-1' } }), { repository })
+		).resolves.toMatchObject({
+			userId: 'user-1',
+			hostId: 'jump-1',
+			host: 'jump.example.test',
+			port: 22,
+			username: 'bastion-host-user',
+			credential: undefined,
+			jumpHost: { hostId: 'outer-jump' }
+		});
+	});
+
 	it('rejects non-SSH jump hosts before opening a connection', async () => {
 		const repository = new InMemoryTermixServicesRepository();
 		await repository.createHost(
@@ -63,6 +93,32 @@ describe('SSH jump-host target resolution', () => {
 		await expect(
 			_resolveJumpHostTarget(target({ jumpHost: { hostId: 'jump-1' } }), { repository })
 		).rejects.toBeInstanceOf(ServiceValidationError);
+	});
+
+	it('rejects missing jump hosts, missing credentials, and username-less jump hosts', async () => {
+		const missing = new InMemoryTermixServicesRepository();
+
+		await expect(
+			_resolveJumpHostTarget(target({ jumpHost: { hostId: 'jump-1' } }), { repository: missing })
+		).rejects.toMatchObject({ message: 'SSH jump host not found' });
+
+		const missingCredential = new InMemoryTermixServicesRepository();
+		await missingCredential.createHost(host({ id: 'jump-1', credentialId: 'credential-404' }));
+
+		await expect(
+			_resolveJumpHostTarget(target({ jumpHost: { hostId: 'jump-1' } }), {
+				repository: missingCredential
+			})
+		).rejects.toMatchObject({ message: 'SSH jump credential not found' });
+
+		const missingUsername = new InMemoryTermixServicesRepository();
+		await missingUsername.createHost(host({ id: 'jump-1' }));
+
+		await expect(
+			_resolveJumpHostTarget(target({ jumpHost: { hostId: 'jump-1' } }), {
+				repository: missingUsername
+			})
+		).rejects.toMatchObject({ issues: ['SSH jump host username is required'] });
 	});
 });
 

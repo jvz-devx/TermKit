@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BulkJobValidationError, buildBulkJobReport } from '$lib/termix/bulk-jobs';
 import {
 	BulkJobRunner,
@@ -169,6 +169,70 @@ describe('BulkJobRunner', () => {
 		expect(secondRun.hosts.map((item) => item.status)).toEqual(['succeeded', 'succeeded']);
 		expect(attempts.get('host-1')).toBe(1);
 		expect(attempts.get('host-2')).toBe(2);
+	});
+
+	it('marks timed-out hosts retryable and preserves retry reporting', async () => {
+		expect.assertions(7);
+
+		vi.useFakeTimers();
+		try {
+			const attempts = new Map<string, number>();
+			const runner = new BulkJobRunner({
+				repository: new InMemoryBulkJobRepository(),
+				hosts: new StaticHostResolver([host('host-1', 'ssh')]),
+				executors: {
+					async runSshCommand(context) {
+						const attempt = (attempts.get(context.host.hostId) ?? 0) + 1;
+						attempts.set(context.host.hostId, attempt);
+						if (attempt === 1) {
+							await waitForAbort(context.signal);
+						}
+						return {
+							exitCode: 0,
+							stdout: `retry ok ${attempt}`,
+							report: { attempt }
+						};
+					}
+				}
+			});
+			const created = await runner.createJob({
+				id: 'job-timeout',
+				userId: 'user-1',
+				kind: 'ssh_command',
+				targets: [{ hostId: 'host-1' }],
+				reviewedHostIds: ['host-1'],
+				command: { command: 'sleep 10', timeoutMs: 1_000 },
+				retry: { maxAttempts: 2, retryableCodes: ['timeout'] }
+			});
+
+			const firstRunPromise = runner.run('user-1', created.id);
+			await vi.advanceTimersByTimeAsync(1_001);
+			const firstRun = await firstRunPromise;
+			const secondRun = await runner.retryFailedHosts('user-1', created.id);
+			const report = buildBulkJobReport(secondRun);
+
+			expect(firstRun.status).toBe('failed');
+			expect(firstRun.hosts[0]).toMatchObject({
+				status: 'failed',
+				attempt: 1,
+				failure: {
+					code: 'timeout',
+					message: 'Bulk host operation timed out',
+					retryable: true
+				}
+			});
+			expect(secondRun.status).toBe('completed');
+			expect(secondRun.hosts[0]).toMatchObject({
+				status: 'succeeded',
+				attempt: 2,
+				result: { report: { attempt: 2 } }
+			});
+			expect(attempts.get('host-1')).toBe(2);
+			expect(report.body).toContain('completed');
+			expect(secondRun.hosts[0].result?.stdout.text).toContain('retry ok 2');
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('maps SFTP through SSH hosts and leaves transfer execution injectable', async () => {

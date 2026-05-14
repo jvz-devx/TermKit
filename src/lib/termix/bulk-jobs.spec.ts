@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import {
 	BulkJobValidationError,
@@ -222,5 +223,48 @@ describe('bulk job domain', () => {
 		expect(jsonReport.body).toContain('"status": "failed"');
 		expect(csvReport.body).not.toContain('abc123');
 		expect(csvReport.body).toContain('Bearer [REDACTED]');
+	});
+
+	it('keeps large fan-out wave planning deterministic and inside a coarse budget', () => {
+		const targets = Array.from({ length: 251 }, (_, index) => ({
+			hostId: `host-${String(index).padStart(3, '0')}`,
+			protocol: 'ssh'
+		}));
+		const reviewedHostIds = targets.map((target) => target.hostId);
+
+		const startedAt = performance.now();
+		const job = planBulkJob({
+			id: 'job-large-fanout',
+			userId: 'user-1',
+			kind: 'ssh_command',
+			targets,
+			reviewedHostIds,
+			concurrencyLimit: 25,
+			command: { command: 'uname -a' }
+		});
+		const elapsedMs = performance.now() - startedAt;
+
+		expect(job.concurrency).toMatchObject({
+			limit: 25,
+			totalHosts: 251,
+			waveCount: 11
+		});
+		expect(job.concurrency.waves[0]).toEqual(reviewedHostIds.slice(0, 25));
+		expect(job.concurrency.waves.at(-1)).toEqual(['host-250']);
+		expect(job.hosts.map((host) => host.hostId)).toEqual(reviewedHostIds);
+		expect(elapsedMs).toBeLessThan(250);
+	});
+
+	it('rejects fan-out concurrency above the guarded limit', () => {
+		expect(() =>
+			planBulkJob({
+				userId: 'user-1',
+				kind: 'ssh_command',
+				targets: [{ hostId: 'host-1', protocol: 'ssh' }],
+				reviewedHostIds: ['host-1'],
+				concurrencyLimit: 26,
+				command: { command: 'uptime' }
+			})
+		).toThrow('concurrencyLimit must be an integer between 1 and 25');
 	});
 });

@@ -112,6 +112,50 @@ describe('V6ResourcesService', () => {
 		});
 	});
 
+	it('rejects malformed V6 job target/report inputs without persisting partial records', async () => {
+		expect.assertions(5);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+		const result = await service.createBackgroundJob('operator-1', {
+			kind: 'bulk_ssh_command',
+			title: 'Patch selected hosts',
+			targetHostIds: ['host-1'],
+			concurrencyLimit: 1
+		});
+
+		await expect(
+			service.updateJobTarget(result.targets[0].id, {
+				status: 'running',
+				attempt: -1
+			})
+		).rejects.toMatchObject({
+			issues: ['attempt must be a non-negative integer']
+		});
+		await expect(
+			service.updateJobTarget('missing-target', { status: 'succeeded' })
+		).rejects.toMatchObject({
+			message: 'Job target not found'
+		});
+		await expect(
+			service.createJobReport({
+				jobId: result.job.id,
+				format: 'xml',
+				storageKey: 'reports/job.xml'
+			})
+		).rejects.toMatchObject({
+			issues: ['format must be json or csv']
+		});
+		await expect(
+			service.decideApproval('missing-approval', 'owner-1', 'pending')
+		).rejects.toMatchObject({
+			issues: ['approval decision status must be approved, rejected, or cancelled']
+		});
+		await expect(repository.listJobTargets(result.job.id)).resolves.toEqual([
+			expect.objectContaining({ id: result.targets[0].id, status: 'pending', attempt: 0 })
+		]);
+	});
+
 	it('redacts secret-looking job metadata before persistence', async () => {
 		const repository = new InMemoryV6ResourcesRepository();
 		const service = new V6ResourcesService(repository);
@@ -169,6 +213,42 @@ describe('V6ResourcesService', () => {
 		expect(persistedPayload).not.toContain('abc123');
 		expect(persistedPayload).not.toContain('OPENSSH PRIVATE KEY');
 		expect(persistedPayload).toContain('[REDACTED]');
+	});
+
+	it('redacts secret-looking event strings recursively while preserving operational context', async () => {
+		expect.assertions(6);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+
+		const event = await service.recordJobEvent({
+			jobId: 'job-1',
+			targetId: 'target-1',
+			severity: 'warning',
+			code: 'credential_probe',
+			message:
+				'probe failed Authorization: Bearer abc.def.ghi password=hunter2 -----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----',
+			details: {
+				host: 'shell-1',
+				password: 'hunter2',
+				nested: {
+					token: 'abc.def.ghi',
+					lines: ['safe line', 'apiKey=plain-key']
+				}
+			}
+		});
+
+		expect(event).toMatchObject({
+			jobId: 'job-1',
+			targetId: 'target-1',
+			severity: 'warning',
+			code: 'credential_probe'
+		});
+		expect(event.message).toContain('Bearer [REDACTED]');
+		expect(event.message).toContain('[REDACTED PRIVATE KEY]');
+		expect(JSON.stringify(event)).not.toContain('hunter2');
+		expect(JSON.stringify(event)).not.toContain('plain-key');
+		expect(event.details).toMatchObject({ host: 'shell-1' });
 	});
 
 	it('evaluates workspace policies and records approvals and reasons', async () => {
@@ -251,6 +331,68 @@ describe('V6ResourcesService', () => {
 			userId: 'operator-1',
 			capability: 'bulk_job',
 			reason: 'Patch selected hosts'
+		});
+	});
+
+	it('covers reason-required and deny workspace policy branches deterministically', async () => {
+		expect.assertions(4);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+
+		await expect(
+			service.evaluateWorkspacePolicy({
+				workspaceId: 'workspace-1',
+				capability: 'rdp_audio',
+				role: 'viewer'
+			})
+		).resolves.toMatchObject({ allowed: true, policy: null });
+
+		await service.saveWorkspacePolicy({
+			workspaceId: 'workspace-1',
+			capability: 'rdp_audio',
+			effect: 'reason_required',
+			minimumRole: 'viewer'
+		});
+		await expect(
+			service.evaluateWorkspacePolicy({
+				workspaceId: 'workspace-1',
+				capability: 'rdp_audio',
+				role: 'viewer'
+			})
+		).resolves.toMatchObject({
+			allowed: false,
+			reasonRequired: true,
+			blockedReason: 'reason is required'
+		});
+		await expect(
+			service.evaluateWorkspacePolicy({
+				workspaceId: 'workspace-1',
+				capability: 'rdp_audio',
+				role: 'viewer',
+				reason: 'Troubleshoot call audio'
+			})
+		).resolves.toMatchObject({
+			allowed: true,
+			reasonRequired: true
+		});
+
+		await service.saveWorkspacePolicy({
+			workspaceId: 'workspace-1',
+			capability: 'rdp_audio',
+			effect: 'deny',
+			minimumRole: 'viewer'
+		});
+		await expect(
+			service.evaluateWorkspacePolicy({
+				workspaceId: 'workspace-1',
+				capability: 'rdp_audio',
+				role: 'viewer',
+				reason: 'Troubleshoot call audio'
+			})
+		).resolves.toMatchObject({
+			allowed: false,
+			blockedReason: 'rdp_audio is denied'
 		});
 	});
 

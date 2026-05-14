@@ -183,7 +183,7 @@ export function normalizePath(path: string): string {
 }
 
 export function normalizeTarget(value: string, currentPath: string): string {
-	return value.startsWith('/') ? normalizePath(value) : joinPath(currentPath, value);
+	return normalizePath(value.startsWith('/') ? value : joinPath(currentPath, value));
 }
 
 export function isDirectoryLike(entry: RemoteEntry): boolean {

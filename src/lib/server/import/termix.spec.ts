@@ -1,4 +1,5 @@
 import { createCipheriv, hkdfSync } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import { mapTermixRecords } from './termix';
 
@@ -319,6 +320,58 @@ describe('mapTermixRecords', () => {
 			'missing_hostname',
 			'invalid_port'
 		]);
+	});
+
+	it('deduplicates reusable credential aliases and keeps dense export parsing inside a coarse budget', () => {
+		const records = Array.from({ length: 240 }, (_, index) => ({
+			id: `ssh-${index}`,
+			label: ` SSH ${index} `,
+			connectionType: index % 2 === 0 ? 'SSH' : 'sftp',
+			ip: `10.0.${Math.floor(index / 24)}.${index % 24}`,
+			port: index % 3 === 0 ? '' : '22',
+			user: `deploy-${index % 4}`,
+			credentialSourceId: `shared-${index % 8}`,
+			credentialName: `Shared credential ${index % 8}`,
+			password: `secret-${index % 8}`,
+			tags: [' linux ', '', ` shard-${index % 3} `],
+			raw: {
+				source_user_id: index % 5,
+				source_user_email: `owner-${index % 5}@example.test`
+			}
+		}));
+
+		const startedAt = performance.now();
+		const result = mapTermixRecords(records);
+		const elapsedMs = performance.now() - startedAt;
+
+		expect(result.summary).toEqual({
+			createdHosts: 240,
+			createdCredentials: 8,
+			skippedRecords: 0,
+			warnings: 0
+		});
+		expect(result.hosts[1]).toMatchObject({
+			sourceId: 'ssh-1',
+			protocol: 'ssh',
+			port: 22,
+			credentialRef: 'shared-1:password',
+			tags: ['linux', 'shard-1'],
+			metadata: {
+				sourceUserId: '1',
+				sourceUserEmail: 'owner-1@example.test'
+			}
+		});
+		expect(result.credentials.map((credential) => credential.sourceId)).toEqual([
+			'shared-0:password',
+			'shared-1:password',
+			'shared-2:password',
+			'shared-3:password',
+			'shared-4:password',
+			'shared-5:password',
+			'shared-6:password',
+			'shared-7:password'
+		]);
+		expect(elapsedMs).toBeLessThan(250);
 	});
 });
 

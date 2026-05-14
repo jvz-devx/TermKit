@@ -1,17 +1,25 @@
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import {
 	assertRecursiveUploadItemsWithinLimits,
+	basename,
 	countRecursiveUploadEntry,
 	countRecursiveUploadFile,
 	createTransferProgress,
 	createRecursiveUploadLimitState,
+	dirname,
+	entryTypeLabel,
 	fileTransferLimits,
 	filterRemoteEntries,
 	formatDuration,
 	formatSize,
 	formatThroughput,
+	isDirectoryLike,
+	isDownloadableFile,
 	joinPath,
+	normalizeTarget,
 	normalizePath,
+	selectedEntries,
 	selectionSummary,
 	setVisibleSelection,
 	toggleSelectedPath,
@@ -50,6 +58,9 @@ describe('file manager state helpers', () => {
 		expect(normalizePath('/var//www/./current/')).toBe('/var/www/current');
 		expect(normalizePath('/var/www/../log')).toBe('/var/log');
 		expect(joinPath('/var/www/', '/index.html')).toBe('/var/www/index.html');
+		expect(normalizeTarget('../logs/app.log', '/var/www/current')).toBe('/var/www/logs/app.log');
+		expect(basename('/var/www/current/')).toBe('current');
+		expect(dirname('/var/www/current/app.log')).toBe('/var/www/current');
 	});
 
 	it('filters by name, path, type, and symlink target metadata', () => {
@@ -73,6 +84,40 @@ describe('file manager state helpers', () => {
 			'/var/logs',
 			'/var/logs/deploy.log'
 		]);
+		expect(setVisibleSelection(selected, entries.slice(0, 2), false)).toEqual(['/outside']);
+		expect(selectedEntries(entries, ['/var/logs/deploy.log', '/missing'])).toEqual([entries[1]]);
+	});
+
+	it('keeps file listing predicates and labels stable for protocol adapters', () => {
+		expect(entries.map(entryTypeLabel)).toEqual(['Directory', 'File', 'Symlink']);
+		expect(isDirectoryLike(entries[0])).toBe(true);
+		expect(isDownloadableFile(entries[1])).toBe(true);
+		expect(isDownloadableFile(entries[2])).toBe(false);
+	});
+
+	it('filters large remote listings within a coarse transform budget', () => {
+		const largeListing = Array.from({ length: 2_000 }, (_, index): RemoteEntry => {
+			const type = index % 5 === 0 ? 'directory' : 'file';
+			return {
+				name: type === 'directory' ? `release-${index}` : `artifact-${index}.log`,
+				path: `/srv/releases/${index}`,
+				type,
+				size: index * 10,
+				mtime: null,
+				longname: `${type} deploy owner-${index % 7}`,
+				user: `owner-${index % 7}`,
+				group: index % 2 === 0 ? 'ops' : 'dev'
+			};
+		});
+
+		const startedAt = performance.now();
+		const filtered = filterRemoteEntries(largeListing, 'owner-3');
+		const nextSelection = setVisibleSelection([], filtered, true);
+		const elapsedMs = performance.now() - startedAt;
+
+		expect(filtered.every((entry) => entry.user === 'owner-3')).toBe(true);
+		expect(nextSelection).toEqual(filtered.map((entry) => entry.path).sort());
+		expect(elapsedMs).toBeLessThan(250);
 	});
 
 	it('derives progress percentage, throughput, and remaining time', () => {

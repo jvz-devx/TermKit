@@ -13,15 +13,45 @@ export default defineConfig({
 			provider: 'v8',
 			reportsDirectory: 'coverage',
 			reporter: ['text', 'html', 'json', 'lcov'],
-			include: ['src/**/*.{js,ts}'],
+			include: [
+				'src/hooks.server.ts',
+				'src/lib/**/*.{js,ts}',
+				'src/routes/api/**/*.ts',
+				'src/routes/(auth)/auth/microsoft/**/*.ts'
+			],
 			thresholds: {
-				statements: 60,
-				branches: 55,
-				functions: 58,
-				lines: 63
+				statements: 63,
+				branches: 60,
+				functions: 62,
+				lines: 65,
+				'src/lib/server/auth/**': {
+					statements: 85,
+					branches: 85,
+					functions: 85,
+					lines: 85
+				},
+				'src/lib/server/crypto/**': {
+					statements: 86,
+					branches: 84,
+					functions: 95,
+					lines: 91
+				},
+				'src/lib/server/import/**': {
+					statements: 80,
+					branches: 73,
+					functions: 90,
+					lines: 82
+				},
+				'src/lib/termix/**': {
+					statements: 86,
+					branches: 76,
+					functions: 96,
+					lines: 89
+				}
 			},
 			exclude: [
 				'src/**/*.d.ts',
+				'src/**/*.svelte.{js,ts}',
 				'src/**/*.{test,spec}.{js,ts}',
 				'src/**/__tests__/**',
 				'src/**/__fixtures__/**',

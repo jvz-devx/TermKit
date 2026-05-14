@@ -72,6 +72,38 @@ describe('SettingsService', () => {
 				rememberLastActiveTab: null
 			})
 		).toThrow(ServiceValidationError);
+		try {
+			validateBasicAppSettingsInput({
+				ticketTtlSeconds: 9,
+				terminalFontSize: 40,
+				clipboardSync: 'yes',
+				rdpClipboard: {
+					text: 'yes',
+					files: null,
+					clientToRemote: true,
+					remoteToClient: 'no',
+					fileTransferSizeLimitMiB: 0
+				},
+				rdpPerformancePreset: 'fast',
+				rdpAudioRedirection: 'yes',
+				rememberLastActiveTab: null
+			});
+		} catch (error) {
+			expect(error).toMatchObject({
+				issues: [
+					'rdpClipboard.text must be a boolean',
+					'rdpClipboard.files must be a boolean',
+					'rdpClipboard.remoteToClient must be a boolean',
+					'rdpClipboard.fileTransferSizeLimitMiB must be an integer between 1 and 1024',
+					'ticketTtlSeconds must be an integer between 10 and 300',
+					'terminalFontSize must be an integer between 8 and 32',
+					'clipboardSync must be a boolean',
+					'rdpPerformancePreset must be balanced, performance, or quality',
+					'rdpAudioRedirection must be a boolean',
+					'rememberLastActiveTab must be a boolean'
+				]
+			});
+		}
 	});
 
 	it('stores conservative RDP clipboard directions when all clipboard payloads are disabled', () => {

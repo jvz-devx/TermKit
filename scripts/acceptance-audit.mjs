@@ -33,6 +33,52 @@ const proofExpectations = {
 		passLine: '[pass] real Devolutions Gateway RDP bootstrap',
 		skipLine: '[skip] real Devolutions Gateway RDP bootstrap'
 	},
+	realFtp: {
+		commandIncludes: ['npm run acceptance:record-real-ftp'],
+		redactedEnv: [
+			'TERMIXKIT_REAL_FTP_HOST',
+			'TERMIXKIT_REAL_FTP_PORT',
+			'TERMIXKIT_REAL_FTP_USERNAME',
+			'TERMIXKIT_REAL_FTP_EVIDENCE_ID'
+		],
+		evidenceRequired: true,
+		narrativeIncludes: [
+			'ftp login',
+			'ftp list',
+			'ftp download',
+			'ftp upload',
+			'ftp mkdir',
+			'ftp rename',
+			'ftp delete',
+			'ftp text edit',
+			'connection history'
+		]
+	},
+	realFtps: {
+		commandIncludes: ['npm run acceptance:record-real-ftps'],
+		redactedEnv: [
+			'TERMIXKIT_REAL_FTPS_HOST',
+			'TERMIXKIT_REAL_FTPS_PORT',
+			'TERMIXKIT_REAL_FTPS_USERNAME',
+			'TERMIXKIT_REAL_FTPS_MODE',
+			'TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY',
+			'TERMIXKIT_REAL_FTPS_EVIDENCE_ID'
+		],
+		evidenceRequired: true,
+		narrativeIncludes: [
+			'ftps login',
+			'ftps tls',
+			'ftps certificate',
+			'ftps list',
+			'ftps download',
+			'ftps upload',
+			'ftps mkdir',
+			'ftps rename',
+			'ftps delete',
+			'ftps text edit',
+			'connection history'
+		]
+	},
 	microsoftSmoke: {
 		commandIncludes: ['TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1', 'npm run smoke:microsoft'],
 		redactedEnv: [
@@ -134,18 +180,20 @@ const checks = [
 	{
 		name: 'V1 real SSH host verification',
 		status: externalStatus('realSsh'),
-		evidence: 'record proofs.realSsh after npm run smoke:protocols passes with real SSH env'
+		evidence:
+			'run nix develop -c npm run acceptance:record-real-ssh after exporting real SSH env; records proofs.realSsh only when npm run smoke:protocols passes'
 	},
 	{
 		name: 'V1 real VNC framebuffer verification',
 		status: externalStatus('realVnc'),
-		evidence: 'record proofs.realVnc after npm run smoke:protocols passes with real VNC env'
+		evidence:
+			'run nix develop -c npm run acceptance:record-real-vnc after exporting real VNC env; records proofs.realVnc only when npm run smoke:protocols passes'
 	},
 	{
 		name: 'V1 real RDP through Devolutions Gateway',
 		status: externalStatus('realRdp'),
 		evidence:
-			'record proofs.realRdp after npm run smoke:rdp-gateway passes with real Gateway/RDP env'
+			'run nix develop -c npm run acceptance:record-real-rdp after exporting real Gateway/RDP env; records proofs.realRdp only when npm run smoke:rdp-gateway passes'
 	},
 	{
 		name: 'V1 checks, tests, and production build',
@@ -168,13 +216,13 @@ const checks = [
 		name: 'V2 real Microsoft Entra discovery and optional client credentials',
 		status: externalStatus('microsoftSmoke', { externalOnly: true }),
 		evidence:
-			'run npm run acceptance:record-microsoft-smoke after exporting real Microsoft env, or record proofs.microsoftSmoke after TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft passes'
+			'run nix develop -c npm run acceptance:record-microsoft-smoke after exporting real Microsoft env, or import the GitHub microsoft-smoke-proof artifact for the current commit'
 	},
 	{
 		name: 'V2 Microsoft interactive login acceptance',
 		status: externalStatus('microsoftInteractive', { externalOnly: true }),
 		evidence:
-			'run npm run acceptance:record-microsoft-interactive after collecting manual browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available'
+			'run nix develop -c npm run acceptance:record-microsoft-interactive after collecting manual browser proof for allowed-domain session creation, blocked-domain denial, admin-email promotion, and local login still available'
 	},
 	{
 		name: 'V2 live SSH schema, services, limits, attach tickets, idle cleanup, and stale startup reconciliation',
@@ -341,7 +389,7 @@ const checks = [
 		name: 'V7 fleet wiring and browser workflow foundation',
 		status: 'local',
 		evidence:
-			'npm test covers the shared fleet operation contract and route/dashboard remote wiring; npm run test:e2e covers /fleet navigation, disabled no-target queue state, and inventory empty-state filtering'
+			'npm test covers the shared fleet operation contract and source-level drift checks; npm run test:e2e covers /fleet navigation, disabled no-target queue state, approval-required review state, and inventory filtering'
 	},
 	{
 		name: 'V7 coverage target thresholds',
@@ -362,10 +410,16 @@ const checks = [
 			'add remaining concurrency, timeout, failure-injection, and lightweight performance budgets for live SSH attach takeover, ticket consumption, tunnel limits, transfer cancellation, bulk retries, protocol adapters, background jobs, importer parsing, file-list transforms, job scheduling, and workspace rendering'
 	},
 	{
-		name: 'V7 real FTP and FTPS external proof requirements',
-		status: 'pending',
+		name: 'V7 real FTP external proof',
+		status: externalStatus('realFtp', { externalOnly: true }),
 		evidence:
-			'add explicit real FTP and real FTPS acceptance proof scripts, proof-file validation, and audit rows once target infrastructure is available; local FTP/FTPS integration remains fixture/smoke-only'
+			'run nix develop -c npm run acceptance:record-real-ftp with redacted FTP target env, TERMIXKIT_REAL_FTP_EVIDENCE_ID, and TERMIXKIT_REAL_FTP_PROOF_NOTES after external FTP proof covers ftp login, ftp list, ftp download, ftp upload, ftp mkdir, ftp rename, ftp delete, ftp text edit, and connection history'
+	},
+	{
+		name: 'V7 real FTPS external proof',
+		status: externalStatus('realFtps', { externalOnly: true }),
+		evidence:
+			'run nix develop -c npm run acceptance:record-real-ftps with redacted FTPS target env, TERMIXKIT_REAL_FTPS_EVIDENCE_ID, and TERMIXKIT_REAL_FTPS_PROOF_NOTES after external FTPS proof covers ftps login, ftps tls, ftps certificate, ftps list, ftps download, ftps upload, ftps mkdir, ftps rename, ftps delete, ftps text edit, and connection history'
 	}
 ];
 
@@ -387,7 +441,7 @@ if (blocked.length > 0) {
 	if (externalBlocked.length > 0) {
 		printProofFileState();
 		console.log(
-			`acceptance audit: repo-owned requirements passed; ${externalBlocked.length} external Microsoft proof item(s) remain blocked until tenant/test users are available`
+			`acceptance audit: repo-owned requirements passed; ${externalBlocked.length} external proof item(s) remain blocked until real tenant or target infrastructure is available`
 		);
 	} else {
 		console.log('acceptance audit: no blocked requirements detected');
@@ -427,6 +481,7 @@ function hasProof(proofKey) {
 		hasExpectedCommand(proof, expectation) &&
 		hasExpectedEnv(proof, expectation) &&
 		hasExpectedOutput(proof, expectation) &&
+		hasExpectedEvidence(proof, expectation) &&
 		hasProofNarrative(proof, expectation)
 	);
 }
@@ -452,6 +507,16 @@ function hasExpectedOutput(proof, expectation) {
 	return true;
 }
 
+function hasExpectedEvidence(proof, expectation) {
+	if (!expectation.evidenceRequired) return true;
+	return (
+		typeof proof.evidenceId === 'string' &&
+		proof.evidenceId.trim().length > 0 &&
+		!forbiddenSecretPattern(proof.evidenceId) &&
+		!placeholderPattern(proof.evidenceId)
+	);
+}
+
 function hasProofNarrative(proof, expectation) {
 	const narrative =
 		(typeof proof.output === 'string' && proof.output.trim().length > 0) ||
@@ -469,7 +534,25 @@ function forbiddenSecretPattern(value) {
 			/\b(private[_ -]?key|access_token|refresh_token|id_token|client_secret|authorization:\s*bearer|set-cookie|cookie:)\b/i,
 			'secret, token, or cookie label'
 		],
+		[
+			/\b[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|PASSPHRASE)[A-Z0-9_]*\s*=/i,
+			'env-style secret label'
+		],
 		[/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, 'JWT-like value']
+	];
+
+	for (const [pattern, label] of checks) {
+		if (pattern.test(value)) return label;
+	}
+
+	return null;
+}
+
+function placeholderPattern(value) {
+	const checks = [
+		[/\bTODO\b/i, 'TODO marker'],
+		[/replace with/i, 'template instruction'],
+		[/\.\.\./, 'ellipsis placeholder']
 	];
 
 	for (const [pattern, label] of checks) {

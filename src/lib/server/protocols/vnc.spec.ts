@@ -46,6 +46,41 @@ describe('VNC launch credentials', () => {
 		});
 	});
 
+	it('falls back to the host username when a saved password has no username', async () => {
+		const { repository, crypto, credential } = await createEncryptedCredential({
+			kind: 'password',
+			secret: 'vnc-password',
+			username: null
+		});
+
+		await expect(
+			resolveVncLaunchCredentials(
+				'user-1',
+				testTargetSnapshot({ username: 'host-user', credentialId: credential.id }),
+				repository,
+				crypto
+			)
+		).resolves.toEqual({
+			username: 'host-user',
+			password: 'vnc-password',
+			source: 'saved-password',
+			unavailableReason: null
+		});
+	});
+
+	it('rejects missing saved credentials before launching noVNC', async () => {
+		await expect(
+			resolveVncLaunchCredentials(
+				'user-1',
+				testTargetSnapshot({ credentialId: 'credential-404' }),
+				new InMemoryTermixServicesRepository(),
+				new AesGcmCredentialCrypto('vnc-test-master-key')
+			)
+		).rejects.toMatchObject({
+			issues: ['VNC credential is unavailable']
+		});
+	});
+
 	it('rejects non-password credentials because noVNC cannot use SSH keys', async () => {
 		const { repository, crypto, credential } = await createEncryptedCredential({
 			kind: 'ssh_key',
@@ -68,6 +103,7 @@ describe('VNC launch credentials', () => {
 async function createEncryptedCredential(input: {
 	kind: 'password' | 'ssh_key';
 	secret: string;
+	username?: string | null;
 }): Promise<{
 	repository: InMemoryTermixServicesRepository;
 	crypto: AesGcmCredentialCrypto;
@@ -79,7 +115,7 @@ async function createEncryptedCredential(input: {
 	const created = await service.create('user-1', {
 		name: 'VNC credential',
 		kind: input.kind,
-		username: 'credential-user',
+		username: input.username === undefined ? 'credential-user' : input.username,
 		secret: input.secret
 	});
 	const credential = await repository.getCredential('user-1', created.id);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { TermixDb } from '$lib/server/db';
 import {
+	DrizzleV5ResourcesRepository,
 	InMemoryV5ResourcesRepository,
 	type CommandSnippetRecord,
 	type FileBookmarkRecord,
@@ -113,7 +115,68 @@ describe('V5 resources repository', () => {
 		});
 		await expect(repository.getRdpHostSettings('user-2', 'host-1')).resolves.toBeNull();
 	});
+
+	it('maps migration-shaped V5 rows with nullable JSON columns to safe defaults', async () => {
+		expect.assertions(4);
+
+		const now = new Date('2026-05-14T12:00:00.000Z');
+		const snippets = new DrizzleV5ResourcesRepository(
+			fakeSelectDb([commandSnippet({ metadata: null as unknown as Record<string, unknown> })])
+		);
+		const recordings = new DrizzleV5ResourcesRepository(
+			fakeSelectDb([terminalRecording({ metadata: null as unknown as Record<string, unknown> })])
+		);
+		const bookmarks = new DrizzleV5ResourcesRepository(
+			fakeSelectDb([fileBookmark({ metadata: null as unknown as Record<string, unknown> })])
+		);
+		const rdpSettings = new DrizzleV5ResourcesRepository(
+			fakeSelectDb([
+				rdpHostSettings({
+					display: null as unknown as Record<string, unknown>,
+					clipboard: null as unknown as Record<string, unknown>,
+					audio: null as unknown as Record<string, unknown>,
+					gateway: null as unknown as Record<string, unknown>,
+					metadata: null as unknown as Record<string, unknown>,
+					updatedAt: now
+				})
+			])
+		);
+
+		await expect(snippets.listCommandSnippets('user-1')).resolves.toEqual([
+			expect.objectContaining({ metadata: {} })
+		]);
+		await expect(recordings.listTerminalRecordings('user-1')).resolves.toEqual([
+			expect.objectContaining({ metadata: {} })
+		]);
+		await expect(bookmarks.listFileBookmarks('user-1')).resolves.toEqual([
+			expect.objectContaining({ metadata: {} })
+		]);
+		await expect(rdpSettings.getRdpHostSettings('user-1', 'host-1')).resolves.toMatchObject({
+			display: {},
+			clipboard: {},
+			audio: {},
+			gateway: {},
+			metadata: {}
+		});
+	});
 });
+
+function queryResult<T>(rows: T[]) {
+	return {
+		limit: (count: number) => Promise.resolve(rows.slice(0, count)),
+		then: Promise.resolve(rows).then.bind(Promise.resolve(rows))
+	};
+}
+
+function fakeSelectDb<T>(rows: T[]): TermixDb {
+	return {
+		select: () => ({
+			from: () => ({
+				where: () => queryResult(rows)
+			})
+		})
+	} as unknown as TermixDb;
+}
 
 function terminalPreference(
 	patch: Partial<TerminalPreferenceRecord> = {}

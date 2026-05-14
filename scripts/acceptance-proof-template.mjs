@@ -40,6 +40,42 @@ const template = `${JSON.stringify(
 				],
 				output: ''
 			},
+			realFtp: {
+				passed: false,
+				timestamp,
+				command:
+					'TERMIXKIT_REAL_FTP_HOST=<redacted> TERMIXKIT_REAL_FTP_EVIDENCE_ID=<redacted> TERMIXKIT_REAL_FTP_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftp',
+				instructions:
+					'Record only after testing a real FTP target outside local fixtures. Notes must include the exact fragments ftp login, ftp list, ftp download, ftp upload, ftp mkdir, ftp rename, ftp delete, ftp text edit, and connection history. Do not store target credentials, session tokens, or cookies.',
+				redactedEnv: [
+					'TERMIXKIT_REAL_FTP_HOST',
+					'TERMIXKIT_REAL_FTP_PORT',
+					'TERMIXKIT_REAL_FTP_USERNAME',
+					'TERMIXKIT_REAL_FTP_EVIDENCE_ID'
+				],
+				evidenceId: '',
+				notes: '',
+				output: ''
+			},
+			realFtps: {
+				passed: false,
+				timestamp,
+				command:
+					'TERMIXKIT_REAL_FTPS_HOST=<redacted> TERMIXKIT_REAL_FTPS_EVIDENCE_ID=<redacted> TERMIXKIT_REAL_FTPS_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftps',
+				instructions:
+					'Record only after testing a real FTPS target outside local fixtures. Notes must include the exact fragments ftps login, ftps tls, ftps certificate, ftps list, ftps download, ftps upload, ftps mkdir, ftps rename, ftps delete, ftps text edit, and connection history. Do not store target credentials, session tokens, or cookies.',
+				redactedEnv: [
+					'TERMIXKIT_REAL_FTPS_HOST',
+					'TERMIXKIT_REAL_FTPS_PORT',
+					'TERMIXKIT_REAL_FTPS_USERNAME',
+					'TERMIXKIT_REAL_FTPS_MODE',
+					'TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY',
+					'TERMIXKIT_REAL_FTPS_EVIDENCE_ID'
+				],
+				evidenceId: '',
+				notes: '',
+				output: ''
+			},
 			microsoftSmoke: {
 				passed: false,
 				timestamp,
