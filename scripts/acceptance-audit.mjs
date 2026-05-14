@@ -1,9 +1,9 @@
 const checks = [
 	{
 		name: 'V1 Docker Compose stack',
-		status: hasEnv('TERMIXKIT_ACCEPTANCE_COMPOSE_SMOKE_PASSED') ? 'available' : 'blocked',
+		status: 'local',
 		evidence:
-			'compose.yaml defines app, migrate, postgres, gateway; set TERMIXKIT_ACCEPTANCE_COMPOSE_SMOKE_PASSED after docker compose smoke'
+			'npm run smoke:compose verifies generated local Compose env, app readiness, and port exposure'
 	},
 	{
 		name: 'V1 local auth, CRUD, encryption, tickets, importer, build',

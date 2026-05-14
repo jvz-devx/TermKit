@@ -198,7 +198,7 @@ Print the current acceptance evidence map and external proof blockers. This comm
 nix develop -c npm run audit:acceptance
 ```
 
-Set `TERMIXKIT_ACCEPTANCE_COMPOSE_SMOKE_PASSED=1` only after recording a successful Docker Compose smoke for the current commit. Set `TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED`, and `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` only after recording those real-target smoke results for the current commit. Set `TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF` only after recording a real browser Microsoft Entra login against the configured tenant.
+Set `TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED`, `TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED`, and `TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED` only after recording those real-target smoke results for the current commit. Set `TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF` only after recording a real browser Microsoft Entra login against the configured tenant.
 
 Build the SvelteKit app and custom production server:
 
@@ -222,6 +222,12 @@ Smoke-test Postgres migrations in a disposable container:
 
 ```sh
 nix develop -c npm run smoke:postgres
+```
+
+Smoke-test Docker Compose deployment with generated local secrets. This builds the Compose app image, starts `app`, `migrate`, `postgres`, and `gateway` under a unique project name, waits for the app through its public HTTP port, verifies that Postgres is loopback-only and Gateway has no published port, and tears the stack down with volumes removed:
+
+```sh
+nix develop -c npm run smoke:compose
 ```
 
 Smoke-test local protocol loopbacks for Telnet, VNC banner negotiation, SSH, and SFTP:

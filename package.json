@@ -18,6 +18,7 @@
 		"test:e2e": "node scripts/run-playwright.mjs",
 		"test:unit": "vitest",
 		"smoke:postgres": "node scripts/smoke-postgres-migrations.mjs",
+		"smoke:compose": "node scripts/smoke-compose.mjs",
 		"smoke:protocols": "node scripts/smoke-protocols.mjs",
 		"smoke:app-protocols": "node scripts/smoke-app-protocols.mjs",
 		"smoke:microsoft": "node scripts/smoke-microsoft-entra.mjs",
