@@ -10,6 +10,7 @@
 		"audit:acceptance": "node scripts/acceptance-audit.mjs",
 		"acceptance:github-microsoft": "node scripts/github-microsoft-acceptance.mjs",
 		"acceptance:import-microsoft-smoke": "node scripts/import-microsoft-smoke-proof.mjs",
+		"acceptance:microsoft-interactive-preflight": "node scripts/microsoft-interactive-preflight.mjs",
 		"acceptance:proof-template": "node scripts/acceptance-proof-template.mjs",
 		"acceptance:record-real-rdp": "node scripts/record-external-proof.mjs realRdp",
 		"acceptance:record-real-ssh": "node scripts/record-external-proof.mjs realSsh",

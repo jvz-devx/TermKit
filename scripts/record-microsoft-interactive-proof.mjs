@@ -37,6 +37,14 @@ if (forbiddenPattern) {
 	process.exit(1);
 }
 
+const placeholderPattern = placeholderProofPattern(notes);
+if (placeholderPattern) {
+	console.error(
+		`Microsoft interactive proof notes still look like a template placeholder (${placeholderPattern}); proof file was not updated.`
+	);
+	process.exit(1);
+}
+
 proofFile.commit = commit;
 proofFile.generatedAt ??= timestamp;
 proofFile.proofs ??= {};
@@ -96,6 +104,20 @@ function forbiddenSecretPattern(value) {
 			'token or cookie label'
 		],
 		[/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, 'JWT-like value']
+	];
+
+	for (const [pattern, label] of checks) {
+		if (pattern.test(value)) return label;
+	}
+
+	return null;
+}
+
+function placeholderProofPattern(value) {
+	const checks = [
+		[/\bTODO\b/i, 'TODO marker'],
+		[/replace with redacted proof/i, 'template instruction'],
+		[/\.\.\./, 'ellipsis placeholder']
 	];
 
 	for (const [pattern, label] of checks) {
