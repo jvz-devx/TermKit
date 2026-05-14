@@ -154,8 +154,11 @@ try {
 			credentialId: rdpCredential.id,
 			tags: ['smoke']
 		});
-		await smokeRdpSessionLaunchUi(auth.page, rdpHost.id, gateway);
-		pass('RDP remote launch boundary', 'staged saved password through Gateway bootstrap');
+		await smokeRdpSessionLaunchUi(auth.page, app.baseUrl, auth.cookieHeader, rdpHost.id, gateway);
+		pass(
+			'RDP remote launch boundary',
+			'staged saved password and proxied RDP JET path without leaking app cookies'
+		);
 	} else {
 		pass('RDP remote launch boundary', 'skipped for externally managed app');
 	}
@@ -502,7 +505,7 @@ async function smokeVncSavedCredentialLaunchUi(page, hostId, vncState) {
 	}
 }
 
-async function smokeRdpSessionLaunchUi(page, hostId, gateway) {
+async function smokeRdpSessionLaunchUi(page, baseUrl, cookieHeader, hostId, gateway) {
 	const initialGatewayRequests = gateway.requests.length;
 	const launchPage = await page.context().newPage();
 
@@ -531,9 +534,22 @@ async function smokeRdpSessionLaunchUi(page, hostId, gateway) {
 			});
 		}
 
+		const proxyResponse = await fetch(new URL('/gateway/jet/rdp?association=1', baseUrl), {
+			headers: {
+				cookie: cookieHeader,
+				origin: new URL(baseUrl).origin
+			}
+		});
+		await assertResponse(proxyResponse, '/gateway/jet/rdp?association=1');
+		const proxyBody = await proxyResponse.json();
+		assert(proxyBody.ok === true, 'RDP app proxy did not return the Gateway response');
+
 		const requests = gateway.requests.slice(initialGatewayRequests);
 		assert(requests[0]?.path === '/jet/webapp/app-token', 'missing RDP app-token request');
 		assert(requests[1]?.path === '/jet/webapp/session-token', 'missing RDP session-token request');
+		assert(requests[2]?.path === '/jet/rdp', 'missing RDP JET proxy request');
+		assert(requests[2]?.query === '?association=1', 'RDP JET proxy dropped the query string');
+		assert(requests[2]?.headers?.cookie === undefined, 'RDP JET proxy forwarded app cookies');
 		assert(
 			requests[1]?.body?.destination === 'tcp://windows.example.test:3389',
 			'RDP launch provisioned the wrong destination'
@@ -824,15 +840,22 @@ async function startMockRdpGateway() {
 	const server = createHttpServer(async (request, response) => {
 		try {
 			const body = await readJsonBody(request);
-			const path = new URL(request.url, 'http://127.0.0.1').pathname;
+			const gatewayRequestUrl = new URL(request.url, 'http://127.0.0.1');
+			const path = gatewayRequestUrl.pathname;
 			requests.push({
 				method: request.method,
 				path,
+				query: gatewayRequestUrl.search,
 				authorization: request.headers.authorization,
+				headers: request.headers,
 				body
 			});
 
 			if (request.method !== 'POST') {
+				if (request.method === 'GET' && path === '/jet/rdp') {
+					writeJson(response, 200, { ok: true });
+					return;
+				}
 				writeText(response, 405, 'Method Not Allowed', 'method not allowed');
 				return;
 			}
@@ -1398,6 +1421,11 @@ function readJsonBody(request) {
 			}
 		});
 	});
+}
+
+function writeJson(response, statusCode, value) {
+	response.writeHead(statusCode, { 'content-type': 'application/json' });
+	response.end(JSON.stringify(value));
 }
 
 function writeText(response, statusCode, statusMessage, text) {
