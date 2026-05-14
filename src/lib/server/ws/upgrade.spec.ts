@@ -506,7 +506,7 @@ describe('websocket upgrade routing', () => {
 		]);
 	});
 
-	it('records failed live SSH websocket closure code as failed instead of detached', async () => {
+	it('records abnormal live SSH browser disconnect as detached', async () => {
 		expect.assertions(2);
 
 		const calls: string[] = [];
@@ -530,8 +530,8 @@ describe('websocket upgrade routing', () => {
 
 		await listen(server);
 		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1011);
-		await waitFor(() => calls.includes('fail:ssh-live-session-1'));
-		expect(calls).toEqual(['attached:ssh-live-session-1', 'fail:ssh-live-session-1']);
+		await waitFor(() => calls.includes('detached:ssh-live-session-1'));
+		expect(calls).toEqual(['attached:ssh-live-session-1', 'detached:ssh-live-session-1']);
 	});
 
 	it('does not mark live SSH detached when a newer attachment takes over', async () => {

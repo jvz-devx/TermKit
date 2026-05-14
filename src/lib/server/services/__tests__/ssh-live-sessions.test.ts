@@ -148,6 +148,42 @@ describe('SshLiveSessionService', () => {
 		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(2);
 	});
 
+	it('serializes concurrent live SSH creates before enforcing user limits', async () => {
+		expect.assertions(4);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository, {
+			maxLiveSessionsPerUser: 1
+		});
+		const firstHost = await hosts.create('user-1', {
+			name: 'Shell 1',
+			protocol: 'ssh',
+			hostname: 'shell-1.example.test',
+			port: 22
+		});
+		const secondHost = await hosts.create('user-1', {
+			name: 'Shell 2',
+			protocol: 'ssh',
+			hostname: 'shell-2.example.test',
+			port: 22
+		});
+
+		const results = await Promise.allSettled([
+			service.createOrReuse('user-1', { hostId: firstHost.id }),
+			service.createOrReuse('user-1', { hostId: secondHost.id })
+		]);
+		const fulfilled = results.filter((result) => result.status === 'fulfilled');
+		const rejected = results.filter((result) => result.status === 'rejected');
+
+		expect(fulfilled).toHaveLength(1);
+		expect(rejected).toHaveLength(1);
+		expect(rejected[0]).toMatchObject({
+			reason: { issues: ['live SSH session limit reached (1)'] }
+		});
+		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(1);
+	});
+
 	it('expires abandoned starting sessions before enforcing user limits', async () => {
 		expect.assertions(4);
 
@@ -563,12 +599,46 @@ describe('SshLiveSessionService', () => {
 		});
 	});
 
-	it('marks existing live metadata stale on startup and expires detached sessions', async () => {
+	it('marks only pre-existing live metadata stale on startup', async () => {
+		expect.assertions(4);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository);
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const first = await service.createOrReuse('user-1', {
+			hostId: host.id,
+			now: new Date('2026-05-13T11:59:59.000Z')
+		});
+		const fresh = await service.createOrReuse('user-1', {
+			hostId: host.id,
+			now: new Date('2026-05-13T12:00:01.000Z')
+		});
+
+		await expect(service.markStaleOnStartup(new Date('2026-05-13T12:00:00.000Z'))).resolves.toBe(1);
+		await expect(repository.getSshLiveSession('user-1', first.session.id)).resolves.toMatchObject({
+			status: 'stale',
+			endedAt: new Date('2026-05-13T12:00:00.000Z')
+		});
+		await expect(repository.getSshLiveSession('user-1', fresh.session.id)).resolves.toMatchObject({
+			status: 'starting',
+			endedAt: null
+		});
+		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(1);
+	});
+
+	it('expires detached and abandoned starting sessions during maintenance', async () => {
 		expect.assertions(5);
 
 		const repository = new InMemoryTermixServicesRepository();
 		const hosts = new HostService(repository);
 		const service = new SshLiveSessionService(repository, hosts, repository, {
+			attachTicketTtlMs: 1_000,
 			detachedIdleTtlMs: 1_000
 		});
 		const host = await hosts.create('user-1', {
@@ -577,23 +647,40 @@ describe('SshLiveSessionService', () => {
 			hostname: 'shell.example.test',
 			port: 22
 		});
-		const first = await service.createOrReuse('user-1', { hostId: host.id });
 
-		await expect(service.markStaleOnStartup(new Date('2026-05-13T12:00:00.000Z'))).resolves.toBe(1);
-		await expect(repository.getSshLiveSession('user-1', first.session.id)).resolves.toMatchObject({
-			status: 'stale',
-			endedAt: new Date('2026-05-13T12:00:00.000Z')
+		const second = await service.createOrReuse('user-1', {
+			hostId: host.id,
+			now: new Date('2026-05-13T12:00:08.000Z')
 		});
+		await service.markDetached('user-1', second.session.id, new Date('2026-05-13T12:00:08.500Z'));
+		const abandoned = await service.createOrReuse('user-1', {
+			hostId: host.id,
+			now: new Date('2026-05-13T12:00:09.000Z')
+		});
+		const expired = await service.expireIdleDetachedSessions(new Date('2026-05-13T12:00:21.000Z'));
 
-		const second = await service.createOrReuse('user-1', { hostId: host.id });
-		await service.markDetached('user-1', second.session.id, new Date('2026-05-13T12:00:10.000Z'));
-		const expired = await service.expireIdleDetachedSessions(new Date('2026-05-13T12:00:11.000Z'));
-
-		expect(expired).toHaveLength(1);
-		expect(expired[0]).toMatchObject({
-			id: second.session.id,
-			status: 'ended',
-			endedAt: new Date('2026-05-13T12:00:11.000Z')
+		expect(expired).toHaveLength(2);
+		expect(expired).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: second.session.id,
+					status: 'ended',
+					endedAt: new Date('2026-05-13T12:00:21.000Z')
+				}),
+				expect.objectContaining({
+					id: abandoned.session.id,
+					status: 'ended',
+					endedAt: new Date('2026-05-13T12:00:21.000Z')
+				})
+			])
+		);
+		await expect(repository.getSshLiveSession('user-1', second.session.id)).resolves.toMatchObject({
+			status: 'ended'
+		});
+		await expect(
+			repository.getSshLiveSession('user-1', abandoned.session.id)
+		).resolves.toMatchObject({
+			status: 'ended'
 		});
 		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(0);
 	});

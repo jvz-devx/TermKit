@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lte } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import { db, type TermixDb } from '../db';
 import * as schema from '../db/schema';
 import {
@@ -358,7 +358,14 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 		const rows = await (this.database.update(sshLiveSessions) as unknown as ReturningUpdate)
 			.set({ status: 'stale', endedAt: now, updatedAt: now })
 			.where(
-				inArray(sshLiveSessions.status as typeof hosts.name, ['starting', 'attached', 'detached'])
+				and(
+					inArray(sshLiveSessions.status as typeof hosts.name, [
+						'starting',
+						'attached',
+						'detached'
+					]),
+					lte(sshLiveSessions.createdAt, now)
+				)
 			)
 			.returning({ id: sshLiveSessions.id });
 
@@ -371,7 +378,10 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 			.set({ status: 'ended', endedAt: now, updatedAt: now })
 			.where(
 				and(
-					eq(sshLiveSessions.status as typeof hosts.name, 'detached'),
+					or(
+						eq(sshLiveSessions.status as typeof hosts.name, 'starting'),
+						eq(sshLiveSessions.status as typeof hosts.name, 'detached')
+					),
 					lte(sshLiveSessions.expiresAt, now)
 				)
 			)
@@ -592,6 +602,7 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 		let count = 0;
 		for (const session of this.sshLiveSessions.values()) {
 			if (!isOpenSshLiveSessionStatus(session.status)) continue;
+			if (session.createdAt.getTime() > now.getTime()) continue;
 			this.sshLiveSessions.set(session.id, {
 				...session,
 				status: 'stale',
@@ -607,7 +618,7 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 		const expired: SshLiveSessionRecord[] = [];
 		for (const session of this.sshLiveSessions.values()) {
 			if (
-				session.status !== 'detached' ||
+				(session.status !== 'starting' && session.status !== 'detached') ||
 				!session.expiresAt ||
 				session.expiresAt.getTime() > now.getTime()
 			) {

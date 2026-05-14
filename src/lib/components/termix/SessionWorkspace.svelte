@@ -36,6 +36,7 @@
 	import RdpPane from './session/RdpPane.svelte';
 	import SftpLaunchPane from './session/SftpLaunchPane.svelte';
 	import SessionHostLauncher from './session/SessionHostLauncher.svelte';
+	import SshLaunchPane from './session/SshLaunchPane.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
 	import VncLaunchPane from './session/VncLaunchPane.svelte';
 
@@ -82,6 +83,9 @@
 		if (!requestedHostId) return null;
 		return hosts.find((host) => host.id === requestedHostId) ?? null;
 	});
+	let selectedHostLiveSshSessions = $derived.by(() =>
+		selectedHost ? liveSshSessions.filter((session) => session.hostId === selectedHost.id) : []
+	);
 	let availableTabs = $derived(selectedHost ? protocolsForHost(selectedHost) : []);
 	let requestedProtocol = $derived.by(() => {
 		const requestedTab = page.url.searchParams.get('tab') as WorkspaceProtocol | null;
@@ -145,10 +149,26 @@
 		return createSessionLaunch({ hostId, protocol });
 	}
 
-	function reconnect() {
+	async function reconnect() {
 		if (!selectedHost || activeProtocol === 'sftp') return;
 		pausedSessionKey = null;
-		liveSshAttach = null;
+
+		if (activeProtocol === 'ssh') {
+			const attachableSessions = selectedHostLiveSshSessions.filter(canAttachLiveSshSession);
+			const existingSession =
+				attachableSessions.find((session) => session.id === activeLiveSshSessionId) ??
+				attachableSessions[0];
+			liveSshAttach = null;
+			reconnectNonce += 1;
+
+			if (existingSession) {
+				await attachPersistentSshTab(existingSession);
+			} else {
+				await createPersistentSshTab();
+			}
+			return;
+		}
+
 		reconnectNonce += 1;
 	}
 
@@ -315,6 +335,15 @@
 		}
 	}
 
+	function handleLiveSshLaunch(launch: LiveSshAttach) {
+		activeLiveSshSessionId = launch.session.id;
+		dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
+			(sessionId) => sessionId !== launch.session.id
+		);
+		liveSshAttach = launch;
+		pausedSessionKey = null;
+	}
+
 	function refreshLiveSshSessionsSoon() {
 		void listLiveSshSessions().refresh();
 		if (browser) window.setTimeout(() => void listLiveSshSessions().refresh(), 250);
@@ -368,6 +397,14 @@
 
 	function sessionPauseKey(hostId: string, protocol: string) {
 		return `termix-session:${hostId}:${protocol}`;
+	}
+
+	function canAttachLiveSshSession(session: LiveSshSessionSummary) {
+		return (
+			session.status === 'attached' ||
+			session.status === 'detached' ||
+			session.status === 'starting'
+		);
 	}
 
 	function errorMessage(caught: unknown) {
@@ -446,18 +483,29 @@
 			/>
 		</div>
 	{:else if !selectedHost}
-		<SessionHostLauncher
-			hosts={hostSelectionHosts}
-			allHostsCount={hosts.length}
-			title={hostSelectionTitle}
-			detail={hostSelectionDetail}
-			{launcherProtocol}
-			bind:search={sessionSearch}
-			onProtocolChange={setLauncherProtocol}
-			onSelectHost={selectHost}
-			protocolForHost={protocolForSelectedHost}
-			{protocolsForHost}
-		/>
+		<div class="flex min-h-0 flex-1 flex-col">
+			<LiveSshTabStrip
+				sessions={liveSshSessions}
+				activeSessionId={activeLiveSshSessionId}
+				busy={liveSshBusy}
+				onCreate={createPersistentSshTab}
+				onAttach={attachPersistentSshTab}
+				onRename={renamePersistentSshTab}
+				onClose={closePersistentSshTab}
+			/>
+			<SessionHostLauncher
+				hosts={hostSelectionHosts}
+				allHostsCount={hosts.length}
+				title={hostSelectionTitle}
+				detail={hostSelectionDetail}
+				{launcherProtocol}
+				bind:search={sessionSearch}
+				onProtocolChange={setLauncherProtocol}
+				onSelectHost={selectHost}
+				protocolForHost={protocolForSelectedHost}
+				{protocolsForHost}
+			/>
+		</div>
 	{:else}
 		<Tabs.Root value={activeProtocol} class="flex min-h-0 flex-1 flex-col">
 			<Tabs.List class="h-10 justify-start rounded-none border-b bg-muted/20 px-2">
@@ -487,18 +535,14 @@
 					{:else if liveSshBusy}
 						<StatePanel state="loading" title="Opening SSH tab" detail="Preparing attach ticket." />
 					{:else if liveSshAttach}
-						{#key `ssh-live:${liveSshAttach.session.id}:${liveSshAttach.fallbackTicket}:${reconnectNonce}`}
+						{#key `ssh-live:${liveSshAttach.session.id}:${liveSshAttach.liveTicket}:${reconnectNonce}`}
 							<TerminalPane
 								title={liveSshAttach.session.title}
 								subtitle={`${liveSshAttach.session.username ?? 'user'}@${liveSshAttach.session.hostname}`}
-								websocketUrl={toWebSocketUrl(
-									liveSshAttach.liveWebsocketPath ?? liveSshAttach.fallbackWebsocketPath
-								)}
+								websocketUrl={toWebSocketUrl(liveSshAttach.liveWebsocketPath)}
 								welcome={[
 									`$ ssh ${liveSshAttach.session.hostname}`,
-									liveSshAttach.liveWebsocketPath
-										? 'Attaching live SSH session...'
-										: 'Opening websocket bridge...',
+									'Attaching live SSH session...',
 									''
 								]}
 								fontSize={appSettings.terminalFontSize}
@@ -509,33 +553,28 @@
 						<StatePanel
 							state="disconnected"
 							title="SSH disconnected"
-							detail="Reconnect to create a new session."
+							detail="Reconnect to attach the SSH tab again."
+						/>
+					{:else if liveSshSessionsQuery.loading}
+						<StatePanel
+							state="loading"
+							title="Loading SSH tabs"
+							detail="Fetching live session state."
+						/>
+					{:else if selectedHostLiveSshSessions.length > 0}
+						<StatePanel
+							state="ready"
+							title="SSH tabs available"
+							detail="Existing live sessions are idle."
 						/>
 					{:else if browser && activeProtocol === 'ssh'}
 						{#key `ssh:${selectedHost.id}:${reconnectNonce}`}
-							{#await getSessionLaunch(selectedHost.id, 'ssh')}
-								<StatePanel
-									state="loading"
-									title="Opening SSH"
-									detail="Creating a session ticket."
-								/>
-							{:then currentLaunch}
-								<TerminalPane
-									title="SSH terminal"
-									subtitle={`${selectedHost.username ?? 'user'}@${selectedHost.hostname}`}
-									websocketUrl={currentLaunch.websocketPath
-										? toWebSocketUrl(currentLaunch.websocketPath)
-										: undefined}
-									welcome={[`$ ssh ${selectedHost.hostname}`, 'Opening websocket bridge...', '']}
-									fontSize={appSettings.terminalFontSize}
-								/>
-							{:catch caught}
-								<StatePanel
-									state="error"
-									title="Session launch failed"
-									detail={errorMessage(caught)}
-								/>
-							{/await}
+							<SshLaunchPane
+								host={selectedHost}
+								fontSize={appSettings.terminalFontSize}
+								onLaunch={handleLiveSshLaunch}
+								onConnectionStateChange={handleLiveSshTerminalState}
+							/>
 						{/key}
 					{/if}
 				</div>

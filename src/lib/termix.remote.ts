@@ -108,9 +108,7 @@ export type LiveSshSessionSummary = {
 export type LiveSshAttach = {
 	session: LiveSshSessionSummary;
 	liveTicket: string;
-	liveWebsocketPath: string | null;
-	fallbackTicket: string;
-	fallbackWebsocketPath: string;
+	liveWebsocketPath: string;
 	expiresAt: string;
 };
 
@@ -505,18 +503,11 @@ async function createLiveSshAttach(
 		new Date(),
 		ttlMs
 	);
-	const fallback = await sessionTicketService.create(userId, {
-		hostId: session.hostId,
-		protocol: 'ssh',
-		ttlMs
-	});
 
 	return {
 		session,
 		liveTicket: liveTicket.ticket,
 		liveWebsocketPath: `/ws/ssh/live/${encodeURIComponent(liveTicket.ticket)}`,
-		fallbackTicket: fallback.ticket,
-		fallbackWebsocketPath: `/ws/ssh/${encodeURIComponent(fallback.ticket)}`,
 		expiresAt: liveTicket.record.expiresAt.toISOString()
 	};
 }

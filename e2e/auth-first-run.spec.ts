@@ -193,7 +193,7 @@ async function seedHosts(page: Page) {
 }
 
 async function expandSidebarGroup(page: Page, name: string) {
-	const button = page.getByRole('button', { name: new RegExp(`^${name}\\b`) });
+	const button = page.getByRole('button', { name: `Toggle ${name} navigation` });
 	if ((await button.getAttribute('aria-expanded')) !== 'true') {
 		await button.click();
 	}

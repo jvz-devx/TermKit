@@ -55,6 +55,7 @@ export class SshLiveSessionService {
 	private readonly detachedIdleTtlMs: number;
 	private readonly maxLiveSessionsPerUser: number;
 	private readonly terminalStatusVisibleMs: number;
+	private readonly createQueues = new Map<string, Promise<void>>();
 
 	constructor(
 		private readonly repository: SshLiveSessionRepository = termixRepository,
@@ -85,6 +86,13 @@ export class SshLiveSessionService {
 	}
 
 	async createOrReuse(
+		userId: string,
+		input: CreateOrReuseSshLiveSessionInput
+	): Promise<CreatedOrReusedSshLiveSession> {
+		return this.withUserCreateLock(userId, () => this.createOrReuseUnlocked(userId, input));
+	}
+
+	private async createOrReuseUnlocked(
 		userId: string,
 		input: CreateOrReuseSshLiveSessionInput
 	): Promise<CreatedOrReusedSshLiveSession> {
@@ -143,6 +151,26 @@ export class SshLiveSessionService {
 		});
 
 		return { session, reused: false };
+	}
+
+	private async withUserCreateLock<T>(userId: string, work: () => Promise<T>): Promise<T> {
+		const previous = this.createQueues.get(userId) ?? Promise.resolve();
+		let releaseCurrent!: () => void;
+		const current = new Promise<void>((resolve) => {
+			releaseCurrent = resolve;
+		});
+		const queued = previous.catch(() => undefined).then(() => current);
+		this.createQueues.set(userId, queued);
+
+		await previous.catch(() => undefined);
+		try {
+			return await work();
+		} finally {
+			releaseCurrent();
+			if (this.createQueues.get(userId) === queued) {
+				this.createQueues.delete(userId);
+			}
+		}
 	}
 
 	async rename(

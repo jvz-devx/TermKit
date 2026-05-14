@@ -532,7 +532,7 @@ async function handleLiveSshConnection(
 async function persistLiveSshSocketClose(
 	liveSshSessions: Pick<SshLiveSessionService, 'markDetached' | 'end' | 'fail'>,
 	attachTicket: SshAttachTicket,
-	closeCode: number,
+	_closeCode: number,
 	closeReason: string
 ): Promise<void> {
 	if (closeReason === 'ssh shell closed' || closeReason === 'ssh session closed') {
@@ -543,7 +543,6 @@ async function persistLiveSshSocketClose(
 	}
 
 	if (
-		isFailedCloseCode(closeCode) ||
 		closeReason === 'ssh shell failed' ||
 		closeReason === 'ssh connection failed' ||
 		closeReason === 'ssh host key not trusted' ||

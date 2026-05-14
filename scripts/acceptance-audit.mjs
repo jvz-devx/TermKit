@@ -150,7 +150,7 @@ const checks = [
 	{
 		name: 'V1 checks, tests, and production build',
 		status: 'local',
-		evidence: 'npm run check && npm run lint && npm test && npm run build'
+		evidence: 'npm run check && npm run lint && npm test && npm run test:e2e && npm run build'
 	},
 	{
 		name: 'V2 Microsoft Entra config validation, login routes, callback routes, and UI affordance',

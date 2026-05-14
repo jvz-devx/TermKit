@@ -195,7 +195,7 @@ nix develop -c npm run check
 nix develop -c npm run lint
 ```
 
-Print the current acceptance evidence map and external proof blockers. This command does not run the local gates for you; run it after the listed checks, builds, and smokes. It exits with status `2` while real-target or manual proof is still blocked, so it can be used as the external-proof portion of a strict release gate:
+Print the current acceptance evidence map and external proof blockers. This command does not run the local gates for you; run it after the listed checks, build, Playwright e2e test, and smokes. It exits with status `2` while real-target or manual proof is still blocked, so it can be used as the external-proof portion of a strict release gate:
 
 ```sh
 nix develop -c npm run audit:acceptance
