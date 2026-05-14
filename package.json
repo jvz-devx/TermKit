@@ -9,6 +9,7 @@
 		"build:server": "node scripts/build-server.mjs",
 		"audit:acceptance": "node scripts/acceptance-audit.mjs",
 		"acceptance:proof-template": "node scripts/acceptance-proof-template.mjs",
+		"acceptance:record-microsoft-smoke": "node scripts/record-microsoft-smoke-proof.mjs",
 		"preview": "vite preview",
 		"start": "node scripts/start-production.mjs",
 		"prepare": "svelte-kit sync || echo ''",

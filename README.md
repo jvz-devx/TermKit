@@ -236,12 +236,25 @@ For the V2 Microsoft acceptance proof, run the smoke from an environment that al
 TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft
 ```
 
+To run that smoke and record the proof entry in `acceptance-proof.local.json` in one step, use:
+
+```sh
+npm run acceptance:record-microsoft-smoke
+```
+
 When the app registration also supports client credentials, run the stricter token-exchange variant and record that command/output instead:
 
 ```sh
 TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 \
 	TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE=https://graph.microsoft.com/.default \
 	npm run smoke:microsoft
+```
+
+The proof recorder also supports the client-credentials variant:
+
+```sh
+TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE=https://graph.microsoft.com/.default \
+	npm run acceptance:record-microsoft-smoke
 ```
 
 The browser-only V2 Microsoft proof is manual because it must use real tenant users. Start TermixKit with Microsoft auth enabled, then record operator notes or redacted screenshots proving that an allowed-domain user can sign in and receives a TermixKit session, a blocked-domain user is denied, a configured `MICROSOFT_ADMIN_EMAILS` account covers the admin-email provisioning or promotion case, and local login through username/password remains available. The proof narrative must include the exact fragments `allowed-domain`, `blocked-domain`, `admin-email`, and `local login` so `npm run audit:acceptance` can validate the local proof file.
