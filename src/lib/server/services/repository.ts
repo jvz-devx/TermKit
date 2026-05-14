@@ -338,8 +338,9 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 		patch: SshLiveSessionPatch
 	): Promise<SshLiveSessionRecord | null> {
 		const { sshLiveSessions } = getSshLiveSchema();
-		const statusGuard = requiresOpenSshLiveSessionUpdate(patch)
-			? inArray(sshLiveSessions.status as typeof hosts.name, ['starting', 'attached', 'detached'])
+		const allowedCurrentStatuses = allowedCurrentSshLiveStatusesForUpdate(patch);
+		const statusGuard = allowedCurrentStatuses
+			? inArray(sshLiveSessions.status as typeof hosts.name, allowedCurrentStatuses)
 			: undefined;
 		const [row] = await (this.database.update(sshLiveSessions) as unknown as ReturningUpdate)
 			.set(sshLiveSessionPatchToDb(patch))
@@ -589,7 +590,8 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	): Promise<SshLiveSessionRecord | null> {
 		const session = await this.getSshLiveSession(userId, id);
 		if (!session) return null;
-		if (requiresOpenSshLiveSessionUpdate(patch) && !isOpenSshLiveSessionStatus(session.status)) {
+		const allowedCurrentStatuses = allowedCurrentSshLiveStatusesForUpdate(patch);
+		if (allowedCurrentStatuses && !allowedCurrentStatuses.includes(session.status)) {
 			return null;
 		}
 
@@ -845,8 +847,12 @@ function isOpenSshLiveSessionStatus(status: SshLiveSessionRecord['status']): boo
 	return status === 'starting' || status === 'attached' || status === 'detached';
 }
 
-function requiresOpenSshLiveSessionUpdate(patch: SshLiveSessionPatch): boolean {
-	return patch.status !== undefined;
+function allowedCurrentSshLiveStatusesForUpdate(
+	patch: SshLiveSessionPatch
+): SshLiveSessionRecord['status'][] | null {
+	if (patch.status === undefined) return null;
+	if (patch.status === 'ended') return ['starting', 'attached', 'detached', 'stale'];
+	return ['starting', 'attached', 'detached'];
 }
 
 function ticketTargetToDb(target?: string): Record<string, unknown> {

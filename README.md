@@ -36,6 +36,14 @@ Local username/password auth remains available. Microsoft Entra login is enabled
 
 The flow uses authorization code + PKCE and defaults to `openid profile email` scopes. `MICROSOFT_SCOPES` can override the scopes but must include `openid`. Tenant IDs must be tenant-specific UUIDs or verified tenant domains; shared authorities such as `common`, `organizations`, and `consumers` are rejected in production. New Microsoft users are auto-provisioned only when their normalized email domain is in `MICROSOFT_ALLOWED_DOMAINS`. If TermixKit has no users yet, the first Microsoft sign-in must match `MICROSOFT_ADMIN_EMAILS`; after setup, domain-allowed Microsoft users can provision normal sessions, and any listed admin email is promoted to a TermixKit admin on provisioning or subsequent login.
 
+## Production Deployment
+
+Run V2 live SSH deployments as a single TermixKit app replica unless the reverse proxy provides sticky websocket routing to the same app process for reconnects. Live SSH shell processes, active browser attachments, and bounded terminal scrollback live in the Node process; Postgres persists live-session metadata and attach tickets only. A container or app restart marks old metadata as `stale` and drops the running SSH processes and scrollback. The default live SSH limits are 10 sessions per user, 60-second attach tickets, and a two-hour detached-session idle window.
+
+The public reverse proxy must expose the app origin and preserve HTTP upgrade headers for websocket paths. Route `/ws/*` to the TermixKit app for live SSH and V1 websocket launch flows, and route `/gateway/jet/*` through the app's `/gateway` proxy so browser RDP traffic reaches the internal Devolutions Gateway. `GATEWAY_PUBLIC_URL` should stay on the app origin with the `/gateway` mount, not on the internal Gateway container.
+
+When Microsoft Entra login is enabled, configure the app registration redirect URI as `${ORIGIN}/auth/microsoft/callback` unless `MICROSOFT_REDIRECT_URI` is set to an absolute deployment-specific override. `MICROSOFT_SCOPES` is optional; leave it unset for `openid profile email` unless the deployment needs extra OIDC scopes, and keep `openid` included.
+
 ## Local Development
 
 Enter the Nix dev shell before running interactive project tooling:
@@ -195,7 +203,7 @@ nix develop -c npm run check
 nix develop -c npm run lint
 ```
 
-Print the current acceptance evidence map and external proof blockers. This command does not run the local gates for you; run it after the listed checks, build, Playwright e2e test, and smokes. It exits with status `2` while real-target or manual proof is still blocked, so it can be used as the external-proof portion of a strict release gate:
+Print the current acceptance evidence map and external proof blockers. This command does not run the local gates for you; run it after the listed checks, build, Playwright e2e test, and smokes. It exits with status `2` while required V1 real-target proof is blocked. Missing real Microsoft tenant/browser proof is reported as `external-blocked` instead of failing repo-owned V2 acceptance when the required tenant, app registration, and test users are not available:
 
 ```sh
 nix develop -c npm run audit:acceptance

@@ -13,7 +13,7 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -45,3 +45,26 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Microsoft fixture smoke
+        run: npm run smoke:microsoft
+        env:
+          MICROSOFT_AUTH_ENABLED: '0'
+
+      - name: Production websocket smoke
+        run: npm run smoke:ws
+
+      - name: Docker Compose config
+        run: docker compose config --quiet
+        env:
+          ORIGIN: http://localhost:3000
+          TERMIXKIT_INSECURE_LOCAL_HTTP: '1'
+          APP_SECRET: ci-app-secret-ci-app-secret-ci-app-secret
+          CREDENTIAL_MASTER_KEY: ci-credential-master-key-ci-credential-master-key
+          POSTGRES_PASSWORD: ci-postgres-password
+          GATEWAY_PUBLIC_URL: http://localhost:3000/gateway
+          GATEWAY_PROVISIONER_KEY: ci-gateway-provisioner-key
+          MICROSOFT_AUTH_ENABLED: '0'
+
+      - name: Docker Compose smoke
+        run: npm run smoke:compose

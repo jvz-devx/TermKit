@@ -441,6 +441,47 @@ describe('SshLiveSessionService', () => {
 		});
 	});
 
+	it('allows stale live sessions to be closed without accepting live status updates', async () => {
+		expect.assertions(4);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository);
+		const host = await hosts.create('user-1', {
+			name: 'Stale shell',
+			protocol: 'ssh',
+			hostname: 'stale.example.test',
+			port: 22
+		});
+		const { session } = await service.createOrReuse('user-1', {
+			hostId: host.id,
+			now: new Date('2026-05-13T11:59:59.000Z')
+		});
+
+		await service.markStaleOnStartup(new Date('2026-05-13T12:00:00.000Z'));
+
+		await expect(
+			repository.updateSshLiveSession('user-1', session.id, {
+				status: 'attached',
+				lastAttachedAt: new Date('2026-05-13T12:00:01.000Z'),
+				expiresAt: null,
+				updatedAt: new Date('2026-05-13T12:00:01.000Z')
+			})
+		).resolves.toBeNull();
+		await expect(repository.getSshLiveSession('user-1', session.id)).resolves.toMatchObject({
+			status: 'stale',
+			endedAt: new Date('2026-05-13T12:00:00.000Z')
+		});
+		await expect(
+			service.close('user-1', session.id, new Date('2026-05-13T12:00:02.000Z'))
+		).resolves.toMatchObject({
+			status: 'ended',
+			endedAt: new Date('2026-05-13T12:00:02.000Z'),
+			expiresAt: null
+		});
+		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(0);
+	});
+
 	it('lists live, stale, and recent terminal sessions for workspace visibility', async () => {
 		expect.assertions(3);
 

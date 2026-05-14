@@ -181,7 +181,7 @@ describe('acceptance proof scripts', () => {
 
 		expect(result.status).toBe(2);
 		expect(result.stdout).toContain('[blocked] V1 real SSH host verification');
-		expect(result.stdout).toContain('[blocked] V2 Microsoft interactive login acceptance');
+		expect(result.stdout).toContain('[external-blocked] V2 Microsoft interactive login acceptance');
 	});
 
 	it('accepts only recorder-shaped proof output for external acceptance', () => {
@@ -239,6 +239,27 @@ describe('acceptance proof scripts', () => {
 		expect(secretResult.stdout).toContain('[blocked] V2 real Microsoft Entra discovery');
 		expect(passwordResult.status).toBe(2);
 		expect(passwordResult.stdout).toContain('[blocked] V2 Microsoft interactive login acceptance');
+	});
+
+	it('treats absent Microsoft proof as external-blocked when repo-owned proofs pass', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const {
+			microsoftSmoke: _microsoftSmoke,
+			microsoftInteractive: _microsoftInteractive,
+			...proofs
+		} = validAcceptanceProofs();
+		const proofPath = writeAcceptanceProofFile(directory, proofs);
+		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
+		});
+
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('[external-blocked] V2 real Microsoft Entra discovery');
+		expect(result.stdout).toContain('[external-blocked] V2 Microsoft interactive login acceptance');
+		expect(result.stdout).toContain(
+			'acceptance audit: repo-owned requirements passed; 2 external Microsoft proof item(s) remain blocked'
+		);
 	});
 });
 
