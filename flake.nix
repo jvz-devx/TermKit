@@ -31,6 +31,7 @@
               pkgs.chromium
               pkgs.docker-compose
               pkgs.git
+              pkgs.tigervnc
             ];
 
             PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
