@@ -326,6 +326,14 @@ nix develop -c npm run smoke:protocols
 
 When real test targets are available, the same command can also verify an external SSH host and a real VNC framebuffer handshake. Configure SSH with `TERMIXKIT_SMOKE_SSH_HOST`, `TERMIXKIT_SMOKE_SSH_USERNAME`, `TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256`, and either `TERMIXKIT_SMOKE_SSH_PASSWORD` or `TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PATH`; optional values are `TERMIXKIT_SMOKE_SSH_PORT`, `TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PASSPHRASE`, `TERMIXKIT_SMOKE_SSH_COMMAND`, `TERMIXKIT_SMOKE_SSH_SFTP_PATH`, `TERMIXKIT_SMOKE_SSH_SKIP_SFTP=1`, and `TERMIXKIT_SMOKE_PROTOCOL_TIMEOUT_MS`. The SSH fingerprint accepts OpenSSH `SHA256:<base64>` or a 64-character hex SHA256 digest and is required before credentials are sent. Configure VNC with `TERMIXKIT_SMOKE_VNC_HOST` and optional `TERMIXKIT_SMOKE_VNC_PORT`; the automated VNC target must allow no-auth RFB security so the smoke can reach `ServerInit` without storing a desktop password in the environment.
 
+Record current-commit external SSH or VNC proof entries after those real-target
+smokes pass:
+
+```sh
+npm run acceptance:record-real-ssh
+npm run acceptance:record-real-vnc
+```
+
 The Nix dev shell includes TigerVNC for reproducible local VNC proof runs. Start a temporary no-auth server in one shell, then run the smoke in another:
 
 ```sh
@@ -343,6 +351,12 @@ Smoke-test RDP Gateway bootstrapping. Without real Gateway env vars this runs a 
 
 ```sh
 nix develop -c npm run smoke:rdp-gateway
+```
+
+Record current-commit RDP proof after the real Gateway/RDP smoke passes:
+
+```sh
+npm run acceptance:record-real-rdp
 ```
 
 Run the browser first-run/authentication smoke. The script selects Nix Chromium
