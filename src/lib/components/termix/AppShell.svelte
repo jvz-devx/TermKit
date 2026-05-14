@@ -5,7 +5,12 @@
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 
-	let { children }: { children: import('svelte').Snippet } = $props();
+	type ShellUser = {
+		username: string;
+		isAdmin: boolean;
+	} | null;
+
+	let { children, user }: { children: import('svelte').Snippet; user?: ShellUser } = $props();
 
 	const titles: Record<string, string> = {
 		'/hosts': 'Hosts',
@@ -16,10 +21,28 @@
 	};
 
 	const pageTitle = $derived(titles[page.url.pathname] ?? 'Operations');
+
+	function sidebarUser(user: { username: string; isAdmin: boolean } | null) {
+		const username = user?.username?.trim() || 'User';
+		return {
+			name: username,
+			email: user?.isAdmin ? 'admin' : 'standard user',
+			initials: initials(username)
+		};
+	}
+
+	function initials(value: string) {
+		const parts = value
+			.split(/[^a-z0-9]+/i)
+			.map((part) => part.trim())
+			.filter(Boolean);
+		const raw = parts.length >= 2 ? `${parts[0][0]}${parts[1][0]}` : value.slice(0, 2);
+		return raw.toUpperCase();
+	}
 </script>
 
 <Sidebar.Provider>
-	<AppSidebar />
+	<AppSidebar user={sidebarUser(user ?? null)} />
 	<Sidebar.Inset>
 		<header
 			class="flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12"
@@ -41,7 +64,7 @@
 			</div>
 			<div class="ms-auto flex items-center gap-2 text-xs text-muted-foreground">
 				<span class="size-2 rounded-full bg-emerald-500"></span>
-				Connected
+				App session
 			</div>
 		</header>
 		<main class="min-h-0 flex-1 overflow-auto">{@render children()}</main>

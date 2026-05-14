@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { importService } from '$lib/server/import/service';
-import { POST as importPost } from './jobs/+server';
+import { GET as jobsGet, POST as importPost } from './jobs/+server';
 import { POST as validatePost } from './validate/+server';
 
 vi.mock('$lib/server/import/service', () => ({
@@ -12,6 +12,10 @@ vi.mock('$lib/server/import/service', () => ({
 }));
 
 describe('import API routes', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
 	it('passes sourceSecret through validation uploads', async () => {
 		const request = formRequest('/api/import/validate', 'validate-secret');
 
@@ -39,6 +43,22 @@ describe('import API routes', () => {
 			})
 		);
 	});
+
+	it('rejects unauthenticated import validation and job requests', async () => {
+		const validateResponse = await validatePost(
+			routeEvent(formRequest('/api/import/validate', 'validate-secret'), false)
+		);
+		const jobsResponse = await jobsGet(
+			routeEvent(new Request('https://termix.test/api/import/jobs'), false)
+		);
+
+		expect(validateResponse.status).toBe(401);
+		expect(await validateResponse.json()).toMatchObject({ error: 'Unauthenticated' });
+		expect(jobsResponse.status).toBe(401);
+		expect(await jobsResponse.json()).toMatchObject({ error: 'Unauthenticated' });
+		expect(importService.validate).not.toHaveBeenCalled();
+		expect(importService.listJobs).not.toHaveBeenCalled();
+	});
 });
 
 function formRequest(path: string, sourceSecret: string): Request {
@@ -48,9 +68,9 @@ function formRequest(path: string, sourceSecret: string): Request {
 	return new Request(`https://termix.test${path}`, { method: 'POST', body: form });
 }
 
-function routeEvent(request: Request) {
+function routeEvent(request: Request, authenticated = true) {
 	return {
 		request,
-		locals: { user: { id: 'user-1' } }
+		locals: authenticated ? { user: { id: 'user-1' } } : {}
 	} as Parameters<typeof validatePost>[0];
 }

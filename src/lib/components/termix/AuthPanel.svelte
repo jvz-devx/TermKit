@@ -18,7 +18,7 @@
 	}: { mode?: 'login' | 'first-run'; microsoftAuth?: MicrosoftAuth } = $props();
 
 	const showMicrosoftSignIn = $derived(
-		mode === 'login' && microsoftAuth?.enabled === true && typeof microsoftAuth.href === 'string'
+		microsoftAuth?.enabled === true && typeof microsoftAuth.href === 'string'
 	);
 </script>
 
@@ -41,6 +41,18 @@
 		</div>
 
 		{#if mode === 'first-run'}
+			{#if showMicrosoftSignIn && microsoftAuth?.href}
+				<div class="mb-4 space-y-4">
+					<MicrosoftSignIn href={microsoftAuth.href} />
+					<div class="relative flex items-center">
+						<Separator />
+						<span
+							class="absolute left-1/2 -translate-x-1/2 bg-background px-2 text-xs text-muted-foreground"
+							>or</span
+						>
+					</div>
+				</div>
+			{/if}
 			<form class="space-y-4" {...firstRunForm}>
 				<div class="space-y-2">
 					<Label for="username">Username</Label>

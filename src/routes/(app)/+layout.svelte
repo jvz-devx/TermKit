@@ -1,9 +1,10 @@
 <script lang="ts">
 	import AppShell from '$lib/components/termix/AppShell.svelte';
+	import type { LayoutProps } from './$types';
 
-	let { children } = $props();
+	let { data, children }: LayoutProps = $props();
 </script>
 
-<AppShell>
+<AppShell user={data.user}>
 	{@render children()}
 </AppShell>

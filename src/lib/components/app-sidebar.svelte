@@ -5,11 +5,6 @@
 	import SquareTerminalIcon from '@lucide/svelte/icons/square-terminal';
 
 	const data = {
-		user: {
-			name: 'Operator',
-			email: 'local session',
-			initials: 'OP'
-		},
 		teams: [
 			{
 				name: 'TermixKit',
@@ -51,11 +46,18 @@
 	import NavUser from './nav-user.svelte';
 	import TeamSwitcher from './team-switcher.svelte';
 
+	type SidebarUser = {
+		name: string;
+		email: string;
+		initials: string;
+	};
+
 	let {
+		user,
 		ref = $bindable(null),
 		collapsible = 'icon',
 		...restProps
-	}: ComponentProps<typeof Sidebar.Root> = $props();
+	}: ComponentProps<typeof Sidebar.Root> & { user: SidebarUser } = $props();
 </script>
 
 <Sidebar.Root bind:ref {collapsible} {...restProps}>
@@ -66,7 +68,7 @@
 		<NavMain items={data.navMain} />
 	</Sidebar.Content>
 	<Sidebar.Footer>
-		<NavUser user={data.user} />
+		<NavUser {user} />
 	</Sidebar.Footer>
 	<Sidebar.Rail />
 </Sidebar.Root>
