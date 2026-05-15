@@ -186,6 +186,11 @@ try {
 		fixtures.telnetState
 	);
 	pass('Telnet websocket with NAWS', 'saw telnet-ready, echo, and 132x43 NAWS');
+	await smokeTelnetBrowserUi(auth.page, telnetHost.id, fixtures.telnetState);
+	pass(
+		'Telnet browser terminal workflow',
+		'sent terminal command through browser controls, fixture saw browser input/NAWS, and UI close/reconnect opened a fresh Telnet session'
+	);
 
 	const vncCredential = await createVncCredential(api);
 	const vncHost = await createHost(api, {
@@ -197,10 +202,15 @@ try {
 		credentialId: vncCredential.id,
 		tags: ['smoke']
 	});
-	await smokeVncSavedCredentialLaunchUi(auth.page, vncHost.id, fixtures.vncState);
+	await smokeVncSavedCredentialLaunchUi(
+		auth.page,
+		vncHost.id,
+		fixtures.vncState,
+		fixtures.closeVncClients
+	);
 	pass(
-		'VNC saved credential staging',
-		'staged saved password, noVNC sent an auth response, and the secret was not rendered'
+		'VNC browser launch/reconnect',
+		'staged saved password, noVNC reached the local RFB fixture, handled disconnect, reconnected, and did not render the secret'
 	);
 	await smokeVncWebSocket(api, app.baseUrl, auth.cookieHeader, vncHost.id, fixtures.vncState);
 	pass('VNC websocket RFB banner', 'proxied RFB 003.008 banner');
@@ -218,8 +228,8 @@ try {
 		});
 		await smokeRdpSessionLaunchUi(auth.page, app.baseUrl, auth.cookieHeader, rdpHost.id, gateway);
 		pass(
-			'RDP remote launch boundary',
-			'staged saved password and proxied RDP JET path without leaking app cookies'
+			'RDP remote launch controls',
+			'staged saved password, showed clipboard controls, verified the server-side RDP JET proxy without app cookies, and reconnected through the mock Gateway'
 		);
 	} else {
 		pass('RDP remote launch boundary', 'skipped for externally managed app');
@@ -549,9 +559,10 @@ async function createHost(api, input) {
 	return host;
 }
 
-async function smokeVncSavedCredentialLaunchUi(page, hostId, vncState) {
+async function smokeVncSavedCredentialLaunchUi(page, hostId, vncState, closeVncClients) {
 	const launchPage = await page.context().newPage();
 	const initialAuthResponseCount = vncState.authResponseCount;
+	const initialCloseCount = vncState.closedCount;
 
 	try {
 		await launchPage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=vnc`);
@@ -573,6 +584,37 @@ async function smokeVncSavedCredentialLaunchUi(page, hostId, vncState) {
 			() => vncState.authResponseCount > initialAuthResponseCount,
 			() =>
 				`VNC fixture did not receive a password-auth response from noVNC. ${describeVncState(vncState)}`
+		);
+
+		closeVncClients();
+		await waitFor(
+			() => vncState.closedCount > initialCloseCount,
+			'VNC fixture client did not close after forced disconnect.'
+		);
+		await waitFor(
+			async () => {
+				const bodyText = (await launchPage.locator('body').textContent()) ?? '';
+				return bodyText.includes('VNC not connected') && bodyText.includes('VNC session closed.');
+			},
+			async () => {
+				const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
+					.replace(/\s+/g, ' ')
+					.trim();
+				return `VNC UI did not show disconnected state after fixture close: ${bodyText}`;
+			}
+		);
+
+		const beforeReconnectAuthCount = vncState.authResponseCount;
+		await launchPage.getByRole('button', { name: 'Reconnect', exact: true }).click();
+		await waitFor(
+			() => vncState.authResponseCount > beforeReconnectAuthCount,
+			() =>
+				`VNC fixture did not receive a second auth response after reconnect. ${describeVncState(vncState)}`
+		);
+		const reconnectedBodyText = (await launchPage.locator('body').textContent()) ?? '';
+		assert(
+			!reconnectedBodyText.includes('saved-vnc-password'),
+			'VNC pane rendered the saved password after reconnect'
 		);
 	} finally {
 		await launchPage.close().catch(() => {});
@@ -617,6 +659,18 @@ async function smokeRdpSessionLaunchUi(page, baseUrl, cookieHeader, hostId, gate
 		await assertResponse(proxyResponse, '/gateway/jet/rdp?association=1');
 		const proxyBody = await proxyResponse.json();
 		assert(proxyBody.ok === true, 'RDP app proxy did not return the Gateway response');
+		await waitFor(
+			async () => {
+				const bodyText = (await launchPage.locator('body').textContent()) ?? '';
+				return bodyText.includes('Clipboard on') && bodyText.includes('Text clipboard allowed.');
+			},
+			async () => {
+				const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
+					.replace(/\s+/g, ' ')
+					.trim();
+				return `RDP launch UI did not expose clipboard policy controls: ${bodyText}`;
+			}
+		);
 
 		const requests = gateway.requests.slice(initialGatewayRequests);
 		assert(requests[0]?.path === '/jet/webapp/app-token', 'missing RDP app-token request');
@@ -634,6 +688,46 @@ async function smokeRdpSessionLaunchUi(page, baseUrl, cookieHeader, hostId, gate
 		);
 		const bodyText = (await launchPage.locator('body').textContent()) ?? '';
 		assert(!bodyText.includes('saved-rdp-password'), 'RDP pane rendered the saved password');
+
+		const beforeReconnectRequests = gateway.requests.length;
+		await launchPage.getByRole('button', { name: 'Close session', exact: true }).click();
+		await waitFor(
+			async () => {
+				const closedText = (await launchPage.locator('body').textContent()) ?? '';
+				return (
+					closedText.includes('RDP launch failed') &&
+					closedText.includes('Disconnected. Reconnect to create a new session.')
+				);
+			},
+			async () => {
+				const closedText = ((await launchPage.locator('body').textContent()) ?? '')
+					.replace(/\s+/g, ' ')
+					.trim();
+				return `RDP UI did not show local disconnected state: ${closedText}`;
+			}
+		);
+		await launchPage.getByRole('button', { name: 'Reconnect', exact: true }).click();
+		await waitFor(
+			() => gateway.requests.length >= beforeReconnectRequests + 2,
+			'RDP reconnect did not provision a fresh Gateway association token.'
+		);
+		const reconnectRequests = gateway.requests.slice(beforeReconnectRequests);
+		assert(
+			reconnectRequests[0]?.path === '/jet/webapp/app-token',
+			'missing RDP reconnect app-token request'
+		);
+		assert(
+			reconnectRequests[1]?.path === '/jet/webapp/session-token',
+			'missing RDP reconnect session-token request'
+		);
+		assert(
+			reconnectRequests.every((request) => request.headers?.cookie === undefined),
+			'RDP reconnect forwarded app cookies to Gateway provisioning'
+		);
+		assert(
+			!JSON.stringify(reconnectRequests).includes('saved-rdp-password'),
+			'RDP reconnect leaked saved password to Gateway provisioning'
+		);
 	} finally {
 		await launchPage.close().catch(() => {});
 	}
@@ -1204,6 +1298,61 @@ async function smokeTelnetWebSocket(api, baseUrl, cookieHeader, hostId, telnetSt
 	}
 }
 
+async function smokeTelnetBrowserUi(page, hostId, telnetState) {
+	const launchPage = await page.context().newPage();
+	const initialConnectionCount = telnetState.connectionCount;
+	const initialNawsCount = telnetState.nawsFrames.length;
+
+	try {
+		await launchPage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=telnet`);
+		await waitFor(
+			() => telnetState.connectionCount > initialConnectionCount,
+			'Telnet browser launch did not reach the local fixture.'
+		);
+		await waitFor(
+			() => telnetState.nawsFrames.length > initialNawsCount,
+			'Telnet browser launch did not send terminal dimensions through NAWS.'
+		);
+
+		await launchPage.getByRole('button', { name: 'whoami', exact: true }).click();
+		await waitFor(
+			() => telnetState.sawBrowserProbe,
+			'Telnet fixture did not receive browser terminal input.'
+		);
+
+		const beforeCloseCount = telnetState.closedCount;
+		await launchPage.getByRole('button', { name: 'Close session', exact: true }).click();
+		await waitFor(
+			() => telnetState.closedCount > beforeCloseCount,
+			'Telnet browser close did not close the fixture socket.'
+		);
+		await waitFor(
+			async () => {
+				const bodyText = (await launchPage.locator('body').textContent()) ?? '';
+				return (
+					bodyText.includes('Telnet disconnected') &&
+					bodyText.includes('Reconnect to create a new session.')
+				);
+			},
+			async () => {
+				const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
+					.replace(/\s+/g, ' ')
+					.trim();
+				return `Telnet UI did not show disconnected state: ${bodyText}`;
+			}
+		);
+
+		const beforeReconnectCount = telnetState.connectionCount;
+		await launchPage.getByRole('button', { name: 'Reconnect', exact: true }).click();
+		await waitFor(
+			() => telnetState.connectionCount > beforeReconnectCount,
+			'Telnet browser reconnect did not open a fresh fixture connection.'
+		);
+	} finally {
+		await launchPage.close().catch(() => {});
+	}
+}
+
 async function smokeVncWebSocket(api, baseUrl, cookieHeader, hostId, vncState) {
 	const ticket = await createTicket(api, hostId, 'vnc');
 	const initialClientVersionCount = vncState.clientVersionCount;
@@ -1390,6 +1539,7 @@ async function startProtocolFixtures() {
 		vncPort: vnc.server.address().port,
 		telnetState: telnet.state,
 		vncState: vnc.state,
+		closeVncClients: () => vnc.server.closeAllClients?.(),
 		summary: `ssh:${sshServer.address().port} ftp:${ftp.server.address().port} ftps:${ftps.server.address().port} telnet:${telnet.server.address().port} vnc:${vnc.server.address().port}`,
 		close: async () => {
 			await Promise.all([
@@ -2041,17 +2191,30 @@ function createTelnetFixtureServer() {
 	const sockets = new Set();
 	const state = {
 		received: Buffer.alloc(0),
-		sawProbe: false
+		sawProbe: false,
+		sawBrowserProbe: false,
+		connectionCount: 0,
+		closedCount: 0,
+		nawsFrames: []
 	};
 	const server = createServer((socket) => {
 		sockets.add(socket);
-		socket.once('close', () => sockets.delete(socket));
+		state.connectionCount += 1;
+		socket.once('close', () => {
+			state.closedCount += 1;
+			sockets.delete(socket);
+		});
 		socket.write(Buffer.concat([Buffer.from([IAC, DO, NAWS]), Buffer.from('telnet-ready\r\n')]));
 		socket.on('data', (chunk) => {
 			state.received = Buffer.concat([state.received, chunk]);
+			state.nawsFrames = parseTelnetNawsFrames(state.received);
 			if (!state.sawProbe && chunk.includes(Buffer.from('probe\n'))) {
 				state.sawProbe = true;
 				socket.end('echo:probe\r\n');
+			}
+			if (!state.sawBrowserProbe && /whoami(?:\r\n|\r|\n)/.test(chunk.toString('utf8'))) {
+				state.sawBrowserProbe = true;
+				socket.write('echo:whoami\r\n');
 			}
 		});
 	});
@@ -2060,6 +2223,26 @@ function createTelnetFixtureServer() {
 		sockets.clear();
 	};
 	return { server, state };
+}
+
+function parseTelnetNawsFrames(buffer) {
+	const frames = [];
+	for (let index = 0; index <= buffer.length - 9; index += 1) {
+		if (
+			buffer[index] === IAC &&
+			buffer[index + 1] === SB &&
+			buffer[index + 2] === NAWS &&
+			buffer[index + 7] === IAC &&
+			buffer[index + 8] === SE
+		) {
+			frames.push({
+				cols: buffer.readUInt16BE(index + 3),
+				rows: buffer.readUInt16BE(index + 5)
+			});
+			index += 8;
+		}
+	}
+	return frames;
 }
 
 function createVncFixtureServer() {
@@ -2071,12 +2254,18 @@ function createVncFixtureServer() {
 		authResponseBytes: 0,
 		clientVersionCount: 0,
 		authResponseCount: 0,
+		connectionCount: 0,
+		closedCount: 0,
 		sawClientVersion: false,
 		sawAuthResponse: false
 	};
 	const server = createServer((socket) => {
 		sockets.add(socket);
-		socket.once('close', () => sockets.delete(socket));
+		state.connectionCount += 1;
+		socket.once('close', () => {
+			state.closedCount += 1;
+			sockets.delete(socket);
+		});
 		socket.write(rfbVersion);
 		recordVncEvent(state, 'server-version-sent');
 		let buffer = Buffer.alloc(0);

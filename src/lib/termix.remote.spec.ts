@@ -7,12 +7,20 @@ import { connectionSessionService } from '$lib/server/services/connection-sessio
 import { settingsService } from '$lib/server/services/settings';
 import { termixRepository } from '$lib/server/services/repository';
 import { resolveVncLaunchCredentials } from '$lib/server/protocols/vnc';
+import { resolveRdpLaunchCredentials } from '$lib/server/protocols/rdp-credentials';
+import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
+import { liveSshManager } from '$lib/server/ssh-live/manager';
 import {
+	attachLiveSshSession,
+	closeLiveSshSession,
+	createLiveSshSession,
 	createSessionLaunch,
 	listConnectionHistory,
 	listCredentials,
 	listHosts,
 	recordConnectionSessionLifecycle,
+	recordRdpSessionLifecycle,
+	renameLiveSshSession,
 	saveCredential,
 	saveHost,
 	saveSessionWorkspaceLayout
@@ -82,15 +90,19 @@ vi.mock('$lib/server/services/session-tickets', () => ({
 }));
 
 vi.mock('$lib/server/rdp/gateway', () => ({
-	RdpGatewayBootstrapper: vi.fn(() => ({
-		bootstrap: rdpGatewayMocks.bootstrap
-	}))
+	RdpGatewayBootstrapper: vi.fn(function () {
+		return {
+			bootstrap: rdpGatewayMocks.bootstrap
+		};
+	})
 }));
 
 vi.mock('$lib/server/ws/ticket-consumer', () => ({
-	SessionTicketConsumer: vi.fn(() => ({
-		consume: ticketConsumerMocks.consume
-	}))
+	SessionTicketConsumer: vi.fn(function () {
+		return {
+			consume: ticketConsumerMocks.consume
+		};
+	})
 }));
 
 vi.mock('$lib/server/protocols/vnc', () => ({
@@ -304,6 +316,14 @@ describe('termix remote functions', () => {
 		expect(connectionSessionService.start).not.toHaveBeenCalled();
 	});
 
+	it('requires a host id before launch policy or ticket work', async () => {
+		await expect(createSessionLaunch({ protocol: 'ssh' })).rejects.toBeInstanceOf(
+			ServiceValidationError
+		);
+		expect(hostService.get).not.toHaveBeenCalled();
+		expect(sessionTicketService.create).not.toHaveBeenCalled();
+	});
+
 	it('creates policy-checked SFTP launches without exposing transport tickets', async () => {
 		vi.mocked(hostService.get).mockResolvedValueOnce(hostRecord({ protocol: 'ssh' }) as never);
 		vi.mocked(connectionSessionService.start).mockResolvedValueOnce({
@@ -327,6 +347,121 @@ describe('termix remote functions', () => {
 			websocketPath: null,
 			connectionSessionId: 'connection-1'
 		});
+	});
+
+	it('rejects SFTP launches when the connection session cannot be activated', async () => {
+		vi.mocked(hostService.get).mockResolvedValueOnce(hostRecord({ protocol: 'ssh' }) as never);
+		vi.mocked(connectionSessionService.start).mockResolvedValueOnce({
+			id: 'connection-1'
+		} as never);
+		vi.mocked(connectionSessionService.markActive).mockResolvedValueOnce(null as never);
+
+		await expect(
+			createSessionLaunch({ hostId: 'host-1', protocol: 'sftp' })
+		).rejects.toBeInstanceOf(ServiceValidationError);
+	});
+
+	it.each(['ftp', 'ftps'] as const)(
+		'creates policy-checked %s launches without transport tickets',
+		async (protocol) => {
+			vi.mocked(hostService.get).mockResolvedValueOnce(hostRecord({ protocol }) as never);
+			vi.mocked(connectionSessionService.start).mockResolvedValueOnce({
+				id: `${protocol}-connection`
+			} as never);
+			vi.mocked(connectionSessionService.markActive).mockResolvedValueOnce({
+				id: `${protocol}-connection`
+			} as never);
+
+			const launch = await createSessionLaunch({ hostId: 'host-1', protocol });
+
+			expect(connectionSessionService.start).toHaveBeenCalledWith({
+				userId: 'user-1',
+				hostId: 'host-1',
+				protocol
+			});
+			expect(launch).toMatchObject({
+				hostId: 'host-1',
+				protocol,
+				ticket: null,
+				websocketPath: null,
+				connectionSessionId: `${protocol}-connection`
+			});
+		}
+	);
+
+	it.each([
+		['ftp', 'ftps'],
+		['ftps', 'ftp']
+	] as const)('blocks %s launches for %s hosts', async (protocol, hostProtocol) => {
+		vi.mocked(hostService.get).mockResolvedValueOnce(
+			hostRecord({ protocol: hostProtocol }) as never
+		);
+
+		await expect(createSessionLaunch({ hostId: 'host-1', protocol })).rejects.toBeInstanceOf(
+			ServiceValidationError
+		);
+		expect(connectionSessionService.start).not.toHaveBeenCalled();
+	});
+
+	it('rejects FTP launches when the connection session cannot be activated', async () => {
+		vi.mocked(hostService.get).mockResolvedValueOnce(hostRecord({ protocol: 'ftp' }) as never);
+		vi.mocked(connectionSessionService.start).mockResolvedValueOnce({
+			id: 'ftp-connection'
+		} as never);
+		vi.mocked(connectionSessionService.markActive).mockResolvedValueOnce(null as never);
+
+		await expect(createSessionLaunch({ hostId: 'host-1', protocol: 'ftp' })).rejects.toBeInstanceOf(
+			ServiceValidationError
+		);
+	});
+
+	it.each(['ssh', 'telnet'] as const)(
+		'creates %s launch tickets for websocket protocols',
+		async (protocol) => {
+			vi.mocked(sessionTicketService.create).mockResolvedValueOnce({
+				ticket: `${protocol}-ticket`,
+				record: {
+					hostId: 'host-1',
+					protocol,
+					expiresAt: new Date('2026-05-15T10:01:00.000Z'),
+					target: JSON.stringify({ host: { credentialId: null, username: 'operator' } })
+				}
+			} as never);
+
+			const launch = await createSessionLaunch({ hostId: 'host-1', protocol });
+
+			expect(sessionTicketService.create).toHaveBeenCalledWith('user-1', {
+				hostId: 'host-1',
+				protocol,
+				ttlMs: 60_000
+			});
+			expect(launch).toMatchObject({
+				hostId: 'host-1',
+				protocol,
+				ticket: `${protocol}-ticket`,
+				websocketPath: `/ws/${protocol}/${protocol}-ticket`,
+				connectionSessionId: null,
+				rdp: null,
+				rdpCredentials: null,
+				vncCredentials: null
+			});
+		}
+	);
+
+	it('propagates invalid launch protocol validation from the ticket service', async () => {
+		vi.mocked(sessionTicketService.create).mockRejectedValueOnce(
+			new ServiceValidationError(['protocol is invalid'])
+		);
+
+		await expect(
+			createSessionLaunch({ hostId: 'host-1', protocol: 'smtp' })
+		).rejects.toBeInstanceOf(ServiceValidationError);
+		expect(sessionTicketService.create).toHaveBeenCalledWith('user-1', {
+			hostId: 'host-1',
+			protocol: 'smtp',
+			ttlMs: 60_000
+		});
+		expect(connectionSessionService.start).not.toHaveBeenCalled();
 	});
 
 	it('creates VNC launch tickets and keeps saved credentials launch-scoped', async () => {
@@ -366,6 +501,279 @@ describe('termix remote functions', () => {
 		});
 		expect(launch).not.toHaveProperty('target');
 		expect(launch).not.toHaveProperty('encryptedSecret');
+	});
+
+	it('returns VNC username fallback when no saved credential is required', async () => {
+		vi.mocked(sessionTicketService.create).mockResolvedValueOnce({
+			ticket: 'vnc-ticket',
+			record: {
+				hostId: 'host-1',
+				protocol: 'vnc',
+				expiresAt: new Date('2026-05-15T10:01:00.000Z'),
+				target: JSON.stringify({ host: { credentialId: null, username: 'viewer' } })
+			}
+		} as never);
+		vi.mocked(resolveVncLaunchCredentials).mockResolvedValueOnce({
+			username: 'viewer',
+			password: null,
+			source: 'none',
+			unavailableReason: null
+		} as never);
+
+		const launch = await createSessionLaunch({ hostId: 'host-1', protocol: 'vnc' });
+
+		expect(launch.vncCredentials).toEqual({
+			username: 'viewer',
+			password: null,
+			source: 'none',
+			unavailableReason: null
+		});
+	});
+
+	it('propagates VNC credential unavailable errors without opening a connection session', async () => {
+		vi.mocked(sessionTicketService.create).mockResolvedValueOnce({
+			ticket: 'vnc-ticket',
+			record: {
+				hostId: 'host-1',
+				protocol: 'vnc',
+				expiresAt: new Date('2026-05-15T10:01:00.000Z'),
+				target: JSON.stringify({ host: { credentialId: 'missing-cred' } })
+			}
+		} as never);
+		vi.mocked(resolveVncLaunchCredentials).mockRejectedValueOnce(
+			new ServiceValidationError(['VNC credential is unavailable'])
+		);
+
+		await expect(createSessionLaunch({ hostId: 'host-1', protocol: 'vnc' })).rejects.toBeInstanceOf(
+			ServiceValidationError
+		);
+		expect(connectionSessionService.start).not.toHaveBeenCalled();
+	});
+
+	it('creates RDP launches with resolved credentials and no reusable ticket exposure', async () => {
+		vi.mocked(sessionTicketService.create).mockResolvedValueOnce({
+			ticket: 'rdp-ticket',
+			record: {
+				hostId: 'host-1',
+				protocol: 'rdp',
+				expiresAt: new Date('2026-05-15T10:01:00.000Z'),
+				target: JSON.stringify({ host: { credentialId: 'cred-1', username: 'desktop' } })
+			}
+		} as never);
+		vi.mocked(resolveRdpLaunchCredentials).mockResolvedValueOnce({
+			username: 'desktop',
+			password: 'launch-secret',
+			source: 'saved-password',
+			unavailableReason: null
+		} as never);
+		ticketConsumerMocks.consume.mockResolvedValueOnce({
+			userId: 'user-1',
+			hostId: 'host-1',
+			protocol: 'rdp'
+		});
+		vi.mocked(connectionSessionService.start).mockResolvedValueOnce({
+			id: 'rdp-connection'
+		} as never);
+		rdpGatewayMocks.bootstrap.mockResolvedValueOnce({
+			gatewayUrl: 'wss://termix.test/rdp',
+			token: 'gateway-token'
+		});
+
+		const launch = await createSessionLaunch({ hostId: 'host-1', protocol: 'rdp' });
+
+		expect(resolveRdpLaunchCredentials).toHaveBeenCalledWith('user-1', {
+			host: { credentialId: 'cred-1', username: 'desktop' }
+		});
+		expect(connectionSessionService.start).toHaveBeenCalledWith({
+			userId: 'user-1',
+			hostId: 'host-1',
+			protocol: 'rdp'
+		});
+		expect(launch).toMatchObject({
+			hostId: 'host-1',
+			protocol: 'rdp',
+			ticket: null,
+			websocketPath: null,
+			connectionSessionId: 'rdp-connection',
+			rdp: {
+				gatewayUrl: 'wss://termix.test/rdp',
+				token: 'gateway-token',
+				connectionSessionId: 'rdp-connection'
+			},
+			rdpCredentials: {
+				username: 'desktop',
+				password: 'launch-secret',
+				source: 'saved-password'
+			}
+		});
+	});
+
+	it('fails RDP launches when the ticket cannot be consumed', async () => {
+		vi.mocked(sessionTicketService.create).mockResolvedValueOnce({
+			ticket: 'rdp-ticket',
+			record: {
+				hostId: 'host-1',
+				protocol: 'rdp',
+				expiresAt: new Date('2026-05-15T10:01:00.000Z'),
+				target: JSON.stringify({ host: { credentialId: null, username: 'desktop' } })
+			}
+		} as never);
+		vi.mocked(resolveRdpLaunchCredentials).mockResolvedValueOnce({
+			username: 'desktop',
+			password: null,
+			source: 'none',
+			unavailableReason: null
+		} as never);
+		ticketConsumerMocks.consume.mockResolvedValueOnce(null);
+
+		await expect(createSessionLaunch({ hostId: 'host-1', protocol: 'rdp' })).rejects.toBeInstanceOf(
+			ServiceValidationError
+		);
+		expect(connectionSessionService.start).not.toHaveBeenCalled();
+		expect(rdpGatewayMocks.bootstrap).not.toHaveBeenCalled();
+	});
+
+	it('marks RDP launch failures with sanitized bootstrap error names', async () => {
+		vi.mocked(sessionTicketService.create).mockResolvedValueOnce({
+			ticket: 'rdp-ticket',
+			record: {
+				hostId: 'host-1',
+				protocol: 'rdp',
+				expiresAt: new Date('2026-05-15T10:01:00.000Z'),
+				target: JSON.stringify({ host: { credentialId: null, username: 'desktop' } })
+			}
+		} as never);
+		vi.mocked(resolveRdpLaunchCredentials).mockResolvedValueOnce({
+			username: 'desktop',
+			password: null,
+			source: 'none',
+			unavailableReason: null
+		} as never);
+		ticketConsumerMocks.consume.mockResolvedValueOnce({
+			userId: 'user-1',
+			hostId: 'host-1',
+			protocol: 'rdp'
+		});
+		vi.mocked(connectionSessionService.start).mockResolvedValueOnce({
+			id: 'rdp-connection'
+		} as never);
+		const error = new Error('gateway offline');
+		error.name = 'Gateway Offline!';
+		rdpGatewayMocks.bootstrap.mockRejectedValueOnce(error);
+		vi.mocked(connectionSessionService.fail).mockResolvedValueOnce({
+			id: 'rdp-connection'
+		} as never);
+
+		await expect(createSessionLaunch({ hostId: 'host-1', protocol: 'rdp' })).rejects.toBe(error);
+		expect(connectionSessionService.fail).toHaveBeenCalledWith(
+			'rdp-connection',
+			'rdp_gateway_offline_'
+		);
+	});
+
+	it('propagates RDP credential unavailable errors before consuming launch tickets', async () => {
+		vi.mocked(sessionTicketService.create).mockResolvedValueOnce({
+			ticket: 'rdp-ticket',
+			record: {
+				hostId: 'host-1',
+				protocol: 'rdp',
+				expiresAt: new Date('2026-05-15T10:01:00.000Z'),
+				target: JSON.stringify({ host: { credentialId: 'missing-cred' } })
+			}
+		} as never);
+		vi.mocked(resolveRdpLaunchCredentials).mockRejectedValueOnce(
+			new ServiceValidationError(['RDP credential is unavailable'])
+		);
+
+		await expect(createSessionLaunch({ hostId: 'host-1', protocol: 'rdp' })).rejects.toBeInstanceOf(
+			ServiceValidationError
+		);
+		expect(ticketConsumerMocks.consume).not.toHaveBeenCalled();
+		expect(connectionSessionService.start).not.toHaveBeenCalled();
+	});
+
+	it('creates live SSH sessions and attach tickets with encoded websocket paths', async () => {
+		vi.mocked(sshLiveSessionService.createOrReuse).mockResolvedValueOnce({
+			session: liveSshSessionRecord({ id: 'live/session' })
+		} as never);
+		vi.mocked(hostService.get).mockResolvedValueOnce(
+			hostRecord({ id: 'host-1', name: 'Shell host', hostname: 'shell.internal' }) as never
+		);
+		vi.mocked(sshLiveSessionService.createAttachTicket).mockResolvedValueOnce({
+			ticket: 'attach/ticket',
+			record: { expiresAt: new Date('2026-05-15T10:01:00.000Z') }
+		} as never);
+
+		const attach = await createLiveSshSession({
+			hostId: 'host-1',
+			title: 'Primary shell',
+			cols: 120,
+			rows: 34
+		});
+
+		expect(sshLiveSessionService.createOrReuse).toHaveBeenCalledWith('user-1', {
+			hostId: 'host-1',
+			title: 'Primary shell',
+			terminalCols: 120,
+			terminalRows: 34
+		});
+		expect(attach).toMatchObject({
+			liveTicket: 'attach/ticket',
+			liveWebsocketPath: '/ws/ssh/live/attach%2Fticket',
+			expiresAt: '2026-05-15T10:01:00.000Z',
+			session: {
+				id: 'live/session',
+				hostName: 'Shell host',
+				hostname: 'shell.internal'
+			}
+		});
+		expect(appServer.refresh).toHaveBeenCalledOnce();
+	});
+
+	it('attaches live SSH sessions and rejects missing session ids before service calls', async () => {
+		await expect(attachLiveSshSession({ cols: 80, rows: 24 })).rejects.toBeInstanceOf(
+			ServiceValidationError
+		);
+		expect(sshLiveSessionService.get).not.toHaveBeenCalled();
+
+		vi.mocked(sshLiveSessionService.get).mockResolvedValueOnce(
+			liveSshSessionRecord({ id: 'live-1' }) as never
+		);
+		vi.mocked(hostService.get).mockResolvedValueOnce(hostRecord({ name: 'Shell host' }) as never);
+		vi.mocked(sshLiveSessionService.createAttachTicket).mockResolvedValueOnce({
+			ticket: 'attach-ticket',
+			record: { expiresAt: new Date('2026-05-15T10:01:00.000Z') }
+		} as never);
+
+		const attach = await attachLiveSshSession({ sessionId: 'live-1', cols: 100, rows: 40 });
+
+		expect(sshLiveSessionService.get).toHaveBeenCalledWith('user-1', 'live-1');
+		expect(attach.session).toMatchObject({ id: 'live-1', hostName: 'Shell host' });
+	});
+
+	it('does not refresh live SSH lists when rename fails', async () => {
+		vi.mocked(sshLiveSessionService.rename).mockRejectedValueOnce(new Error('rename failed'));
+
+		await expect(
+			renameLiveSshSession({ sessionId: 'live-1', title: 'Renamed shell' })
+		).rejects.toThrow('rename failed');
+		expect(appServer.refresh).not.toHaveBeenCalled();
+	});
+
+	it('does not close the live SSH manager or refresh lists when service close fails', async () => {
+		vi.mocked(sshLiveSessionService.close).mockRejectedValueOnce(new Error('close failed'));
+
+		await expect(closeLiveSshSession('live-1')).rejects.toThrow('close failed');
+		expect(liveSshManager.close).not.toHaveBeenCalled();
+		expect(appServer.refresh).not.toHaveBeenCalled();
+	});
+
+	it('closes the live SSH manager after a successful service close', async () => {
+		vi.mocked(sshLiveSessionService.close).mockResolvedValueOnce(undefined as never);
+
+		await expect(closeLiveSshSession('live-1')).resolves.toBe(undefined);
+		expect(liveSshManager.close).toHaveBeenCalledWith('live-1');
+		expect(appServer.refresh).toHaveBeenCalledOnce();
 	});
 
 	it('summarizes connection history with deleted-resource fallbacks', async () => {
@@ -465,6 +873,58 @@ describe('termix remote functions', () => {
 			'ssh_auth_failed_'
 		);
 	});
+
+	it('uses sanitized fallback codes for failed connection lifecycle events without explicit errors', async () => {
+		vi.mocked(connectionSessionService.failForUser).mockResolvedValueOnce({
+			id: 'connection-1'
+		} as never);
+
+		await expect(
+			recordConnectionSessionLifecycle({
+				connectionSessionId: 'connection-1',
+				event: 'failed',
+				errorCode: ''
+			})
+		).resolves.toBe(undefined);
+		expect(connectionSessionService.failForUser).toHaveBeenCalledWith(
+			'user-1',
+			'connection-1',
+			'connection_failed'
+		);
+	});
+
+	it('records RDP lifecycle failures with the RDP prefix and truncated sanitized codes', async () => {
+		vi.mocked(connectionSessionService.failForUser).mockResolvedValueOnce({
+			id: 'connection-1'
+		} as never);
+		const longCode = `RDP Gateway Offline ${'x'.repeat(160)}`;
+
+		await expect(
+			recordRdpSessionLifecycle({
+				connectionSessionId: 'connection-1',
+				event: 'failed',
+				errorCode: longCode
+			})
+		).resolves.toBe(undefined);
+		expect(connectionSessionService.failForUser).toHaveBeenCalledWith(
+			'user-1',
+			'connection-1',
+			expect.stringMatching(/^rdp_gateway_offline_x+$/)
+		);
+		expect(vi.mocked(connectionSessionService.failForUser).mock.calls[0][2]).toHaveLength(120);
+	});
+
+	it('rejects unsupported connection lifecycle events without mutating sessions', async () => {
+		await expect(
+			recordConnectionSessionLifecycle({
+				connectionSessionId: 'connection-1',
+				event: 'paused'
+			})
+		).rejects.toBeInstanceOf(ServiceValidationError);
+		expect(connectionSessionService.markActiveForUser).not.toHaveBeenCalled();
+		expect(connectionSessionService.endForUser).not.toHaveBeenCalled();
+		expect(connectionSessionService.failForUser).not.toHaveBeenCalled();
+	});
 });
 
 function hostRecord(overrides: Record<string, unknown> = {}) {
@@ -499,6 +959,26 @@ function credentialRecord(overrides: Record<string, unknown> = {}) {
 		encryptedSecret: 'encrypted',
 		encryption: { algorithm: 'aes-256-gcm' },
 		metadata: {},
+		createdAt: new Date('2026-05-15T10:00:00.000Z'),
+		updatedAt: new Date('2026-05-15T10:00:00.000Z'),
+		...overrides
+	};
+}
+
+function liveSshSessionRecord(overrides: Record<string, unknown> = {}) {
+	return {
+		id: 'live-1',
+		userId: 'user-1',
+		hostId: 'host-1',
+		title: 'Primary shell',
+		status: 'attached',
+		startedAt: new Date('2026-05-15T10:00:00.000Z'),
+		lastAttachedAt: new Date('2026-05-15T10:00:00.000Z'),
+		detachedAt: null,
+		expiresAt: new Date('2026-05-15T11:00:00.000Z'),
+		endedAt: null,
+		terminalCols: 120,
+		terminalRows: 34,
 		createdAt: new Date('2026-05-15T10:00:00.000Z'),
 		updatedAt: new Date('2026-05-15T10:00:00.000Z'),
 		...overrides

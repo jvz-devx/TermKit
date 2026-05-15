@@ -300,7 +300,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[local] V6 fleet operations UI shell and navigation');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: 3 repo-owned requirement(s) still need implementation or stronger local proof'
+			'acceptance audit: 2 repo-owned requirement(s) still need implementation or stronger local proof'
 		);
 	});
 
@@ -322,7 +322,7 @@ describe('acceptance proof scripts', () => {
 			'[local] V7 fleet wiring and browser workflow foundation',
 			'[local] V7 coverage ratchet threshold foundation',
 			'[pending] V7 final coverage target achievement',
-			'[pending] V7 full workflow and protocol browser coverage',
+			'[local] V7 full workflow and protocol browser coverage',
 			'[local] V7 reliability and performance budget foundation',
 			'[pending] V7 final reliability and performance budgets',
 			'[proof-ready] V7 real FTP external proof',
@@ -427,7 +427,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[local] V6 host health and SSH fact intelligence');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: 3 repo-owned requirement(s) still need implementation or stronger local proof'
+			'acceptance audit: 2 repo-owned requirement(s) still need implementation or stronger local proof'
 		);
 	});
 
@@ -444,7 +444,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[external-blocked] V7 real FTP external proof');
 		expect(result.stdout).toContain('[external-blocked] V7 real FTPS external proof');
 		expect(result.stdout).toContain(
-			'acceptance audit: 3 repo-owned requirement(s) still need implementation or stronger local proof; 2 external proof item(s) remain blocked until real tenant or target infrastructure is available'
+			'acceptance audit: 2 repo-owned requirement(s) still need implementation or stronger local proof; 2 external proof item(s) remain blocked until real tenant or target infrastructure is available'
 		);
 	});
 });
@@ -455,7 +455,7 @@ function expectV7Rows(output: string) {
 	expect(output).toContain('[local] V7 fleet wiring and browser workflow foundation');
 	expect(output).toContain('[local] V7 coverage ratchet threshold foundation');
 	expect(output).toContain('[pending] V7 final coverage target achievement');
-	expect(output).toContain('[pending] V7 full workflow and protocol browser coverage');
+	expect(output).toContain('[local] V7 full workflow and protocol browser coverage');
 	expect(output).toContain('[local] V7 reliability and performance budget foundation');
 	expect(output).toContain('[pending] V7 final reliability and performance budgets');
 	expect(output).toContain('[proof-ready] V7 real FTP external proof');

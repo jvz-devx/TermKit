@@ -20,10 +20,10 @@ export default defineConfig({
 				'src/routes/(auth)/auth/microsoft/**/*.ts'
 			],
 			thresholds: {
-				statements: 78,
-				branches: 72,
-				functions: 77,
-				lines: 81,
+				statements: 81,
+				branches: 75,
+				functions: 79,
+				lines: 84,
 				'src/lib/admin.remote.ts': {
 					statements: 91,
 					branches: 76,

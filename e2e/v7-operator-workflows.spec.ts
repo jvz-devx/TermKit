@@ -333,6 +333,41 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		}
 	});
 
+	test('cancels in-flight browser file-manager transfers without false completion', async ({
+		context,
+		page
+	}) => {
+		await ensureAdminSession(page, context);
+		await seedCoreHosts(page);
+		const hosts = await listHosts(page);
+		const sshHost = hosts.find((host) => host.name === v7SshName);
+		const ftpHost = hosts.find((host) => host.name === v7FtpName);
+		const ftpsHost = hosts.find((host) => host.name === v7FtpsName);
+		expect(sshHost, `seeded host ${v7SshName}`).toBeTruthy();
+		expect(ftpHost, `seeded host ${v7FtpName}`).toBeTruthy();
+		expect(ftpsHost, `seeded host ${v7FtpsName}`).toBeTruthy();
+
+		for (const target of [
+			{ hostId: sshHost!.id, tab: 'sftp', apiBase: 'sftp', label: 'SFTP' },
+			{ hostId: ftpHost!.id, tab: 'ftp', apiBase: 'ftp', label: 'FTP' },
+			{ hostId: ftpsHost!.id, tab: 'ftps', apiBase: 'ftp', label: 'FTPS' }
+		] as const) {
+			const fixture = await installFileManagerFixture(page, target.apiBase, {
+				blockedDownloads: ['/abort-b.bin'],
+				extraEntries: [
+					fileEntry('abort-a.bin', '/abort-a.bin', 256),
+					fileEntry('abort-b.bin', '/abort-b.bin', 256)
+				],
+				textFiles: {
+					'/abort-a.bin': 'a'.repeat(256),
+					'/abort-b.bin': 'b'.repeat(256)
+				}
+			});
+			await exerciseFileManagerAbort(page, target.hostId, target.tab, target.label, fixture);
+			await fixture.dispose();
+		}
+	});
+
 	test('surfaces FTP and FTPS file-manager launch states from the workspace', async ({
 		context,
 		page
@@ -715,6 +750,47 @@ async function exerciseFileManager(
 	expect(fixture.callsFor('delete').some((call) => call.path === '/stale.tmp')).toBe(true);
 }
 
+async function exerciseFileManagerAbort(
+	page: Page,
+	hostId: string,
+	tab: 'sftp' | 'ftp' | 'ftps',
+	label: 'SFTP' | 'FTP' | 'FTPS',
+	fixture: FileManagerFixture
+) {
+	await page.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=${tab}`);
+	await expect(page).toHaveURL(new RegExp(`/sessions\\?host=${hostId}.*tab=${tab}`));
+	const manager = page.getByRole('region', { name: `${label} file manager` });
+	await expect(manager).toBeVisible();
+	await expect(manager.getByRole('button', { name: 'abort-a.bin' })).toBeVisible();
+	await expect(manager.getByRole('button', { name: 'abort-b.bin' })).toBeVisible();
+
+	await manager.getByLabel('Select abort-a.bin').click();
+	await manager.getByLabel('Select abort-b.bin').click();
+	await manager.getByRole('button', { name: 'Download selected paths' }).click();
+	await expect(manager.getByText('Downloading 2 files', { exact: false })).toBeVisible();
+	await expect
+		.poll(() => fixture.callsFor('download').some((call) => call.path === '/abort-b.bin'))
+		.toBe(true);
+	await expect(manager.getByText('· abort-b.bin', { exact: true })).toBeVisible();
+
+	const abortedDownload = page.waitForEvent('requestfailed', {
+		predicate: (request) =>
+			request.url().includes(`/api/${fixture.apiBase}/`) &&
+			request.url().includes('/download') &&
+			request.url().includes('abort-b.bin')
+	});
+	await manager.getByRole('button', { name: 'Cancel' }).click();
+	const failedRequest = await abortedDownload;
+	await fixture.releaseBlockedDownload('/abort-b.bin', 'abort');
+	await expect(manager.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
+	await expect(manager.getByText('Downloading 2 files', { exact: false })).toBeVisible();
+	await expect(manager.getByText('1/2 items', { exact: true })).toBeVisible();
+	await expect(manager.getByText('256 B/512 B', { exact: true })).toBeVisible();
+	await expect(manager.getByText('50%', { exact: false })).toBeVisible();
+	await expect(manager.getByText('100%', { exact: false })).toHaveCount(0);
+	expect(failedRequest.failure()?.errorText ?? '').toMatch(/aborted|ERR_ABORTED/i);
+}
+
 type FileManagerApiBase = 'sftp' | 'ftp';
 type FileManagerRouteName = 'delete' | 'download' | 'list' | 'mkdir' | 'rename' | 'text' | 'upload';
 type FileManagerCall = {
@@ -735,25 +811,43 @@ type FileManagerEntry = {
 	link?: string;
 };
 type FileManagerFixture = {
+	apiBase: FileManagerApiBase;
 	callsFor: (route: FileManagerRouteName) => FileManagerCall[];
+	releaseBlockedDownload: (path: string, action?: BlockedDownloadAction) => Promise<void>;
 	dispose: () => Promise<void>;
+};
+type BlockedDownloadAction = 'abort' | 'fulfill';
+type BlockedDownload = {
+	promise: Promise<BlockedDownloadAction>;
+	release: (action: BlockedDownloadAction) => void;
+};
+type FileManagerFixtureOptions = {
+	blockedDownloads?: string[];
+	extraEntries?: FileManagerEntry[];
+	textFiles?: Record<string, string>;
 };
 
 async function installFileManagerFixture(
 	page: Page,
-	apiBase: FileManagerApiBase
+	apiBase: FileManagerApiBase,
+	options: FileManagerFixtureOptions = {}
 ): Promise<FileManagerFixture> {
 	const routePattern = new RegExp(
 		`/api/${apiBase}/[^/]+/(list|mkdir|rename|delete|text|upload|download)(?:\\?|$)`
 	);
 	const calls: FileManagerCall[] = [];
+	const blockedDownloadPaths = new Set(
+		(options.blockedDownloads ?? []).map((path) => normalizeFixturePath(path))
+	);
+	const blockedDownloads = new Map<string, BlockedDownload>();
 	const entries = new Map<string, FileManagerEntry[]>([
 		[
 			'/',
 			[
 				fileEntry('readme.txt', '/readme.txt', 48),
 				fileEntry('stale.tmp', '/stale.tmp', 5),
-				directoryEntry('logs', '/logs')
+				directoryEntry('logs', '/logs'),
+				...(options.extraEntries ?? [])
 			]
 		],
 		['/logs', [fileEntry('nested.log', '/logs/nested.log', 12)]]
@@ -761,6 +855,9 @@ async function installFileManagerFixture(
 	const textFiles = new Map<string, string>([
 		['/readme.txt', 'Fixture readme for browser workflow coverage.']
 	]);
+	for (const [path, text] of Object.entries(options.textFiles ?? {})) {
+		textFiles.set(normalizeFixturePath(path), text);
+	}
 
 	await page.route(routePattern, async (route) => {
 		const request = route.request();
@@ -833,6 +930,16 @@ async function installFileManagerFixture(
 		}
 
 		if (routeName === 'download') {
+			if (blockedDownloadPaths.has(queryPath)) {
+				const blocked = createBlockedDownload();
+				blockedDownloads.set(queryPath, blocked);
+				const action = await blocked.promise;
+				blockedDownloads.delete(queryPath);
+				if (action === 'abort') {
+					await route.abort('aborted').catch(() => undefined);
+					return;
+				}
+			}
 			await route.fulfill({
 				status: 200,
 				contentType: 'text/plain',
@@ -848,9 +955,24 @@ async function installFileManagerFixture(
 	});
 
 	return {
+		apiBase,
 		callsFor: (route) => calls.filter((call) => call.route === route),
-		dispose: () => page.unroute(routePattern)
+		releaseBlockedDownload: async (path, action = 'fulfill') => {
+			blockedDownloads.get(normalizeFixturePath(path))?.release(action);
+		},
+		dispose: async () => {
+			for (const blocked of blockedDownloads.values()) blocked.release('abort');
+			await page.unroute(routePattern);
+		}
 	};
+}
+
+function createBlockedDownload(): BlockedDownload {
+	let release: (action: BlockedDownloadAction) => void = () => undefined;
+	const promise = new Promise<BlockedDownloadAction>((resolve) => {
+		release = resolve;
+	});
+	return { promise, release };
 }
 
 async function requestJson(request: Request) {
