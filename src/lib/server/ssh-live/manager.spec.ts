@@ -131,6 +131,53 @@ describe('LiveSshManager', () => {
 		expect(harness.client.ended).toBe(true);
 		expect(manager.get('ticket-1')).toBeUndefined();
 	});
+
+	it('closes the active attachment and emits a connection failure when SSH connect fails', () => {
+		const harness = createHarness();
+		const manager = new LiveSshManager({ createClient: harness.createClient });
+		const closeEvents: unknown[] = [];
+		manager.onSessionClose((event) => closeEvents.push(event));
+		const socket = new FakeWebSocket();
+
+		manager.attach(testTicket(), socket as unknown as WebSocket);
+		harness.client.emit('error', new Error('ECONNRESET'));
+
+		expect(socket.closed).toEqual({ code: 1011, reason: 'ssh connection failed' });
+		expect(harness.client.ended).toBe(true);
+		expect(manager.get('ticket-1')).toBeUndefined();
+		expect(closeEvents).toEqual([
+			{
+				sessionId: 'ticket-1',
+				userId: 'user-1',
+				reason: 'connection_error',
+				hadActiveAttachment: false
+			}
+		]);
+	});
+
+	it('closes the active attachment and emits shell_error when the shell stream fails', () => {
+		const harness = createHarness();
+		const manager = new LiveSshManager({ createClient: harness.createClient });
+		const closeEvents: unknown[] = [];
+		manager.onSessionClose((event) => closeEvents.push(event));
+		const socket = new FakeWebSocket();
+
+		manager.attach(testTicket(), socket as unknown as WebSocket);
+		harness.client.emit('ready');
+		harness.channel.emit('error', new Error('shell stream failed'));
+
+		expect(socket.closed).toEqual({ code: 1011, reason: 'ssh shell failed' });
+		expect(harness.client.ended).toBe(true);
+		expect(manager.get('ticket-1')).toBeUndefined();
+		expect(closeEvents).toEqual([
+			{
+				sessionId: 'ticket-1',
+				userId: 'user-1',
+				reason: 'shell_error',
+				hadActiveAttachment: false
+			}
+		]);
+	});
 });
 
 class FakeSshClient extends EventEmitter implements LiveSshClient {

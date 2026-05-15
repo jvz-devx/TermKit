@@ -128,6 +128,88 @@ describe('BulkJobRunner', () => {
 		expect(finished.hosts.every((item) => item.failure?.code === 'cancelled')).toBe(true);
 	});
 
+	it('keeps cancellation races redacted when an executor resolves after abort', async () => {
+		expect.assertions(5);
+
+		let started: (() => void) | null = null;
+		let releaseFirstHost!: () => void;
+		const firstStarted = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const releaseFirst = new Promise<void>((resolve) => {
+			releaseFirstHost = resolve;
+		});
+		const runner = new BulkJobRunner({
+			repository: new InMemoryBulkJobRepository(),
+			hosts: new StaticHostResolver([host('host-1', 'ssh'), host('host-2', 'ssh')]),
+			executors: {
+				async runSshCommand(context) {
+					started?.();
+					await releaseFirst;
+					return {
+						stdout: `late output ${context.host.hostId} token=abc123`,
+						report: { token: 'abc123', host: context.host.hostId }
+					};
+				}
+			}
+		});
+		const created = await runner.createJob({
+			id: 'job-cancel-race',
+			userId: 'user-1',
+			kind: 'ssh_command',
+			targets: [{ hostId: 'host-1' }, { hostId: 'host-2' }],
+			reviewedHostIds: ['host-1', 'host-2'],
+			concurrencyLimit: 1,
+			command: { command: 'slow-command' },
+			output: { redactionValues: ['abc123'] }
+		});
+
+		const running = runner.run('user-1', created.id);
+		await firstStarted;
+		const cancelling = await runner.cancel('user-1', created.id);
+		releaseFirstHost();
+		const finished = await running;
+		const report = buildBulkJobReport(finished);
+
+		expect(cancelling.status).toBe('cancelled');
+		expect(finished.status).toBe('cancelled');
+		expect(finished.hosts[1]).toMatchObject({ status: 'cancelled' });
+		expect(report.body).not.toContain('abc123');
+		expect(JSON.stringify(finished.hosts[0].result)).not.toContain('abc123');
+	});
+
+	it('keeps in-memory job records cloned and scoped to their owner', async () => {
+		expect.assertions(5);
+
+		const repository = new InMemoryBulkJobRepository();
+		const runner = new BulkJobRunner({
+			repository,
+			hosts: new StaticHostResolver([host('host-1', 'ssh')])
+		});
+		const created = await runner.createJob({
+			id: 'job-owned',
+			userId: 'user-1',
+			kind: 'ssh_command',
+			targets: [{ hostId: 'host-1' }],
+			reviewedHostIds: ['host-1'],
+			command: { command: 'uptime', env: { SAFE_ENV: '1' } }
+		});
+		const fetched = await repository.getJob('user-1', created.id);
+		fetched?.hosts.push({
+			...fetched.hosts[0],
+			hostId: 'injected-host',
+			status: 'succeeded'
+		});
+		if (fetched?.command?.env) fetched.command.env.SAFE_ENV = 'mutated';
+
+		await expect(repository.getJob('user-2', created.id)).resolves.toBeNull();
+		await expect(repository.updateJob('user-2', created.id, created)).resolves.toBeNull();
+		const persisted = await repository.getJob('user-1', created.id);
+		expect(persisted?.hosts.map((item) => item.hostId)).toEqual(['host-1']);
+		expect(persisted?.command?.env).toEqual({ SAFE_ENV: '1' });
+		expect(persisted).not.toBe(created);
+	});
+
 	it('retries only eligible failed hosts', async () => {
 		expect.assertions(6);
 

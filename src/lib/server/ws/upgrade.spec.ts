@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	installWebSocketUpgrades,
 	parseWebSocketRoute,
@@ -23,7 +23,47 @@ import type {
 	StartConnectionSessionInput
 } from '$lib/server/services/connection-sessions';
 
+const tunnelMocks = vi.hoisted(() => {
+	const sshTunnelService = {
+		touchSessionForProxy: vi.fn(),
+		failSession: vi.fn()
+	};
+	const resolveSshTunnelConnectTarget = vi.fn();
+	const proxyTcpTunnelWebSocket = vi.fn();
+	const tunnelFailureCode = vi.fn();
+
+	return {
+		sshTunnelService,
+		resolveSshTunnelConnectTarget,
+		proxyTcpTunnelWebSocket,
+		tunnelFailureCode,
+		reset() {
+			sshTunnelService.touchSessionForProxy.mockReset();
+			sshTunnelService.failSession.mockReset();
+			resolveSshTunnelConnectTarget.mockReset();
+			proxyTcpTunnelWebSocket.mockReset();
+			tunnelFailureCode.mockReset();
+			sshTunnelService.failSession.mockResolvedValue(undefined);
+			tunnelFailureCode.mockReturnValue('tunnel_proxy_failed');
+		}
+	};
+});
+
+vi.mock('$lib/server/services/ssh-tunnels', () => ({
+	sshTunnelService: tunnelMocks.sshTunnelService
+}));
+
+vi.mock('$lib/server/protocols/ssh-tunnel', () => ({
+	resolveSshTunnelConnectTarget: tunnelMocks.resolveSshTunnelConnectTarget,
+	proxyTcpTunnelWebSocket: tunnelMocks.proxyTcpTunnelWebSocket,
+	tunnelFailureCode: tunnelMocks.tunnelFailureCode
+}));
+
 const servers: ReturnType<typeof createServer>[] = [];
+
+beforeEach(() => {
+	tunnelMocks.reset();
+});
 
 afterEach(async () => {
 	await Promise.all(
@@ -66,10 +106,48 @@ describe('websocket upgrade routing', () => {
 		});
 	});
 
+	it('decodes percent-encoded route tickets and session ids', () => {
+		expect.assertions(3);
+
+		expect(parseWebSocketRoute({ url: '/ws/ssh/ticket%2Bone%3D' })).toEqual({
+			protocol: 'ssh',
+			ticket: 'ticket+one='
+		});
+		expect(parseWebSocketRoute({ url: '/ws/ssh/live/live%2Fticket' })).toEqual({
+			protocol: 'ssh',
+			ticket: 'live/ticket',
+			live: true
+		});
+		expect(parseWebSocketRoute({ url: '/ws/tunnel/session%2Fone' })).toEqual({
+			tunnel: true,
+			sessionId: 'session/one'
+		});
+	});
+
 	it('does not expose an RDP websocket route', () => {
 		expect.assertions(1);
 
 		expect(parseWebSocketRoute({ url: '/ws/rdp/ticket-123' })).toBeNull();
+	});
+
+	it('leaves ignored upgrade paths for later server upgrade handlers', async () => {
+		expect.assertions(1);
+
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+		installWebSocketUpgrades(server, {
+			ignoredPaths: [/^\/vite-hmr$/],
+			authenticateSession: testSessionAuthenticator()
+		});
+		server.on('upgrade', (_request, socket) => {
+			socket.write('HTTP/1.1 418 Ignored\r\nConnection: close\r\nContent-Length: 7\r\n\r\nignored');
+			socket.destroy();
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/vite-hmr');
+
+		expect(response).toContain('418 Ignored');
 	});
 
 	it('preserves normal SSH ticket routes when a ticket starts with live', async () => {
@@ -149,6 +227,165 @@ describe('websocket upgrade routing', () => {
 		expect(response).toContain('401 Authentication required');
 		expect(attachConsumeCalled).toBe(false);
 		expect(managerCalled).toBe(false);
+	});
+
+	it('rejects invalid authenticated session objects before consuming tickets', async () => {
+		expect.assertions(3);
+
+		let consumeCalled = false;
+		let adapterCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator({ userId: '' }),
+			tickets: {
+				async consume() {
+					consumeCalled = true;
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						adapterCalled = true;
+					}
+				}
+			]
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/ticket-1');
+
+		expect(response).toContain('401 Authentication required');
+		expect(consumeCalled).toBe(false);
+		expect(adapterCalled).toBe(false);
+	});
+
+	it('accepts SSH tunnel websocket upgrades and proxies the socket through the touched session', async () => {
+		expect.assertions(6);
+
+		const lifecycle = createLifecycleRecorder();
+		const tunnelSession = testTunnelSession();
+		const sshTarget = {
+			userId: 'user-1',
+			hostId: 'host-1',
+			host: 'shell.example.test',
+			port: 22,
+			username: 'ops'
+		};
+		tunnelMocks.sshTunnelService.touchSessionForProxy.mockResolvedValue(tunnelSession);
+		tunnelMocks.resolveSshTunnelConnectTarget.mockResolvedValue(sshTarget);
+		tunnelMocks.proxyTcpTunnelWebSocket.mockImplementation(async (_target, _session, socket) => {
+			socket.close(1000, 'ok');
+		});
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			connectionSessions: lifecycle.recorder
+		});
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/tunnel/tunnel-session-1')).resolves.toBe(1000);
+		expect(tunnelMocks.sshTunnelService.touchSessionForProxy).toHaveBeenCalledWith(
+			'user-1',
+			'tunnel-session-1'
+		);
+		expect(tunnelMocks.resolveSshTunnelConnectTarget).toHaveBeenCalledWith('user-1', 'host-1');
+		expect(tunnelMocks.proxyTcpTunnelWebSocket).toHaveBeenCalledWith(
+			sshTarget,
+			tunnelSession,
+			expect.any(WebSocket)
+		);
+		expect(tunnelMocks.sshTunnelService.failSession).not.toHaveBeenCalled();
+		expect(lifecycle.calls).toEqual([]);
+	});
+
+	it('rejects unavailable SSH tunnel sessions before resolving SSH targets', async () => {
+		expect.assertions(3);
+
+		tunnelMocks.sshTunnelService.touchSessionForProxy.mockResolvedValue(null);
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator()
+		});
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/tunnel/missing-session');
+
+		expect(response).toContain('404 SSH tunnel session unavailable');
+		expect(tunnelMocks.resolveSshTunnelConnectTarget).not.toHaveBeenCalled();
+		expect(tunnelMocks.proxyTcpTunnelWebSocket).not.toHaveBeenCalled();
+	});
+
+	it('marks SSH tunnel sessions failed when SSH target resolution fails before upgrade', async () => {
+		expect.assertions(5);
+
+		const lifecycle = createLifecycleRecorder();
+		tunnelMocks.sshTunnelService.touchSessionForProxy.mockResolvedValue(testTunnelSession());
+		tunnelMocks.resolveSshTunnelConnectTarget.mockResolvedValue(null);
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			connectionSessions: lifecycle.recorder
+		});
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/tunnel/tunnel-session-1');
+
+		expect(response).toContain('502 SSH tunnel target unavailable');
+		expect(tunnelMocks.sshTunnelService.failSession).toHaveBeenCalledWith(
+			'user-1',
+			'tunnel-session-1',
+			'credential_missing'
+		);
+		expect(lifecycle.calls).toEqual([
+			{ action: 'fail', id: 'tunnel-session-1', errorCode: 'credential_missing' }
+		]);
+		expect(tunnelMocks.proxyTcpTunnelWebSocket).not.toHaveBeenCalled();
+		expect(tunnelMocks.tunnelFailureCode).not.toHaveBeenCalled();
+	});
+
+	it('marks SSH tunnel sessions failed when websocket proxying fails after upgrade', async () => {
+		expect.assertions(4);
+
+		const lifecycle = createLifecycleRecorder();
+		const proxyError = new Error('target unreachable');
+		tunnelMocks.sshTunnelService.touchSessionForProxy.mockResolvedValue(testTunnelSession());
+		tunnelMocks.resolveSshTunnelConnectTarget.mockResolvedValue({
+			userId: 'user-1',
+			hostId: 'host-1',
+			host: 'shell.example.test',
+			port: 22,
+			username: 'ops'
+		});
+		tunnelMocks.proxyTcpTunnelWebSocket.mockRejectedValue(proxyError);
+		tunnelMocks.tunnelFailureCode.mockReturnValue('target_unreachable');
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			connectionSessions: lifecycle.recorder
+		});
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/tunnel/tunnel-session-1')).resolves.toBe(1011);
+		await waitFor(() => tunnelMocks.sshTunnelService.failSession.mock.calls.length > 0);
+		expect(tunnelMocks.tunnelFailureCode).toHaveBeenCalledWith(proxyError);
+		expect(tunnelMocks.sshTunnelService.failSession).toHaveBeenCalledWith(
+			'user-1',
+			'tunnel-session-1',
+			'target_unreachable'
+		);
+		expect(lifecycle.calls).toEqual([
+			{ action: 'fail', id: 'tunnel-session-1', errorCode: 'target_unreachable' }
+		]);
 	});
 
 	it('rejects live SSH upgrades before consuming attach tickets when no live manager is installed', async () => {
@@ -1233,6 +1470,25 @@ function baseSshAttachTicket() {
 		},
 		terminalCols: 80,
 		terminalRows: 24
+	};
+}
+
+function testTunnelSession() {
+	const now = new Date('2026-05-13T12:00:00.000Z');
+	return {
+		id: 'tunnel-session-1',
+		userId: 'user-1',
+		hostId: 'host-1',
+		profileId: null,
+		targetHost: 'database.internal.test',
+		targetPort: 5432,
+		publicPath: '/api/tunnels/tunnel-session-1/proxy/',
+		status: 'active' as const,
+		failureCode: null,
+		createdAt: now,
+		lastUsedAt: now,
+		expiresAt: new Date('2026-05-13T12:10:00.000Z'),
+		closedAt: null
 	};
 }
 

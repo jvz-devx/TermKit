@@ -251,6 +251,98 @@ describe('V6ResourcesService', () => {
 		expect(event.details).toMatchObject({ host: 'shell-1' });
 	});
 
+	it('scopes list APIs to the requester plus explicitly visible workspaces', async () => {
+		expect.assertions(5);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+
+		const privateTemplate = await service.createAutomationTemplate('owner-1', {
+			name: 'Private owner task',
+			kind: 'operator_note',
+			visibility: 'private'
+		});
+		const workspaceTemplate = await service.createAutomationTemplate('owner-1', {
+			workspaceId: 'workspace-1',
+			name: 'Shared workspace task',
+			kind: 'ssh_command',
+			visibility: 'workspace'
+		});
+		const otherPrivateTemplate = await service.createAutomationTemplate('other-1', {
+			name: 'Other private task',
+			kind: 'operator_note',
+			visibility: 'private'
+		});
+		const workspaceApproval = await service.requestApproval('owner-1', {
+			workspaceId: 'workspace-1',
+			capability: 'bulk_job',
+			reason: 'Patch hosts'
+		});
+		const otherPrivateApproval = await service.requestApproval('other-1', {
+			capability: 'bulk_job',
+			reason: 'Private operation'
+		});
+
+		await expect(service.listAutomationTemplates('owner-1')).resolves.toEqual([
+			expect.objectContaining({ id: privateTemplate.id }),
+			expect.objectContaining({ id: workspaceTemplate.id })
+		]);
+		await expect(service.listAutomationTemplates('member-1', ['workspace-1'])).resolves.toEqual([
+			expect.objectContaining({ id: workspaceTemplate.id })
+		]);
+		await expect(service.listAutomationTemplates('member-1', ['workspace-1'])).resolves.not.toEqual(
+			expect.arrayContaining([expect.objectContaining({ id: otherPrivateTemplate.id })])
+		);
+		await expect(service.listApprovalRequests('member-1', ['workspace-1'])).resolves.toEqual([
+			expect.objectContaining({ id: workspaceApproval.id })
+		]);
+		expect([...repository.approvalRequests.values()].map((request) => request.id)).toContain(
+			otherPrivateApproval.id
+		);
+	});
+
+	it('normalizes stale host fact shapes while preserving only structured service hints', async () => {
+		expect.assertions(5);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+		const collectedAt = new Date('2026-05-14T12:00:00.000Z');
+
+		const facts = await service.upsertHostFacts({
+			hostId: ' host-1 ',
+			workspaceId: ' workspace-1 ',
+			collectedBy: ' operator-1 ',
+			source: 'import',
+			uptimeSeconds: '42' as unknown as number,
+			cpu: ['stale'] as unknown as Record<string, unknown>,
+			serviceHints: ['stale', { name: 'sshd', state: 'running' }, null] as unknown as Record<
+				string,
+				unknown
+			>[],
+			facts: null as unknown as Record<string, unknown>,
+			collectedAt
+		});
+
+		expect(facts).toMatchObject({
+			hostId: 'host-1',
+			workspaceId: 'workspace-1',
+			collectedBy: 'operator-1',
+			source: 'import',
+			uptimeSeconds: 42,
+			cpu: {},
+			facts: {},
+			collectedAt
+		});
+		expect(facts.serviceHints).toEqual([{ name: 'sshd', state: 'running' }]);
+		await expect(service.listHostFacts(['host-1', 'host-1', 'missing-host'])).resolves.toEqual([
+			expect.objectContaining({ hostId: 'host-1' })
+		]);
+		await expect(service.listHostFacts([])).resolves.toEqual([]);
+		await expect(
+			service.upsertHostHealth({ hostId: 'host-1', state: 'ghost' as never })
+		).rejects.toMatchObject({ issues: ['state must be a supported host health state'] });
+	});
+
 	it('evaluates workspace policies and records approvals and reasons', async () => {
 		const repository = new InMemoryV6ResourcesRepository();
 		const service = new V6ResourcesService(repository);

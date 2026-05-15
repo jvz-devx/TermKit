@@ -159,6 +159,54 @@ describe('V5 resources repository', () => {
 			metadata: {}
 		});
 	});
+
+	it('keeps nullable filters and user ownership boundaries precise in memory', async () => {
+		expect.assertions(5);
+
+		const repository = new InMemoryV5ResourcesRepository();
+		await repository.createCommandSnippet(
+			commandSnippet({
+				id: 'global-snippet',
+				workspaceId: null,
+				hostId: null,
+				name: 'Global reboot'
+			})
+		);
+		await repository.createCommandSnippet(
+			commandSnippet({
+				id: 'host-snippet',
+				workspaceId: 'workspace-1',
+				hostId: 'host-1',
+				name: 'Host reboot'
+			})
+		);
+		await repository.createCommandSnippet(
+			commandSnippet({
+				id: 'other-user-snippet',
+				userId: 'user-2',
+				workspaceId: null,
+				hostId: null,
+				name: 'Other private snippet'
+			})
+		);
+		await repository.createTerminalRecording(terminalRecording({ id: 'recording-1' }));
+
+		await expect(
+			repository.listCommandSnippets('user-1', { workspaceId: null, hostId: null })
+		).resolves.toEqual([expect.objectContaining({ id: 'global-snippet' })]);
+		await expect(
+			repository.listCommandSnippets('user-1', { workspaceId: 'workspace-1', hostId: 'host-1' })
+		).resolves.toEqual([expect.objectContaining({ id: 'host-snippet' })]);
+		await expect(repository.listCommandSnippets('user-2')).resolves.toEqual([
+			expect.objectContaining({ id: 'other-user-snippet' })
+		]);
+		await expect(
+			repository.updateTerminalRecording('user-2', 'recording-1', { status: 'failed' })
+		).resolves.toBeNull();
+		await expect(repository.listTerminalRecordings('user-1')).resolves.toEqual([
+			expect.objectContaining({ id: 'recording-1', status: 'recording' })
+		]);
+	});
 });
 
 function queryResult<T>(rows: T[]) {

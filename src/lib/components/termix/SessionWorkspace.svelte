@@ -14,7 +14,6 @@
 		attachLiveSshSession,
 		closeLiveSshSession,
 		createLiveSshSession,
-		createSessionLaunch,
 		listHosts,
 		listLiveSshSessions,
 		renameLiveSshSession,
@@ -36,6 +35,7 @@
 	import SshHostKeyTrustPanel from './session/SshHostKeyTrustPanel.svelte';
 	import SshLaunchPane from './session/SshLaunchPane.svelte';
 	import SshTunnelPane from './session/SshTunnelPane.svelte';
+	import TelnetLaunchPane from './session/TelnetLaunchPane.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
 	import VncLaunchPane from './session/VncLaunchPane.svelte';
 	import { terminalFontSize } from '$lib/termix/host-metadata';
@@ -229,10 +229,6 @@
 			document.removeEventListener('fullscreenchange', syncFullscreenState);
 		};
 	});
-
-	async function getSessionLaunch(hostId: string, protocol: WorkspaceProtocol) {
-		return createSessionLaunch({ hostId, protocol });
-	}
 
 	async function reconnect() {
 		if (!selectedHost || activeProtocol === 'sftp') return;
@@ -907,33 +903,12 @@
 								/>
 							{:else if browser}
 								{#key `telnet:${paneHost.id}:${pane.id}:${reconnectNonce}`}
-									{#await getSessionLaunch(paneHost.id, 'telnet')}
-										<StatePanel
-											state="loading"
-											title="Opening Telnet"
-											detail="Creating a session ticket."
-										/>
-									{:then currentLaunch}
-										<TerminalPane
-											title="Telnet terminal"
-											subtitle={`${paneHost.hostname}:${paneHost.port}`}
-											websocketUrl={currentLaunch.websocketPath
-												? toWebSocketUrl(currentLaunch.websocketPath)
-												: undefined}
-											welcome={[
-												`Trying ${paneHost.hostname}...`,
-												'Opening websocket bridge...',
-												''
-											]}
-											fontSize={appSettings.terminalFontSize}
-										/>
-									{:catch caught}
-										<StatePanel
-											state="error"
-											title="Session launch failed"
-											detail={errorMessage(caught)}
-										/>
-									{/await}
+									<TelnetLaunchPane
+										hostId={paneHost.id}
+										hostname={paneHost.hostname}
+										port={paneHost.port}
+										fontSize={appSettings.terminalFontSize}
+									/>
 								{/key}
 							{/if}
 						</div>

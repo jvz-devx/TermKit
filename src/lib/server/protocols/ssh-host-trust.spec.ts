@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -141,6 +141,56 @@ describe('SSH host key trust', () => {
 		]);
 	});
 
+	it('rejects malformed known-hosts files without enrolling a new pin', () => {
+		tempDirectory = mkdtempSync(join(tmpdir(), 'termixkit-ssh-host-trust-'));
+		const path = join(tempDirectory, 'known-hosts.json');
+		const store = new JsonFileSshHostKeyTrustStore(path);
+		writeInvalidKnownHosts(path);
+
+		const result = verifySshHostKeyFingerprint(identity, 'abc123', store, tofuPolicy);
+
+		expect(result).toMatchObject({
+			ok: false,
+			error: {
+				message: expect.stringContaining('SSH host key trust store could not be read')
+			}
+		});
+		expect(readFileSync(path, 'utf8')).toBe('{"version":1,"pins":{"bad":{"port":"22"}}}');
+	});
+
+	it('keeps existing pins trusted when last-seen updates cannot be written', () => {
+		const store = new InMemorySshHostKeyTrustStore();
+		verifySshHostKeyFingerprint(
+			identity,
+			'abc123',
+			store,
+			tofuPolicy,
+			new Date('2026-05-13T10:00:00.000Z')
+		);
+		const failingStore = {
+			get: store.get.bind(store),
+			set() {
+				throw new Error('read-only');
+			}
+		};
+
+		const result = verifySshHostKeyFingerprint(
+			identity,
+			'abc123',
+			failingStore,
+			strictPolicy,
+			new Date('2026-05-13T10:05:00.000Z')
+		);
+
+		expect(result).toMatchObject({
+			ok: true,
+			pin: {
+				fingerprint: 'sha256:abc123',
+				lastSeenAt: '2026-05-13T10:00:00.000Z'
+			}
+		});
+	});
+
 	it('builds an ssh2 verifier that uses SHA-256 host-key hashes', () => {
 		const store = new InMemorySshHostKeyTrustStore();
 		let failure: Error | undefined;
@@ -158,3 +208,7 @@ describe('SSH host key trust', () => {
 		expect(failure?.message).toContain('refusing to submit credentials');
 	});
 });
+
+function writeInvalidKnownHosts(path: string): void {
+	writeFileSync(path, '{"version":1,"pins":{"bad":{"port":"22"}}}', 'utf8');
+}

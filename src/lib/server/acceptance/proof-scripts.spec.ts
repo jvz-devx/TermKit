@@ -300,8 +300,41 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[local] V6 fleet operations UI shell and navigation');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: 3 requirement(s) still need implementation, external env, or manual proof'
+			'acceptance audit: 3 repo-owned requirement(s) still need implementation or stronger local proof'
 		);
+	});
+
+	it('keeps V7 acceptance rows aligned with spec, README, and coverage gap docs', () => {
+		expect.hasAssertions();
+		const directory = tempDirectory();
+		const proofPath = writeAcceptanceProofFile(directory, validAcceptanceProofs());
+		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
+		});
+		const spec = readFileSync('spec.md', 'utf8');
+		const readme = readFileSync('README.md', 'utf8');
+		const coverageDocs = readFileSync('docs/coverage-baseline.md', 'utf8');
+
+		expect(result.status).toBe(2);
+		expect(v7AuditRows(result.stdout)).toEqual([
+			'[local] V7 coverage tooling and baseline reporting',
+			'[local] V7 server and security regression foundation',
+			'[local] V7 fleet wiring and browser workflow foundation',
+			'[local] V7 coverage ratchet threshold foundation',
+			'[pending] V7 final coverage target achievement',
+			'[pending] V7 full workflow and protocol browser coverage',
+			'[local] V7 reliability and performance budget foundation',
+			'[pending] V7 final reliability and performance budgets',
+			'[proof-ready] V7 real FTP external proof',
+			'[proof-ready] V7 real FTPS external proof'
+		]);
+		expect(spec).toContain('V7 scope:');
+		expect(spec).toContain('Acceptance-proof tests');
+		expect(spec).toContain('Requiring real Microsoft, RDP, VNC, SSH, FTP, or FTPS infrastructure');
+		expect(readme).toContain('V7 test hardening');
+		expect(readme).toContain('docs/coverage-baseline.md');
+		expect(coverageDocs).toContain('remaining final target');
+		expect(coverageDocs).toContain('Real Microsoft, RDP, VNC, SSH, FTP, and FTPS');
 	});
 
 	it('rejects hand-edited external proofs with skipped or secret-looking output', () => {
@@ -394,7 +427,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[local] V6 host health and SSH fact intelligence');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: 3 requirement(s) still need implementation, external env, or manual proof'
+			'acceptance audit: 3 repo-owned requirement(s) still need implementation or stronger local proof'
 		);
 	});
 
@@ -411,7 +444,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[external-blocked] V7 real FTP external proof');
 		expect(result.stdout).toContain('[external-blocked] V7 real FTPS external proof');
 		expect(result.stdout).toContain(
-			'acceptance audit: 3 requirement(s) still need implementation, external env, or manual proof'
+			'acceptance audit: 3 repo-owned requirement(s) still need implementation or stronger local proof; 2 external proof item(s) remain blocked until real tenant or target infrastructure is available'
 		);
 	});
 });
@@ -420,11 +453,20 @@ function expectV7Rows(output: string) {
 	expect(output).toContain('[local] V7 coverage tooling and baseline reporting');
 	expect(output).toContain('[local] V7 server and security regression foundation');
 	expect(output).toContain('[local] V7 fleet wiring and browser workflow foundation');
-	expect(output).toContain('[pending] V7 coverage target thresholds');
+	expect(output).toContain('[local] V7 coverage ratchet threshold foundation');
+	expect(output).toContain('[pending] V7 final coverage target achievement');
 	expect(output).toContain('[pending] V7 full workflow and protocol browser coverage');
-	expect(output).toContain('[pending] V7 reliability and performance test budget');
+	expect(output).toContain('[local] V7 reliability and performance budget foundation');
+	expect(output).toContain('[pending] V7 final reliability and performance budgets');
 	expect(output).toContain('[proof-ready] V7 real FTP external proof');
 	expect(output).toContain('[proof-ready] V7 real FTPS external proof');
+}
+
+function v7AuditRows(output: string): string[] {
+	return output
+		.split('\n')
+		.filter((line) => /^\[[^\]]+\] V7 /.test(line))
+		.map((line) => line.replace(/ - .*/, ''));
 }
 
 function runNodeScript(args: string[], env: NodeJS.ProcessEnv) {

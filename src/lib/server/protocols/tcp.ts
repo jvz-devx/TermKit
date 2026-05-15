@@ -27,35 +27,25 @@ export function proxyTcpBytes(
 	target: Socket,
 	{ onResize, textFrames = 'data', transformTargetData }: TcpProxyOptions = {}
 ): void {
-	const cleanup = () => {
-		target.destroy();
-		if (socket.readyState === socket.OPEN) {
-			socket.close();
-		}
-	};
-
-	target.on('data', (chunk) => {
+	const onTargetData = (chunk: Buffer) => {
 		const transformed = transformTargetData ? transformTargetData(chunk) : chunk;
 		if (!transformed || transformed.length === 0) return;
 
 		if (socket.readyState === socket.OPEN) {
 			socket.send(transformed);
 		}
-	});
-
-	target.on('error', () => {
+	};
+	const onTargetError = () => {
 		if (socket.readyState === socket.OPEN) {
 			socket.close(1011, 'target connection failed');
 		}
-	});
-
-	target.on('close', () => {
+	};
+	const onTargetClose = () => {
 		if (socket.readyState === socket.OPEN) {
 			socket.close(1000, 'target closed');
 		}
-	});
-
-	socket.on('message', (data, isBinary) => {
+	};
+	const onSocketMessage = (data: Buffer | ArrayBuffer | Buffer[] | string, isBinary: boolean) => {
 		if (!isBinary && textFrames === 'control') {
 			const control = parseTerminalControlFrame(rawDataToBuffer(data).toString('utf8'));
 			if (control?.type === 'terminal.resize') onResize?.(control);
@@ -75,8 +65,24 @@ export function proxyTcpBytes(
 		}
 
 		target.write(rawDataToBuffer(data));
-	});
+	};
+	const cleanup = () => {
+		target.removeListener('data', onTargetData);
+		target.removeListener('error', onTargetError);
+		target.removeListener('close', onTargetClose);
+		socket.removeListener('message', onSocketMessage);
+		socket.removeListener('close', cleanup);
+		socket.removeListener('error', cleanup);
+		target.destroy();
+		if (socket.readyState === socket.OPEN) {
+			socket.close();
+		}
+	};
 
+	target.on('data', onTargetData);
+	target.on('error', onTargetError);
+	target.on('close', onTargetClose);
+	socket.on('message', onSocketMessage);
 	socket.on('close', cleanup);
 	socket.on('error', cleanup);
 }

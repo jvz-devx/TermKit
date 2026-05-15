@@ -1,13 +1,27 @@
-import { describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	buildForwardHttpRequest,
 	parseForwardHttpResponse,
+	proxyTcpTunnelWebSocket,
 	tunnelFailureCode,
 	SshTunnelProxyError
 } from './ssh-tunnel';
 import { ServiceValidationError } from '../services/errors';
 
+const sshConnectMocks = vi.hoisted(() => ({
+	connectTrustedSsh: vi.fn()
+}));
+
+vi.mock('./ssh-connect', () => ({
+	connectTrustedSsh: sshConnectMocks.connectTrustedSsh
+}));
+
 describe('ssh-tunnel protocol helpers', () => {
+	beforeEach(() => {
+		sshConnectMocks.connectTrustedSsh.mockReset();
+	});
+
 	it('builds origin-form HTTP requests without forwarding app credentials', () => {
 		const request = new Request('https://termix.test/api/tunnels/session-1/proxy/admin', {
 			method: 'POST',
@@ -133,4 +147,129 @@ describe('ssh-tunnel protocol helpers', () => {
 		expect(tunnelFailureCode(new ServiceValidationError(['bad input']))).toBe('validation_failed');
 		expect(tunnelFailureCode(new Error('boom'))).toBe('tunnel_proxy_failed');
 	});
+
+	it('proxies websocket bytes through an SSH forwarded channel and cleans up on socket close', async () => {
+		expect.assertions(8);
+
+		const channel = new FakeSshChannel();
+		const connection = new FakeSshConnection(channel);
+		const socket = new FakeWebSocket();
+		sshConnectMocks.connectTrustedSsh.mockResolvedValue(connection);
+
+		await proxyTcpTunnelWebSocket(
+			sshTarget(),
+			{ targetHost: 'database.internal.test', targetPort: 5432 },
+			socket as never
+		);
+
+		socket.emit('message', Buffer.from('client-bytes'));
+		channel.emit('data', Buffer.from('server-bytes'));
+		socket.emit('close');
+
+		expect(connection.forwardOut).toHaveBeenCalledWith(
+			'127.0.0.1',
+			0,
+			'database.internal.test',
+			5432,
+			expect.any(Function)
+		);
+		expect(channel.write).toHaveBeenCalledWith(Buffer.from('client-bytes'));
+		expect(socket.send).toHaveBeenCalledWith(Buffer.from('server-bytes'));
+		expect(channel.end).toHaveBeenCalledTimes(1);
+		expect(connection.end).toHaveBeenCalledTimes(1);
+		expect(socket.listenerCount('message')).toBe(0);
+		expect(channel.listenerCount('data')).toBe(0);
+		expect(channel.listenerCount('close')).toBe(0);
+	});
+
+	it('closes the websocket with a target failure when the forwarded channel errors', async () => {
+		expect.assertions(5);
+
+		const channel = new FakeSshChannel();
+		const connection = new FakeSshConnection(channel);
+		const socket = new FakeWebSocket();
+		sshConnectMocks.connectTrustedSsh.mockResolvedValue(connection);
+
+		await proxyTcpTunnelWebSocket(
+			sshTarget(),
+			{ targetHost: '127.0.0.1', targetPort: 80 },
+			socket as never
+		);
+		channel.emit('error', new Error('upstream reset'));
+
+		expect(socket.close).toHaveBeenCalledWith(1011, 'tunnel target failed');
+		expect(connection.end).toHaveBeenCalledTimes(1);
+		expect(socket.listenerCount('message')).toBe(0);
+		expect(channel.listenerCount('data')).toBe(0);
+		expect(channel.listenerCount('error')).toBe(0);
+	});
+
+	it('ends the SSH connection when the forwarded channel cannot be opened', async () => {
+		expect.assertions(3);
+
+		const channel = new FakeSshChannel();
+		const connection = new FakeSshConnection(channel, new Error('connection refused'));
+		const socket = new FakeWebSocket();
+		sshConnectMocks.connectTrustedSsh.mockResolvedValue(connection);
+
+		await expect(
+			proxyTcpTunnelWebSocket(
+				sshTarget(),
+				{ targetHost: '127.0.0.1', targetPort: 80 },
+				socket as never
+			)
+		).rejects.toMatchObject({
+			code: 'target_unreachable',
+			message: 'connection refused'
+		});
+		expect(connection.end).toHaveBeenCalledTimes(1);
+		expect(socket.listenerCount('message')).toBe(0);
+	});
 });
+
+function sshTarget() {
+	return {
+		userId: 'user-1',
+		hostId: 'host-1',
+		host: 'shell.example.test',
+		port: 22,
+		username: 'ops'
+	};
+}
+
+class FakeWebSocket extends EventEmitter {
+	readonly OPEN = 1;
+	readyState = this.OPEN;
+	send = vi.fn();
+	close = vi.fn((code?: number, reason?: string) => {
+		this.readyState = 3;
+		this.emit('close', code, Buffer.from(reason ?? ''));
+	});
+}
+
+class FakeSshChannel extends EventEmitter {
+	destroyed = false;
+	write = vi.fn();
+	end = vi.fn();
+	destroy = vi.fn(() => {
+		this.destroyed = true;
+	});
+}
+
+class FakeSshConnection {
+	end = vi.fn();
+	forwardOut = vi.fn(
+		(
+			_sourceHost: string,
+			_sourcePort: number,
+			_targetHost: string,
+			_targetPort: number,
+			callback: (error: Error | undefined, channel?: FakeSshChannel) => void
+		) => callback(this.forwardError, this.channel)
+	);
+
+	constructor(
+		private readonly channel: FakeSshChannel,
+		private readonly forwardError?: Error
+	) {}
+}

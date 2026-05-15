@@ -35,15 +35,7 @@ const builtInAutomationTemplateService: AutomationTemplateService = {
 	}
 };
 
-let automationTemplateService: AutomationTemplateService = builtInAutomationTemplateService;
-
-export function setAutomationTemplateServiceForTesting(service: AutomationTemplateService): void {
-	automationTemplateService = service;
-}
-
-export function resetAutomationTemplateServiceForTesting(): void {
-	automationTemplateService = builtInAutomationTemplateService;
-}
+const automationTemplateService: AutomationTemplateService = builtInAutomationTemplateService;
 
 export const listAutomationTemplates = query(async (): Promise<AutomationTemplateSummary[]> => {
 	const userId = requireRemoteUser();

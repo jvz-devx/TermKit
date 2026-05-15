@@ -20,6 +20,7 @@ TermixKit is a SvelteKit rewrite of the connection-focused parts of Termix. The 
 - V4 milestone 1: admin visibility for active SSH tunnels, FTP/FTPS activity, and structured protocol failure reasons.
 - V5 terminal and transfer polish: terminal preferences, snippets, browser-side recording controls, file-manager transfer power tools, FTPS modes, and RDP host settings.
 - V6 fleet operations: automation templates, reviewed bulk operations, job history, approvals, policy checks, and host health inventory.
+- V7 test hardening: coverage ratchets, executable acceptance-audit drift checks, reliability/performance tests, and explicit external proof boundaries for real Microsoft/RDP/VNC/SSH/FTP/FTPS infrastructure.
 
 ## Application Navigation
 

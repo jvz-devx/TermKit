@@ -20,10 +20,10 @@ export default defineConfig({
 				'src/routes/(auth)/auth/microsoft/**/*.ts'
 			],
 			thresholds: {
-				statements: 63,
-				branches: 60,
-				functions: 62,
-				lines: 65,
+				statements: 70,
+				branches: 65,
+				functions: 70,
+				lines: 73,
 				'src/lib/server/auth/**': {
 					statements: 85,
 					branches: 85,
@@ -47,6 +47,24 @@ export default defineConfig({
 					branches: 76,
 					functions: 96,
 					lines: 89
+				},
+				'src/lib/server/ssh-live/**': {
+					statements: 65,
+					branches: 63,
+					functions: 61,
+					lines: 68
+				},
+				'src/lib/server/services/bulk-job-runner.ts': {
+					statements: 82,
+					branches: 71,
+					functions: 88,
+					lines: 88
+				},
+				'src/lib/components/termix/session/file-manager-state.ts': {
+					statements: 87,
+					branches: 72,
+					functions: 100,
+					lines: 91
 				}
 			},
 			exclude: [

@@ -392,22 +392,34 @@ const checks = [
 			'npm test covers the shared fleet operation contract and source-level drift checks; npm run test:e2e covers /fleet navigation, disabled no-target queue state, approval-required review state, and inventory filtering'
 	},
 	{
-		name: 'V7 coverage target thresholds',
+		name: 'V7 coverage ratchet threshold foundation',
+		status: 'local',
+		evidence:
+			'npm run test:coverage enforces the current global ratchet plus scoped auth, crypto, import, Termix domain, live SSH, bulk-job runner, and file-manager-state thresholds; docs/coverage-baseline.md documents the measured floor'
+	},
+	{
+		name: 'V7 final coverage target achievement',
 		status: 'pending',
 		evidence:
-			'current coverage baseline is below spec.md targets; raise server, security-critical, protocol/websocket, repository, migration, policy, job, and acceptance-audit coverage before V7 completion'
+			'remaining local gap: reach the final spec.md coverage targets across global lines/branches, server-owned modules, security-critical logic, protocol adapters, repositories, migrations, and remote/API boundaries'
 	},
 	{
 		name: 'V7 full workflow and protocol browser coverage',
 		status: 'pending',
 		evidence:
-			'expand deterministic Playwright and smoke coverage across host/credential CRUD, importer flows, workspaces, SSH live tabs, SFTP/FTP/FTPS workflows, RDP/VNC/Telnet launch states, admin views, and policy-blocked states'
+			'remaining local gap: broaden deterministic browser and smoke coverage from shell/launch-state checks to successful fixture-backed protocol interactions for SSH live tabs, SFTP, FTP/FTPS, RDP, VNC, and Telnet plus server-enforced policy-blocked execution paths'
 	},
 	{
-		name: 'V7 reliability and performance test budget',
+		name: 'V7 reliability and performance budget foundation',
+		status: 'local',
+		evidence:
+			'npm test covers live SSH attach takeover, connection and shell failure injection, single-use ticket rejection paths, bulk-job concurrency, cancellation, timeout/retry behavior, secret-safe reports, large fan-out planning budgets, and file-list transform budgets; docs/coverage-baseline.md lists remaining reliability/perf gaps'
+	},
+	{
+		name: 'V7 final reliability and performance budgets',
 		status: 'pending',
 		evidence:
-			'add remaining concurrency, timeout, failure-injection, and lightweight performance budgets for live SSH attach takeover, ticket consumption, tunnel limits, transfer cancellation, bulk retries, protocol adapters, background jobs, importer parsing, file-list transforms, job scheduling, and workspace rendering'
+			'remaining local gap: convert the documented tunnel-limit, transfer-cancellation, protocol-timeout, background-job retry, importer parsing, and workspace rendering budgets into enforced tests or measurable smoke gates'
 	},
 	{
 		name: 'V7 real FTP external proof',
@@ -432,8 +444,12 @@ const externalBlocked = checks.filter((check) => check.status === 'external-bloc
 if (blocked.length > 0) {
 	console.log('');
 	printProofFileState();
+	const externalSummary =
+		externalBlocked.length > 0
+			? `; ${externalBlocked.length} external proof item(s) remain blocked until real tenant or target infrastructure is available`
+			: '';
 	console.log(
-		`acceptance audit: ${blocked.length} requirement(s) still need implementation, external env, or manual proof`
+		`acceptance audit: ${blocked.length} repo-owned requirement(s) still need implementation or stronger local proof${externalSummary}`
 	);
 	process.exitCode = 2;
 } else {

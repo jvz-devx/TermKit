@@ -8,9 +8,42 @@ const v7ImportedSshName = 'V7 Imported SSH';
 const v7ImportedRdpName = 'V7 Imported RDP';
 const v7SshName = 'V7 Browser SSH';
 const v7RdpName = 'V7 Browser RDP';
+const v7VncName = 'V7 Browser VNC';
 const v7TelnetName = 'V7 Browser Telnet';
+const v7FtpName = 'V7 Browser FTP';
+const v7FtpsName = 'V7 Browser FTPS';
+const v7UiCredentialName = 'V7 UI CRUD Password';
+const v7UiCredentialRotatedName = 'V7 UI CRUD Password Rotated';
+const v7UiHostName = 'V7 UI CRUD SSH';
+const v7UiHostRenamedName = 'V7 UI CRUD SSH Renamed';
+const v7DeniedUsername = 'v7-non-admin-denied';
+const v7DeniedPassword = 'V7-Non-Admin-Denied-42!';
+const browserRuntimeErrors = new WeakMap<Page, string[]>();
 
 test.describe.serial('V7 operator workflow hardening', () => {
+	test.beforeEach(({ page }) => {
+		const errors: string[] = [];
+		browserRuntimeErrors.set(page, errors);
+		page.on('pageerror', (error) => {
+			errors.push(`pageerror: ${error.message}`);
+		});
+		page.on('console', (message) => {
+			if (message.type() === 'error' && !isExpectedBrowserConsoleError(message.text())) {
+				errors.push(`console.error: ${message.text()}`);
+			}
+		});
+		page.on('requestfailed', (request) => {
+			if (isExpectedRequestAbort(request.url(), request.failure()?.errorText)) return;
+			errors.push(
+				`requestfailed: ${request.method()} ${request.url()} ${request.failure()?.errorText}`
+			);
+		});
+	});
+
+	test.afterEach(({ page }) => {
+		expect(browserRuntimeErrors.get(page) ?? []).toEqual([]);
+	});
+
 	test('requires auth for protected routes and restores access after login', async ({
 		context,
 		page
@@ -54,10 +87,87 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		await page.getByPlaceholder('Search name, address, folder, or tag').fill('V7 Browser');
 		await expect(page.getByText(v7SshName, { exact: true })).toBeVisible();
 		await expect(page.getByText(v7RdpName, { exact: true })).toBeVisible();
+		await expect(page.getByText(v7VncName, { exact: true })).toBeVisible();
 		await expect(page.getByText(v7TelnetName, { exact: true })).toBeVisible();
+		await expect(page.getByText(v7FtpName, { exact: true })).toBeVisible();
+		await expect(page.getByText(v7FtpsName, { exact: true })).toBeVisible();
 		await expect(page.getByRole('cell', { name: v7CredentialName }).first()).toBeVisible();
 		await expect(page.getByRole('button', { name: `Launch ${v7SshName}` })).toBeEnabled();
 		await expect(page.getByRole('button', { name: `Launch ${v7RdpName}` })).toBeEnabled();
+	});
+
+	test('creates, edits, and deletes credentials and hosts through the UI', async ({
+		context,
+		page
+	}) => {
+		await ensureAdminSession(page, context);
+		await page.setViewportSize({ width: 1400, height: 1200 });
+
+		await page.goto('/credentials');
+		await page.getByRole('button', { name: 'Credential' }).click();
+		let dialog = page.getByRole('dialog', { name: 'Credential' });
+		await dialog.getByLabel('Name', { exact: true }).fill(v7UiCredentialName);
+		await dialog.getByLabel('Username', { exact: true }).fill('v7-ui-operator');
+		await dialog.getByLabel('Password', { exact: true }).fill('v7-ui-secret');
+		await dialog.getByRole('button', { name: 'Save credential' }).click();
+
+		await page
+			.getByPlaceholder('Filter credentials by name, username, or kind')
+			.fill(v7UiCredentialName);
+		await expect(page.getByRole('cell', { name: v7UiCredentialName, exact: true })).toBeVisible();
+		await expect(page.getByRole('cell', { name: 'v7-ui-operator', exact: true })).toBeVisible();
+		await expect(page.getByText('v7-ui-secret')).toHaveCount(0);
+
+		await page.getByRole('button', { name: `Edit ${v7UiCredentialName}` }).click();
+		dialog = page.getByRole('dialog', { name: 'Edit credential' });
+		await dialog.getByLabel('Name', { exact: true }).fill(v7UiCredentialRotatedName);
+		await dialog.getByRole('button', { name: 'Save changes' }).click();
+		await page
+			.getByPlaceholder('Filter credentials by name, username, or kind')
+			.fill(v7UiCredentialRotatedName);
+		await expect(
+			page.getByRole('cell', { name: v7UiCredentialRotatedName, exact: true })
+		).toBeVisible();
+
+		await page.goto('/hosts');
+		await page.getByRole('button', { name: 'Host', exact: true }).click();
+		dialog = page.getByRole('dialog', { name: 'Host configuration' });
+		await dialog.getByLabel('Name', { exact: true }).fill(v7UiHostName);
+		await dialog.getByLabel('Hostname', { exact: true }).fill('v7-ui-host.example.test');
+		await dialog.getByLabel('Port', { exact: true }).fill('2022');
+		await dialog.getByLabel('Username', { exact: true }).fill('v7-ui-operator');
+		await dialog.getByLabel('Folder', { exact: true }).fill('V7/UI CRUD');
+		await dialog.getByLabel('Tags', { exact: true }).fill('ui-crud, deterministic');
+		await dialog
+			.getByLabel('Notes', { exact: true })
+			.fill('Created by V7 browser workflow coverage.');
+		await dialog.getByRole('button', { name: 'Save host' }).click({ force: true });
+
+		await page.getByPlaceholder('Search name, address, folder, or tag').fill(v7UiHostName);
+		await expect(page.getByText(v7UiHostName, { exact: true })).toBeVisible();
+		await expect(page.getByText('v7-ui-operator@v7-ui-host.example.test:2022')).toBeVisible();
+		await expect(page.getByText('V7/UI CRUD')).toBeVisible();
+
+		await page.getByRole('button', { name: `Edit ${v7UiHostName}` }).click();
+		dialog = page.getByRole('dialog', { name: 'Edit host' });
+		await dialog.getByLabel('Name', { exact: true }).fill(v7UiHostRenamedName);
+		await dialog.getByLabel('Port', { exact: true }).fill('2023');
+		await dialog.getByRole('button', { name: 'Save changes' }).click({ force: true });
+		await page.getByPlaceholder('Search name, address, folder, or tag').fill(v7UiHostRenamedName);
+		await expect(page.getByText(v7UiHostRenamedName, { exact: true })).toBeVisible();
+		await expect(page.getByText('v7-ui-operator@v7-ui-host.example.test:2023')).toBeVisible();
+
+		await page.getByRole('button', { name: `Delete ${v7UiHostRenamedName}` }).click();
+		await page.getByRole('alertdialog').getByRole('button', { name: 'Delete host' }).click();
+		await expect(page.getByText(v7UiHostRenamedName, { exact: true })).toHaveCount(0);
+
+		await page.goto('/credentials');
+		await page
+			.getByPlaceholder('Filter credentials by name, username, or kind')
+			.fill(v7UiCredentialRotatedName);
+		await page.getByRole('button', { name: `Delete ${v7UiCredentialRotatedName}` }).click();
+		await page.getByRole('alertdialog').getByRole('button', { name: 'Delete credential' }).click();
+		await expect(page.getByText(v7UiCredentialRotatedName, { exact: true })).toHaveCount(0);
 	});
 
 	test('validates and imports a local Termix export from the importer UI', async ({
@@ -141,6 +251,63 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		await expect(page.getByRole('button', { name: new RegExp(v7SshName) })).toBeVisible();
 	});
 
+	test('opens deterministic workspace panes for each V7 protocol without external targets', async ({
+		context,
+		page
+	}) => {
+		await ensureAdminSession(page, context);
+		await seedCoreHosts(page);
+		const hosts = await listHosts(page);
+		const byName = (name: string) => {
+			const host = hosts.find((candidate) => candidate.name === name);
+			expect(host, `seeded host ${name}`).toBeTruthy();
+			return host!;
+		};
+
+		await expectWorkspacePane(page, byName(v7SshName).id, 'ssh', [
+			v7SshName,
+			'SSH session',
+			'SSH tabs available',
+			'Existing live sessions are idle.'
+		]);
+		await expectWorkspacePane(page, byName(v7SshName).id, 'sftp', [v7SshName, 'SFTP session']);
+		await expect(page.getByRole('region', { name: 'SFTP file manager' })).toBeVisible();
+		await expect(page.getByLabel('Remote path')).toBeVisible();
+		await expectWorkspacePane(page, byName(v7RdpName).id, 'rdp', [v7RdpName, 'RDP launch failed']);
+		await expectWorkspacePane(page, byName(v7VncName).id, 'vnc', [
+			v7VncName,
+			'VNC session',
+			'VNC not connected'
+		]);
+		await expectWorkspacePane(page, byName(v7TelnetName).id, 'telnet', [
+			v7TelnetName,
+			'TELNET session',
+			'Telnet terminal',
+			'target connection failed'
+		]);
+		await expect(page.getByText('state_unsafe_mutation')).toHaveCount(0);
+	});
+
+	test('surfaces FTP and FTPS file-manager launch states from the workspace', async ({
+		context,
+		page
+	}) => {
+		await ensureAdminSession(page, context);
+		await seedCoreHosts(page);
+		const hosts = await listHosts(page);
+		const ftpHost = hosts.find((host) => host.name === v7FtpName);
+		const ftpsHost = hosts.find((host) => host.name === v7FtpsName);
+		expect(ftpHost, `seeded host ${v7FtpName}`).toBeTruthy();
+		expect(ftpsHost, `seeded host ${v7FtpsName}`).toBeTruthy();
+
+		await expectWorkspacePane(page, ftpHost!.id, 'ftp', [v7FtpName, 'FTP session']);
+		await expect(page.getByRole('region', { name: 'FTP file manager' })).toBeVisible();
+		await expect(page.getByLabel('Remote path')).toBeVisible();
+		await expectWorkspacePane(page, ftpsHost!.id, 'ftps', [v7FtpsName, 'FTPS session']);
+		await expect(page.getByRole('region', { name: 'FTPS file manager' })).toBeVisible();
+		await expect(page.getByLabel('Remote path')).toBeVisible();
+	});
+
 	test('covers fleet no-target and approval-required review states', async ({ context, page }) => {
 		await ensureAdminSession(page, context);
 		await seedCoreHosts(page);
@@ -211,6 +378,39 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		await expect(page).toHaveURL(/\/settings$/);
 		await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 	});
+
+	test('denies admin-only UI and server data to non-admin users', async ({
+		browser,
+		context,
+		page
+	}) => {
+		await ensureAdminSession(page, context);
+		await ensureLocalUser(page, {
+			username: v7DeniedUsername,
+			password: v7DeniedPassword,
+			isAdmin: false
+		});
+
+		const deniedContext = await browser.newContext();
+		const deniedPage = await deniedContext.newPage();
+		try {
+			await deniedPage.goto('/login');
+			await signIn(deniedPage, {
+				username: v7DeniedUsername,
+				password: v7DeniedPassword
+			});
+			await expect(deniedPage).toHaveURL(/\/hosts$/);
+
+			const response = await deniedPage.goto('/admin');
+			expect(response?.status()).toBe(403);
+			await expect(deniedPage.getByText('Admin access required')).toBeVisible();
+
+			const serverResponse = await deniedPage.request.get('/admin');
+			expect(serverResponse.status()).toBe(403);
+		} finally {
+			await deniedContext.close();
+		}
+	});
 });
 
 async function ensureAdminSession(page: Page, context: BrowserContext) {
@@ -231,9 +431,15 @@ async function ensureAdminSession(page: Page, context: BrowserContext) {
 	await expectAuthenticatedHostsApi(page, context);
 }
 
-async function signIn(page: Page) {
-	await page.getByLabel('Username').fill(adminUsername);
-	await page.getByLabel('Password').fill(adminPassword);
+async function signIn(
+	page: Page,
+	credentials: { username: string; password: string } = {
+		username: adminUsername,
+		password: adminPassword
+	}
+) {
+	await page.getByLabel('Username', { exact: true }).fill(credentials.username);
+	await page.getByLabel('Password', { exact: true }).fill(credentials.password);
 	await page.getByRole('button', { name: 'Sign in' }).click();
 }
 
@@ -286,6 +492,16 @@ async function seedCoreHosts(page: Page, credentialId?: string) {
 			tags: ['production', 'region:fra']
 		},
 		{
+			name: v7VncName,
+			protocol: 'vnc',
+			hostname: 'v7-vnc.example.test',
+			port: 5900,
+			username: 'vnc-operator',
+			credentialId: credentialId ?? null,
+			folder: 'V7/Remote Desktop',
+			tags: ['production', 'region:ams']
+		},
+		{
 			name: v7TelnetName,
 			protocol: 'telnet',
 			hostname: 'v7-console.example.test',
@@ -294,6 +510,33 @@ async function seedCoreHosts(page: Page, credentialId?: string) {
 			credentialId: null,
 			folder: 'V7/Lab',
 			tags: ['lab', 'region:lab']
+		},
+		{
+			name: v7FtpName,
+			protocol: 'ftp',
+			hostname: 'v7-ftp.example.test',
+			port: 21,
+			username: 'ftp-operator',
+			credentialId: credentialId ?? null,
+			folder: 'V7/File Transfer',
+			tags: ['files', 'region:ams']
+		},
+		{
+			name: v7FtpsName,
+			protocol: 'ftps',
+			hostname: 'v7-ftps.example.test',
+			port: 21,
+			username: 'ftps-operator',
+			credentialId: credentialId ?? null,
+			folder: 'V7/File Transfer',
+			tags: ['files', 'tls', 'region:fra'],
+			metadata: {
+				ftps: {
+					mode: 'explicit',
+					rejectUnauthorized: true,
+					certificateHostname: 'v7-ftps.example.test'
+				}
+			}
 		}
 	];
 
@@ -307,7 +550,9 @@ async function seedCoreHosts(page: Page, credentialId?: string) {
 async function listHosts(page: Page) {
 	const response = await page.request.get('/api/hosts');
 	expect(response.status()).toBe(200);
-	const body = (await response.json()) as { hosts: Array<{ id: string; name: string }> };
+	const body = (await response.json()) as {
+		hosts: Array<{ id: string; name: string; protocol: string }>;
+	};
 	return body.hosts;
 }
 
@@ -316,6 +561,47 @@ async function listCredentials(page: Page) {
 	expect(response.status()).toBe(200);
 	const body = (await response.json()) as { credentials: Array<{ id: string; name: string }> };
 	return body.credentials;
+}
+
+async function expectWorkspacePane(
+	page: Page,
+	hostId: string,
+	protocol: string,
+	expectedTexts: string[]
+) {
+	await page.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=${protocol}`);
+	await expect(page).toHaveURL(new RegExp(`/sessions\\?host=${hostId}.*tab=${protocol}`));
+	for (const text of expectedTexts) {
+		await expect(page.getByText(text, { exact: false }).first()).toBeVisible();
+	}
+}
+
+function isExpectedBrowserConsoleError(message: string) {
+	return message.includes('Failed to load resource') && message.includes('500');
+}
+
+function isExpectedRequestAbort(url: string, errorText: string | undefined) {
+	return url.startsWith('http://127.0.0.1:4173/') && errorText === 'net::ERR_ABORTED';
+}
+
+async function ensureLocalUser(
+	page: Page,
+	input: { username: string; password: string; isAdmin: boolean }
+) {
+	const existing = await page.request.get('/api/hosts');
+	expect(existing.status()).toBe(200);
+
+	await page.goto('/admin');
+	const userRow = page.getByRole('row', { name: new RegExp(`${input.username} .* User`) });
+	if ((await userRow.count()) > 0) return;
+
+	await page.getByLabel('Username', { exact: true }).fill(input.username);
+	await page.getByLabel('Password', { exact: true }).fill(input.password);
+	if (input.isAdmin) {
+		await page.getByLabel('Create as admin').check();
+	}
+	await page.getByRole('button', { name: 'Create' }).click();
+	await expect(page.getByText(`Created ${input.username}.`, { exact: true })).toBeVisible();
 }
 
 function v7ImportFixture() {

@@ -1052,7 +1052,43 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	async deleteHost(userId: string, id: string): Promise<boolean> {
 		const host = await this.getHost(userId, id);
 		if (!host) return false;
-		return this.hosts.delete(id);
+		const deleted = this.hosts.delete(id);
+		if (!deleted) return false;
+
+		for (const session of this.connectionSessions.values()) {
+			if (session.hostId === id) {
+				this.connectionSessions.set(session.id, { ...session, hostId: null });
+			}
+		}
+		for (const [profileId, profile] of this.sshTunnelProfiles.entries()) {
+			if (profile.sshHostId === id) this.sshTunnelProfiles.delete(profileId);
+		}
+		for (const [ticketHash, ticket] of this.tickets.entries()) {
+			if (ticket.hostId === id) this.tickets.delete(ticketHash);
+		}
+		const deletedSshLiveSessionIds = new Set<string>();
+		for (const [sessionId, session] of this.sshLiveSessions.entries()) {
+			if (session.hostId === id) {
+				this.sshLiveSessions.delete(sessionId);
+				deletedSshLiveSessionIds.add(sessionId);
+			}
+		}
+		for (const [ticketHash, ticket] of this.sshAttachTickets.entries()) {
+			if (deletedSshLiveSessionIds.has(ticket.sshLiveSessionId)) {
+				this.sshAttachTickets.delete(ticketHash);
+			}
+		}
+		for (const tunnelSession of this.sshTunnelSessions.values()) {
+			if (tunnelSession.sshHostId === id) {
+				this.sshTunnelSessions.set(tunnelSession.id, {
+					...tunnelSession,
+					profileId: null,
+					sshHostId: null
+				});
+			}
+		}
+
+		return true;
 	}
 
 	async listCredentials(userId: string): Promise<CredentialRecord[]> {
@@ -1095,7 +1131,14 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	async deleteCredential(userId: string, id: string): Promise<boolean> {
 		const credential = await this.getCredential(userId, id);
 		if (!credential) return false;
-		return this.credentials.delete(id);
+		const deleted = this.credentials.delete(id);
+		if (!deleted) return false;
+		for (const host of this.hosts.values()) {
+			if (host.credentialId === id) {
+				this.hosts.set(host.id, { ...host, credentialId: null });
+			}
+		}
+		return true;
 	}
 
 	async createTicket(ticket: SessionTicketRecord): Promise<SessionTicketRecord> {

@@ -3,7 +3,13 @@ import type { TermixDb } from '../db';
 import { DrizzleTermixServicesRepository, InMemoryTermixServicesRepository } from './repository';
 import type {
 	ConnectionSessionRecord,
+	CredentialRecord,
 	HostRecord,
+	SessionTicketRecord,
+	SshAttachTicketRecord,
+	SshLiveSessionRecord,
+	SshTunnelProfileRecord,
+	SshTunnelSessionRecord,
 	WorkspaceMembershipRecord,
 	WorkspaceRecord
 } from './types';
@@ -323,6 +329,97 @@ describe('DrizzleTermixServicesRepository', () => {
 			expect.objectContaining({ id: 'private-owner-session' })
 		);
 	});
+
+	it('mirrors set-null and cascade delete semantics for in-memory host references', async () => {
+		expect.assertions(13);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const now = new Date('2026-05-14T10:00:00.000Z');
+		await repository.createCredential(credentialRecord({ id: 'credential-1' }));
+		await repository.createHost(
+			hostRecord({
+				id: 'host-1',
+				credentialId: 'credential-1',
+				workspaceId: null,
+				createdAt: now,
+				updatedAt: now
+			})
+		);
+		await repository.createConnectionSession(
+			connectionSession({
+				id: 'connection-1',
+				userId: 'owner-1',
+				hostId: 'host-1',
+				status: 'failed',
+				errorCode: 'host_unreachable',
+				errorMessage: 'Host unreachable'
+			})
+		);
+		await repository.createTicket(
+			sessionTicket({
+				id: 'ticket-1',
+				ticketHash: 'ticket-hash-1',
+				hostId: 'host-1'
+			})
+		);
+		await repository.createSshTunnelProfile(
+			sshTunnelProfile({ id: 'profile-1', userId: 'owner-1', sshHostId: 'host-1' })
+		);
+		await repository.createSshTunnelSession(
+			sshTunnelSession({
+				id: 'tunnel-session-1',
+				profileId: 'profile-1',
+				userId: 'owner-1',
+				sshHostId: 'host-1'
+			})
+		);
+		await repository.createSshLiveSession(
+			sshLiveSession({ id: 'live-session-1', userId: 'owner-1', hostId: 'host-1' })
+		);
+		await repository.createSshAttachTicket(
+			sshAttachTicket({
+				id: 'attach-ticket-1',
+				userId: 'owner-1',
+				sshLiveSessionId: 'live-session-1',
+				ticketHash: 'attach-ticket-hash-1'
+			})
+		);
+
+		await expect(repository.deleteCredential('owner-1', 'credential-1')).resolves.toBe(true);
+		await expect(repository.getHost('owner-1', 'host-1')).resolves.toMatchObject({
+			credentialId: null
+		});
+		await expect(repository.getTicketByHash('ticket-hash-1')).resolves.toMatchObject({
+			hostId: 'host-1'
+		});
+		await expect(repository.getSshLiveSession('owner-1', 'live-session-1')).resolves.toMatchObject({
+			hostId: 'host-1'
+		});
+		await expect(
+			repository.getSshAttachTicketByHash('attach-ticket-hash-1')
+		).resolves.toMatchObject({
+			sshLiveSessionId: 'live-session-1'
+		});
+
+		await expect(repository.deleteHost('owner-1', 'host-1')).resolves.toBe(true);
+		await expect(repository.getHost('owner-1', 'host-1')).resolves.toBeNull();
+		await expect(repository.getTicketByHash('ticket-hash-1')).resolves.toBeNull();
+		await expect(repository.getSshLiveSession('owner-1', 'live-session-1')).resolves.toBeNull();
+		await expect(repository.getSshAttachTicketByHash('attach-ticket-hash-1')).resolves.toBeNull();
+		await expect(repository.listConnectionHistory('owner-1')).resolves.toEqual([
+			expect.objectContaining({
+				id: 'connection-1',
+				hostId: null,
+				hostName: null,
+				hostname: null,
+				errorReason: 'Host unreachable'
+			})
+		]);
+		await expect(repository.getSshTunnelProfile('owner-1', 'profile-1')).resolves.toBeNull();
+		await expect(repository.getSshTunnelSession('owner-1', 'tunnel-session-1')).resolves.toEqual(
+			expect.objectContaining({ profileId: null, sshHostId: null })
+		);
+	});
 });
 
 function workspaceRecord(patch: Partial<WorkspaceRecord> = {}): WorkspaceRecord {
@@ -374,6 +471,30 @@ function hostRecord(patch: Partial<HostRecord> = {}): HostRecord {
 	};
 }
 
+function credentialRecord(patch: Partial<CredentialRecord> = {}): CredentialRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'credential-1',
+		userId: 'owner-1',
+		workspaceId: null,
+		name: 'Credential',
+		kind: 'password',
+		username: 'ops',
+		encryptedSecret: 'encrypted-secret',
+		encryption: {
+			algorithm: 'aes-256-gcm',
+			keyVersion: 1,
+			iv: 'iv',
+			authTag: 'auth-tag',
+			salt: 'salt'
+		},
+		metadata: {},
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
 function connectionSession(patch: Partial<ConnectionSessionRecord> = {}): ConnectionSessionRecord {
 	const now = new Date('2026-05-14T10:00:00.000Z');
 	return {
@@ -389,6 +510,95 @@ function connectionSession(patch: Partial<ConnectionSessionRecord> = {}): Connec
 		errorMessage: null,
 		errorDetails: null,
 		updatedAt: now,
+		...patch
+	};
+}
+
+function sshTunnelProfile(patch: Partial<SshTunnelProfileRecord> = {}): SshTunnelProfileRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'profile-1',
+		userId: 'owner-1',
+		workspaceId: null,
+		sshHostId: 'host-1',
+		name: 'Private service',
+		targetHost: 'service.internal',
+		targetPort: 443,
+		description: null,
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function sshTunnelSession(patch: Partial<SshTunnelSessionRecord> = {}): SshTunnelSessionRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'tunnel-session-1',
+		profileId: 'profile-1',
+		userId: 'owner-1',
+		workspaceId: null,
+		sshHostId: 'host-1',
+		targetHost: 'service.internal',
+		targetPort: 443,
+		publicPath: '/tunnels/tunnel-session-1',
+		status: 'active',
+		startedAt: now,
+		endedAt: null,
+		lastSeenAt: now,
+		errorCode: null,
+		errorMessage: null,
+		...patch
+	};
+}
+
+function sessionTicket(patch: Partial<SessionTicketRecord> = {}): SessionTicketRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'ticket-1',
+		ticketHash: 'ticket-hash-1',
+		userId: 'owner-1',
+		hostId: 'host-1',
+		protocol: 'ssh',
+		target: 'ssh:shell.example.test:22',
+		expiresAt: new Date('2026-05-14T10:05:00.000Z'),
+		usedAt: null,
+		createdAt: now,
+		...patch
+	};
+}
+
+function sshLiveSession(patch: Partial<SshLiveSessionRecord> = {}): SshLiveSessionRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'live-session-1',
+		userId: 'owner-1',
+		hostId: 'host-1',
+		title: 'Shell',
+		status: 'attached',
+		startedAt: now,
+		lastAttachedAt: now,
+		detachedAt: null,
+		expiresAt: null,
+		endedAt: null,
+		terminalCols: 120,
+		terminalRows: 40,
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function sshAttachTicket(patch: Partial<SshAttachTicketRecord> = {}): SshAttachTicketRecord {
+	const now = new Date('2026-05-14T10:00:00.000Z');
+	return {
+		id: 'attach-ticket-1',
+		userId: 'owner-1',
+		sshLiveSessionId: 'live-session-1',
+		ticketHash: 'attach-ticket-hash-1',
+		expiresAt: new Date('2026-05-14T10:01:00.000Z'),
+		consumedAt: null,
+		createdAt: now,
 		...patch
 	};
 }
