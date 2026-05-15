@@ -600,7 +600,10 @@ async function handleLiveSshConnection(
 			.catch(() => undefined);
 	} catch {
 		void liveSshSessions
-			.fail(attachTicket.userId, attachTicket.sshLiveSessionId)
+			.fail(attachTicket.userId, attachTicket.sshLiveSessionId, {
+				errorCode: 'live_ssh_manager_failed',
+				errorMessage: 'Live SSH manager failed before the terminal could attach.'
+			})
 			.catch(() => undefined);
 		if (webSocket.readyState === webSocket.OPEN) {
 			webSocket.close(1011, 'live ssh manager failed');
@@ -652,7 +655,11 @@ async function persistLiveSshSocketClose(
 		closeReason === 'live ssh manager failed'
 	) {
 		await liveSshSessions
-			.fail(attachTicket.userId, attachTicket.sshLiveSessionId)
+			.fail(
+				attachTicket.userId,
+				attachTicket.sshLiveSessionId,
+				liveSshFailureFromCloseReason(closeReason)
+			)
 			.catch(() => undefined);
 		return;
 	}
@@ -675,7 +682,43 @@ async function persistLiveSshManagerClose(
 		return;
 	}
 
-	await liveSshSessions.fail(event.userId, event.sessionId).catch(() => undefined);
+	await liveSshSessions
+		.fail(event.userId, event.sessionId, liveSshFailureFromManagerReason(event.reason))
+		.catch(() => undefined);
+}
+
+function liveSshFailureFromCloseReason(closeReason: string) {
+	if (closeReason === 'ssh host key not trusted') {
+		return {
+			errorCode: 'ssh_host_key_not_trusted',
+			errorMessage: 'Host key is not trusted. Enroll the host key before credentials are sent.'
+		};
+	}
+	if (closeReason === 'ssh connection failed') {
+		return {
+			errorCode: 'ssh_connection_failed',
+			errorMessage: 'SSH transport connection failed before a shell opened.'
+		};
+	}
+	if (closeReason === 'ssh shell failed') {
+		return {
+			errorCode: 'ssh_shell_failed',
+			errorMessage: 'SSH connected, but opening an interactive shell failed.'
+		};
+	}
+	return {
+		errorCode: 'live_ssh_manager_failed',
+		errorMessage: 'Live SSH manager failed while attaching the terminal.'
+	};
+}
+
+function liveSshFailureFromManagerReason(reason: LiveSshCloseEvent['reason']) {
+	if (reason === 'connection_error') return liveSshFailureFromCloseReason('ssh connection failed');
+	if (reason === 'shell_error') return liveSshFailureFromCloseReason('ssh shell failed');
+	return {
+		errorCode: 'live_ssh_manager_failed',
+		errorMessage: `Live SSH manager closed unexpectedly (${reason}).`
+	};
 }
 
 function isFailedCloseCode(code: number): boolean {

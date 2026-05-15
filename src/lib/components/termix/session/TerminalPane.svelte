@@ -317,6 +317,12 @@
 		if (reason.includes('host key')) {
 			return 'SSH host key is not trusted. Enroll the host key before reconnecting.';
 		}
+		if (reason.includes('target connection failed')) {
+			return 'Target connection failed. Check the host, port, firewall, and target service before reconnecting.';
+		}
+		if (reason.includes('protocol adapter failed')) {
+			return 'Terminal bridge failed while starting the protocol adapter. Retry and check server logs if it repeats.';
+		}
 		return reason || 'Terminal stream closed.';
 	}
 

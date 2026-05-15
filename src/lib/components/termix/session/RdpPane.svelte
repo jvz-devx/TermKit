@@ -159,6 +159,7 @@
 	);
 	let statusTitle = $derived(lastFailure?.title ?? statusLabel);
 	let reconnectLabel = $derived(lastFailure?.reconnectLabel ?? 'Retry');
+	let launchFailure = $derived(error ? classifyRdpFailure(error, { phase: 'connect' }) : null);
 	let statusVariant: BadgeVariant = $derived(
 		error || connectionState === 'error'
 			? 'destructive'
@@ -932,10 +933,15 @@
 		<div class="relative min-h-0 flex-1">
 			<StatePanel
 				state="error"
-				title="RDP launch failed"
-				detail={error}
+				title={launchFailure?.title ?? 'RDP launch failed'}
+				detail={`${launchFailure?.detail ?? error} Diagnostic: ${launchFailure?.code ?? error}`}
 				class="absolute right-3 bottom-3 left-3 bg-background"
-			/>
+			>
+				<Button size="sm" onclick={onReconnect}>
+					<RefreshCw class="size-4" />
+					{launchFailure?.reconnectLabel ?? 'Retry RDP'}
+				</Button>
+			</StatePanel>
 		</div>
 	{:else if !bootstrap}
 		<div class="relative min-h-0 flex-1 bg-neutral-950">

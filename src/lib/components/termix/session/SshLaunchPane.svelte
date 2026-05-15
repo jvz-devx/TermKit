@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { RotateCcw } from '@lucide/svelte';
+	import { Button } from '$lib/components/ui/button';
 	import { createLiveSshSession, type HostSummary, type LiveSshAttach } from '$lib/termix.remote';
+	import { failureCopy, failureDetail } from '$lib/termix/failure-copy';
 	import StatePanel from '../StatePanel.svelte';
 	import TerminalPane from './TerminalPane.svelte';
 
@@ -20,25 +23,34 @@
 
 	let launch = $state<LiveSshAttach | null>(null);
 	let error = $state<string | null>(null);
+	let loading = $state(true);
+	let errorCopy = $derived(error ? failureCopy({ protocol: 'ssh', message: error }) : null);
+
+	async function openSshTab(cancelled: () => boolean = () => false) {
+		loading = true;
+		error = null;
+		launch = null;
+		try {
+			const created = await createLiveSshSession({
+				hostId: host.id,
+				title: host.name,
+				cols: 80,
+				rows: 24
+			});
+			if (cancelled()) return;
+			launch = created;
+			onLaunch?.(created);
+		} catch (caught) {
+			if (cancelled()) return;
+			error = caught instanceof Error ? caught.message : 'Could not create live SSH session';
+		} finally {
+			if (!cancelled()) loading = false;
+		}
+	}
 
 	onMount(() => {
 		let cancelled = false;
-
-		void createLiveSshSession({
-			hostId: host.id,
-			title: host.name,
-			cols: 80,
-			rows: 24
-		})
-			.then((created) => {
-				if (cancelled) return;
-				launch = created;
-				onLaunch?.(created);
-			})
-			.catch((caught: unknown) => {
-				if (cancelled) return;
-				error = caught instanceof Error ? caught.message : 'Could not create live SSH session';
-			});
+		void openSshTab(() => cancelled);
 
 		return () => {
 			cancelled = true;
@@ -61,7 +73,16 @@
 </script>
 
 {#if error}
-	<StatePanel state="error" title="SSH tab launch failed" detail={error} />
+	<StatePanel
+		state="error"
+		title={errorCopy?.title ?? 'SSH tab launch failed'}
+		detail={`${errorCopy ? failureDetail(errorCopy) : 'Retry the SSH launch.'} Diagnostic: ${errorCopy?.diagnostic ?? error}`}
+	>
+		<Button size="sm" onclick={() => openSshTab()} disabled={loading}>
+			<RotateCcw class="size-4" />
+			Retry SSH
+		</Button>
+	</StatePanel>
 {:else if launch}
 	<TerminalPane
 		title={launch.session.title}

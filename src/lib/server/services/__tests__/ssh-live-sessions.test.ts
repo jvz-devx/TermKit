@@ -362,11 +362,17 @@ describe('SshLiveSessionService', () => {
 			expiresAt: null
 		});
 		await expect(
-			service.fail('user-1', failSession.session.id, new Date('2026-05-13T12:00:03.000Z'))
+			service.fail('user-1', failSession.session.id, {
+				at: new Date('2026-05-13T12:00:03.000Z'),
+				errorCode: 'ssh_connection_failed',
+				errorMessage: 'SSH transport connection failed before a shell opened.'
+			})
 		).resolves.toMatchObject({
 			status: 'failed',
 			endedAt: new Date('2026-05-13T12:00:03.000Z'),
-			expiresAt: null
+			expiresAt: null,
+			errorCode: 'ssh_connection_failed',
+			errorMessage: 'SSH transport connection failed before a shell opened.'
 		});
 		await expect(
 			service.createAttachTicket('user-1', closeSession.session.id)

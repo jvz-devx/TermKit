@@ -64,6 +64,13 @@
       "when": 1778796342899,
       "tag": "0008_foamy_betty_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1778840411208,
+      "tag": "0009_optimal_ezekiel",
+      "breakpoints": true
     }
   ]
 }

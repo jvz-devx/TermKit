@@ -7,6 +7,7 @@
 	import * as NativeSelect from '$lib/components/ui/native-select';
 	import * as Table from '$lib/components/ui/table';
 	import { listConnectionHistory, type ConnectionHistorySummary } from '$lib/termix.remote';
+	import { failureCopy, humanizeCode } from '$lib/termix/failure-copy';
 	import StatePanel from '../StatePanel.svelte';
 
 	type ProtocolFilter = ConnectionHistorySummary['protocol'] | 'all';
@@ -143,6 +144,14 @@
 
 	function errorReason(value: string | null) {
 		return value ? value.replaceAll('_', ' ') : 'None';
+	}
+
+	function historyFailure(row: ConnectionHistorySummary) {
+		return failureCopy({
+			protocol: row.protocol,
+			code: row.errorCode ?? row.errorReason,
+			message: row.errorMessage ?? row.errorReason
+		});
 	}
 </script>
 
@@ -317,7 +326,15 @@
 											<AlertCircle class="size-4 shrink-0 text-destructive" />
 										{/if}
 										<span class={row.errorReason ? 'text-destructive' : 'text-muted-foreground'}>
-											{errorReason(row.errorReason)}
+											{#if row.errorReason}
+												{@const failure = historyFailure(row)}
+												<span class="block font-medium">{failure.title}</span>
+												<span class="block text-xs text-muted-foreground">
+													{failure.diagnostic ?? humanizeCode(row.errorReason)}
+												</span>
+											{:else}
+												{errorReason(row.errorReason)}
+											{/if}
 										</span>
 									</div>
 								</Table.Cell>

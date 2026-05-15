@@ -16,6 +16,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import type { LiveSshSessionSummary } from '$lib/termix.remote';
+	import { failureCopy, failureDetail } from '$lib/termix/failure-copy';
 
 	type LiveSshStatus = LiveSshSessionSummary['status'];
 
@@ -36,7 +37,9 @@
 		if (session.status === 'stale')
 			return 'SSH session was left behind by a previous server process.';
 		if (session.status === 'ended') return 'SSH session has ended.';
-		return 'SSH session failed.';
+		return failureDetail(
+			failureCopy({ protocol: 'ssh', code: session.errorCode, message: session.errorMessage })
+		);
 	}
 
 	function canAttach(session: LiveSshSessionSummary) {

@@ -129,6 +129,8 @@ export type LiveSshSessionSummary = {
 	detachedAt: string | null;
 	expiresAt: string | null;
 	endedAt: string | null;
+	errorCode: string | null;
+	errorMessage: string | null;
 	terminalCols: number;
 	terminalRows: number;
 	updatedAt: string;
@@ -205,6 +207,8 @@ export type ConnectionHistorySummary = {
 	durationMs: number | null;
 	status: ConnectionSessionStatus;
 	errorReason: string | null;
+	errorCode: string | null;
+	errorMessage: string | null;
 };
 
 export const listHosts = query(async () => {
@@ -260,12 +264,10 @@ export const listLiveSshSessions = query(async () => {
 
 	return sessions
 		.sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
-		.map((session): LiveSshSessionSummary | null => {
+		.map((session): LiveSshSessionSummary => {
 			const host = hostsById.get(session.hostId);
-			if (!host) return null;
 			return toLiveSshSessionSummary(session, host);
-		})
-		.filter((session): session is LiveSshSessionSummary => Boolean(session));
+		});
 });
 
 export const listSshTunnelProfiles = query(async () => {
@@ -740,7 +742,9 @@ function toConnectionHistorySummary(record: ConnectionHistoryRecord): Connection
 		endedAt: record.endedAt?.toISOString() ?? null,
 		durationMs: record.durationMs,
 		status: record.status,
-		errorReason: record.errorReason
+		errorReason: record.errorReason,
+		errorCode: record.errorCode,
+		errorMessage: record.errorMessage
 	};
 }
 
@@ -829,14 +833,14 @@ async function createLiveSshAttach(
 
 function toLiveSshSessionSummary(
 	session: SshLiveSessionRecord,
-	host: HostRecord
+	host: HostRecord | undefined
 ): LiveSshSessionSummary {
 	return {
 		id: session.id,
 		hostId: session.hostId,
-		hostName: host.name,
-		hostname: host.hostname,
-		username: host.username,
+		hostName: host?.name ?? 'Deleted host',
+		hostname: host?.hostname ?? 'Unknown host',
+		username: host?.username ?? null,
 		title: session.title,
 		status: session.status,
 		startedAt: session.startedAt.toISOString(),
@@ -844,6 +848,8 @@ function toLiveSshSessionSummary(
 		detachedAt: session.detachedAt?.toISOString() ?? null,
 		expiresAt: session.expiresAt?.toISOString() ?? null,
 		endedAt: session.endedAt?.toISOString() ?? null,
+		errorCode: session.errorCode,
+		errorMessage: session.errorMessage,
 		terminalCols: session.terminalCols,
 		terminalRows: session.terminalRows,
 		updatedAt: session.updatedAt.toISOString()

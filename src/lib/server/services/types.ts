@@ -212,6 +212,8 @@ export interface SshLiveSessionRecord {
 	detachedAt: Date | null;
 	expiresAt: Date | null;
 	endedAt: Date | null;
+	errorCode: string | null;
+	errorMessage: string | null;
 	terminalCols: number;
 	terminalRows: number;
 	createdAt: Date;
@@ -272,6 +274,8 @@ export type SshLiveSessionPatch = Partial<
 		| 'detachedAt'
 		| 'expiresAt'
 		| 'endedAt'
+		| 'errorCode'
+		| 'errorMessage'
 		| 'terminalCols'
 		| 'terminalRows'
 		| 'updatedAt'

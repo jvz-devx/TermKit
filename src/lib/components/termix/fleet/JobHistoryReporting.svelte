@@ -65,7 +65,12 @@
 							<Table.Cell class="text-sm text-muted-foreground">{job.requestedBy}</Table.Cell>
 							<Table.Cell>
 								<div class="flex justify-end">
-									<Button size="icon" variant="ghost" aria-label={`Open report for ${job.name}`}>
+									<Button
+										href={job.reportUrl}
+										size="icon"
+										variant="ghost"
+										aria-label={`Open report for ${job.name}`}
+									>
 										<FileText class="size-4" />
 									</Button>
 								</div>

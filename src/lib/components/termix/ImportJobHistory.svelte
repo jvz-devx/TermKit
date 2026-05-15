@@ -48,6 +48,8 @@
 		onRefresh?: () => void;
 	} = $props();
 
+	let expandedFailureJobs = $state<string[]>([]);
+
 	function statusVariant(status: string) {
 		if (status === 'failed' || status === 'completed_with_errors') return 'destructive';
 		if (status === 'completed' || status === 'validated') return 'default';
@@ -61,6 +63,16 @@
 
 	function jobTitle(job: ImportJob) {
 		return `${job.mode === 'validate' ? 'Validated' : 'Imported'} ${job.sourceName}`;
+	}
+
+	function failuresForJob(job: ImportJob) {
+		return expandedFailureJobs.includes(job.id) ? job.failures : job.failures.slice(0, 2);
+	}
+
+	function toggleFailures(jobId: string) {
+		expandedFailureJobs = expandedFailureJobs.includes(jobId)
+			? expandedFailureJobs.filter((id) => id !== jobId)
+			: [...expandedFailureJobs, jobId];
 	}
 </script>
 
@@ -126,10 +138,22 @@
 					{#if job.failures.length}
 						<div class="flex items-start gap-2 rounded border border-destructive/40 p-2 text-xs">
 							<AlertTriangle class="mt-0.5 size-4 shrink-0 text-destructive" />
-							<div class="min-w-0 text-muted-foreground">
-								{job.failures[0]}{job.failures.length > 1
-									? ` +${job.failures.length - 1} more`
-									: ''}
+							<div class="min-w-0 flex-1 text-muted-foreground">
+								<div class="font-medium text-destructive">
+									{job.failures.length} failure{job.failures.length === 1 ? '' : 's'} recorded
+								</div>
+								<ul class="mt-1 list-disc space-y-1 pl-4">
+									{#each failuresForJob(job) as failure, index (`${job.id}:${failure}:${index}`)}
+										<li>{failure}</li>
+									{/each}
+								</ul>
+								{#if job.failures.length > 2}
+									<Button size="xs" variant="ghost" onclick={() => toggleFailures(job.id)}>
+										{expandedFailureJobs.includes(job.id)
+											? 'Show fewer failures'
+											: `Show all ${job.failures.length} failures`}
+									</Button>
+								{/if}
 							</div>
 						</div>
 					{:else if job.status === 'completed' || job.status === 'validated'}

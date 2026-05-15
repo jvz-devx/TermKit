@@ -143,13 +143,35 @@ export function classifyRdpFailure(
 	const message = errorMessage(value);
 	const lower = message.toLowerCase();
 
-	if (context.gatewayExpired || /\b(expired|token|association|gateway)\b/.test(lower)) {
+	if (context.phase === 'connect' && lower.includes('could not create rdp launch')) {
+		return {
+			kind: 'gateway-expired',
+			code: 'rdp_launch_failed',
+			title: 'RDP launch failed',
+			detail:
+				'RDP could not create the browser launch through the Gateway. Retry the launch, then check Gateway availability and RDP host configuration if it repeats.',
+			reconnectLabel: 'Retry RDP'
+		};
+	}
+
+	if (context.gatewayExpired || /\b(expired)\b/.test(lower)) {
 		return {
 			kind: 'gateway-expired',
 			code: 'rdp_gateway_expired',
 			title: 'Gateway session expired',
 			detail: 'The short-lived Gateway association expired. Reconnect to request a new token.',
 			reconnectLabel: 'Reconnect'
+		};
+	}
+
+	if (/\b(token|association|gateway)\b/.test(lower)) {
+		return {
+			kind: 'gateway-expired',
+			code: 'rdp_gateway_failed',
+			title: 'Gateway session failed',
+			detail:
+				'RDP could not get or use the short-lived Gateway session. Reconnect to request a new token, and check Gateway availability if it repeats.',
+			reconnectLabel: 'Retry Gateway'
 		};
 	}
 

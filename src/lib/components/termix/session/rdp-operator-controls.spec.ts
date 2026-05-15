@@ -46,6 +46,18 @@ describe('RDP operator controls', () => {
 			code: 'rdp_gateway_expired',
 			reconnectLabel: 'Reconnect'
 		});
+		expect(classifyRdpFailure('Could not create RDP launch', { phase: 'connect' })).toMatchObject({
+			kind: 'gateway-expired',
+			code: 'rdp_launch_failed',
+			title: 'RDP launch failed',
+			reconnectLabel: 'Retry RDP'
+		});
+		expect(classifyRdpFailure('Devolutions Gateway app-token failed')).toMatchObject({
+			kind: 'gateway-expired',
+			code: 'rdp_gateway_failed',
+			title: 'Gateway session failed',
+			reconnectLabel: 'Retry Gateway'
+		});
 		expect(classifyRdpFailure('Logon failure', { phase: 'connect' })).toMatchObject({
 			kind: 'credential-failure',
 			code: 'rdp_credential_failed',

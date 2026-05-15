@@ -4,14 +4,14 @@
 	import type { SessionPaneKind } from './workspace-layout';
 
 	const titles: Record<SessionPaneKind, string> = {
-		ssh: 'SSH unavailable',
-		sftp: 'SFTP unavailable',
-		rdp: 'RDP unavailable',
-		vnc: 'VNC unavailable',
-		telnet: 'Telnet unavailable',
-		ftp: 'FTP unavailable',
-		ftps: 'FTPS unavailable',
-		'ssh-tunnel': 'SSH tunnel unavailable'
+		ssh: 'SSH unsupported for this host',
+		sftp: 'SFTP unsupported for this host',
+		rdp: 'RDP unsupported for this host',
+		vnc: 'VNC unsupported for this host',
+		telnet: 'Telnet unsupported for this host',
+		ftp: 'FTP unsupported for this host',
+		ftps: 'FTPS unsupported for this host',
+		'ssh-tunnel': 'SSH tunnel unsupported for this host'
 	};
 
 	let {
@@ -26,18 +26,18 @@
 
 	function fallbackDetail(paneKind: SessionPaneKind, paneHost: HostSummary) {
 		if (paneKind === 'sftp' && paneHost.protocol !== 'ssh') {
-			return 'SFTP uses the SSH host adapter. Select an SSH host to open this pane.';
+			return `${paneHost.name} is a ${paneHost.protocol.toUpperCase()} host. SFTP uses the SSH adapter; select an SSH host or switch this pane to ${paneHost.protocol.toUpperCase()}.`;
 		}
 		if (paneKind === 'ftp' || paneKind === 'ftps') {
-			return `${paneKind.toUpperCase()} panes require a saved ${paneKind.toUpperCase()} host.`;
+			return `${paneHost.name} is a ${paneHost.protocol.toUpperCase()} host. ${paneKind.toUpperCase()} panes require a saved ${paneKind.toUpperCase()} host.`;
 		}
 		if (paneKind === 'ssh-tunnel') {
-			return 'SSH tunnel panes require a saved SSH host.';
+			return `${paneHost.name} is a ${paneHost.protocol.toUpperCase()} host. SSH tunnel panes require a saved SSH host.`;
 		}
-		return `${paneKind.toUpperCase()} is not available for ${paneHost.name}.`;
+		return `${paneHost.name} is a ${paneHost.protocol.toUpperCase()} host. Select a ${paneKind.toUpperCase()} host or switch this pane back to ${paneHost.protocol.toUpperCase()}.`;
 	}
 </script>
 
 <div class="min-h-0 flex-1 p-3">
-	<StatePanel state="disconnected" title={titles[kind]} {detail} />
+	<StatePanel state="error" title={titles[kind]} {detail} />
 </div>

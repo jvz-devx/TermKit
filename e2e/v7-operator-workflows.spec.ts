@@ -276,16 +276,20 @@ test.describe.serial('V7 operator workflow hardening', () => {
 			v7SshName,
 			'SSH session',
 			'SSH tabs available',
-			'Existing live sessions are idle.'
+			'Attach an existing live tab or create a new SSH tab.'
 		]);
 		await expectWorkspacePane(page, byName(v7SshName).id, 'sftp', [v7SshName, 'SFTP session']);
 		await expect(page.getByRole('region', { name: 'SFTP file manager' })).toBeVisible();
 		await expect(page.getByLabel('Remote path')).toBeVisible();
-		await expectWorkspacePane(page, byName(v7RdpName).id, 'rdp', [v7RdpName, 'RDP launch failed']);
+		await expectWorkspacePane(page, byName(v7RdpName).id, 'rdp', [
+			v7RdpName,
+			'RDP launch failed',
+			'Diagnostic:'
+		]);
 		await page.getByRole('button', { name: 'Close session' }).click();
 		await expect(page.getByText('Disconnected. Reconnect to create a new session.')).toBeVisible();
-		await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
-		await expect(page.getByText('RDP launch failed', { exact: false }).first()).toBeVisible();
+		await page.getByRole('button', { name: 'Reconnect', exact: true }).first().click();
+		await expect(page.getByText('RDP launch failed', { exact: true }).first()).toBeVisible();
 		await expectWorkspacePane(page, byName(v7VncName).id, 'vnc', [
 			v7VncName,
 			'VNC session',
@@ -293,17 +297,17 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		]);
 		await page.getByRole('button', { name: 'Close session' }).click();
 		await expect(page.getByText('VNC disconnected', { exact: true })).toBeVisible();
-		await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+		await page.getByRole('button', { name: 'Reconnect', exact: true }).first().click();
 		await expect(page.getByText('VNC not connected', { exact: true })).toBeVisible();
 		await expectWorkspacePane(page, byName(v7TelnetName).id, 'telnet', [
 			v7TelnetName,
 			'TELNET session',
 			'Telnet terminal',
-			'target connection failed'
+			'Target connection failed. Check the host, port, firewall, and target service before reconnecting.'
 		]);
 		await page.getByRole('button', { name: 'Close session' }).click();
 		await expect(page.getByText('Telnet disconnected', { exact: true })).toBeVisible();
-		await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+		await page.getByRole('button', { name: 'Reconnect', exact: true }).first().click();
 		await expect(page.getByText('Telnet terminal', { exact: true })).toBeVisible();
 		await expect(page.getByText('state_unsafe_mutation')).toHaveCount(0);
 	});

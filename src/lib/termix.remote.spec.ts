@@ -809,7 +809,9 @@ describe('termix remote functions', () => {
 				hostname: 'Unknown host',
 				startedAt: now.toISOString(),
 				status: 'failed',
-				errorReason: 'connection refused'
+				errorReason: 'connection refused',
+				errorCode: 'ssh_failed',
+				errorMessage: null
 			})
 		]);
 		expect(connectionSessionService.listHistory).toHaveBeenCalledWith('user-1');
@@ -977,6 +979,8 @@ function liveSshSessionRecord(overrides: Record<string, unknown> = {}) {
 		detachedAt: null,
 		expiresAt: new Date('2026-05-15T11:00:00.000Z'),
 		endedAt: null,
+		errorCode: null,
+		errorMessage: null,
 		terminalCols: 120,
 		terminalRows: 34,
 		createdAt: new Date('2026-05-15T10:00:00.000Z'),

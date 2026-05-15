@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { RotateCcw } from '@lucide/svelte';
+	import { Button } from '$lib/components/ui/button';
 	import { createSessionLaunch, type SessionLaunch } from '$lib/termix.remote';
+	import { failureCopy, failureDetail } from '$lib/termix/failure-copy';
 	import StatePanel from '../StatePanel.svelte';
 	import VncPane from './VncPane.svelte';
 
@@ -8,22 +11,28 @@
 
 	let launch = $state<SessionLaunch | null>(null);
 	let error = $state<string | null>(null);
+	let loading = $state(true);
+	let errorCopy = $derived(error ? failureCopy({ protocol: 'vnc', message: error }) : null);
+
+	async function createLaunch(disposed: () => boolean = () => false) {
+		loading = true;
+		launch = null;
+		error = null;
+		try {
+			const created = await createSessionLaunch({ hostId, protocol: 'vnc' });
+			if (disposed()) return;
+			launch = created;
+		} catch (caught) {
+			if (disposed()) return;
+			error = caught instanceof Error ? caught.message : 'Could not create VNC launch';
+		} finally {
+			if (!disposed()) loading = false;
+		}
+	}
 
 	onMount(() => {
 		let disposed = false;
-
-		void (async () => {
-			try {
-				const created = await createSessionLaunch({ hostId, protocol: 'vnc' });
-				if (disposed) return;
-				launch = created;
-				error = null;
-			} catch (caught) {
-				if (disposed) return;
-				launch = null;
-				error = caught instanceof Error ? caught.message : 'Could not create VNC launch';
-			}
-		})();
+		void createLaunch(() => disposed);
 
 		return () => {
 			disposed = true;
@@ -50,7 +59,16 @@
 
 {#key launch?.ticket ?? error ?? 'loading'}
 	{#if error}
-		<StatePanel state="error" title="Session launch failed" detail={error} />
+		<StatePanel
+			state="error"
+			title={errorCopy?.title ?? 'VNC launch failed'}
+			detail={`${errorCopy ? failureDetail(errorCopy) : 'Retry the VNC launch.'} Diagnostic: ${errorCopy?.diagnostic ?? error}`}
+		>
+			<Button size="sm" onclick={() => createLaunch()} disabled={loading}>
+				<RotateCcw class="size-4" />
+				Retry VNC
+			</Button>
+		</StatePanel>
 	{:else}
 		<VncPane
 			websocketUrl={launch?.websocketPath ? toWebSocketUrl(launch.websocketPath) : undefined}

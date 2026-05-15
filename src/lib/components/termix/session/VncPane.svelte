@@ -98,7 +98,7 @@
 					detail = 'VNC framebuffer is connected.';
 					rfb?.focus();
 				});
-				rfb.addEventListener('disconnect', () => {
+				rfb.addEventListener('disconnect', (event) => {
 					scrubParentSavedPassword();
 					if (savedCredentialFallbackPrompt) {
 						connectionState = 'error';
@@ -107,9 +107,15 @@
 						return;
 					}
 
-					connectionState = 'disconnected';
+					const clean =
+						event instanceof CustomEvent && typeof event.detail?.clean === 'boolean'
+							? event.detail.clean
+							: false;
+					connectionState = clean ? 'disconnected' : 'error';
 					authPromptVisible = false;
-					detail = 'VNC session closed.';
+					detail = clean
+						? 'VNC session closed cleanly.'
+						: 'VNC connection dropped unexpectedly. Check the target service, network path, or credentials before reconnecting.';
 				});
 				rfb.addEventListener('securityfailure', () => {
 					scrubParentSavedPassword();

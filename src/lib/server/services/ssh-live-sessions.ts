@@ -45,6 +45,12 @@ export interface CreatedOrReusedSshLiveSession {
 	reused: boolean;
 }
 
+export interface SshLiveSessionFailureInput {
+	errorCode?: string | null;
+	errorMessage?: string | null;
+	at?: Date;
+}
+
 export interface CreatedSshAttachTicket {
 	ticket: string;
 	record: SshAttachTicketRecord;
@@ -144,6 +150,8 @@ export class SshLiveSessionService {
 			detachedAt: null,
 			expiresAt: new Date(now.getTime() + this.attachTicketTtlMs),
 			endedAt: null,
+			errorCode: null,
+			errorMessage: null,
 			terminalCols,
 			terminalRows,
 			createdAt: now,
@@ -268,6 +276,8 @@ export class SshLiveSessionService {
 			lastAttachedAt: now,
 			detachedAt: null,
 			expiresAt: null,
+			errorCode: null,
+			errorMessage: null,
 			terminalCols: normalizeDimension(input.terminalCols, defaultTerminalCols),
 			terminalRows: normalizeDimension(input.terminalRows, defaultTerminalRows),
 			updatedAt: now
@@ -297,17 +307,29 @@ export class SshLiveSessionService {
 			status: 'ended',
 			endedAt: now,
 			expiresAt: null,
+			errorCode: null,
+			errorMessage: null,
 			updatedAt: now
 		});
 		if (!updated) throw new ServiceNotFoundError('SSH live session not found');
 		return updated;
 	}
 
-	async fail(userId: string, id: string, now = new Date()): Promise<SshLiveSessionRecord> {
+	async fail(
+		userId: string,
+		id: string,
+		failure: SshLiveSessionFailureInput | Date = new Date()
+	): Promise<SshLiveSessionRecord> {
+		const now = failure instanceof Date ? failure : (failure.at ?? new Date());
 		const updated = await this.repository.updateSshLiveSession(userId, id, {
 			status: 'failed',
 			endedAt: now,
 			expiresAt: null,
+			errorCode:
+				failure instanceof Date
+					? 'ssh_session_failed'
+					: (failure.errorCode ?? 'ssh_session_failed'),
+			errorMessage: failure instanceof Date ? null : (failure.errorMessage ?? null),
 			updatedAt: now
 		});
 		if (!updated) throw new ServiceNotFoundError('SSH live session not found');

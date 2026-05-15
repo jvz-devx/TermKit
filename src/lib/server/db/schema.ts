@@ -428,6 +428,8 @@ export const sshLiveSessions = pgTable(
 		detachedAt: timestamp('detached_at', { withTimezone: true }),
 		expiresAt: timestamp('expires_at', { withTimezone: true }),
 		endedAt: timestamp('ended_at', { withTimezone: true }),
+		errorCode: text('error_code'),
+		errorMessage: text('error_message'),
 		terminalCols: integer('terminal_cols').notNull(),
 		terminalRows: integer('terminal_rows').notNull(),
 		...timestamps

@@ -1137,6 +1137,8 @@ function sshLiveSession(patch: Partial<SshLiveSessionRecord> = {}): SshLiveSessi
 		detachedAt: null,
 		expiresAt: null,
 		endedAt: null,
+		errorCode: null,
+		errorMessage: null,
 		terminalCols: 120,
 		terminalRows: 40,
 		createdAt: now,
