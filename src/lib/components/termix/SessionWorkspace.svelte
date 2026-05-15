@@ -39,6 +39,13 @@
 	import TelnetLaunchPane from './session/TelnetLaunchPane.svelte';
 	import TerminalPane from './session/TerminalPane.svelte';
 	import VncLaunchPane from './session/VncLaunchPane.svelte';
+	import {
+		clearSessionPause,
+		isSessionPaused,
+		persistSessionPause,
+		readSessionPauseKeys,
+		sessionPauseKey
+	} from './session/session-pause';
 	import { terminalFontSize } from '$lib/termix/host-metadata';
 	import {
 		normalizeSessionLayout,
@@ -101,6 +108,9 @@
 
 	let reconnectNonce = $state(0);
 	let pausedSessionKey = $state<string | null>(null);
+	let persistedPausedSessionKeys = $state<string[]>(
+		browser ? readSessionPauseKeys(window.localStorage) : []
+	);
 	let sessionSearch = $state('');
 	let activeLiveSshSessionId = $state<string | null>(null);
 	let liveSshAttach = $state<LiveSshAttach | null>(null);
@@ -178,7 +188,12 @@
 	let activePauseKey = $derived(
 		selectedHost ? sessionPauseKey(selectedHost.id, activeProtocol) : null
 	);
-	let sessionPaused = $derived(Boolean(activePauseKey && pausedSessionKey === activePauseKey));
+	let sessionPaused = $derived(
+		Boolean(
+			activePauseKey &&
+				(pausedSessionKey === activePauseKey || persistedPausedSessionKeys.includes(activePauseKey))
+		)
+	);
 	let primaryPaneKind = $derived<SessionPaneKind>(activeProtocol);
 	let primaryPaneHostId = $derived(selectedHost?.id ?? null);
 	let remoteWorkspaceLayout = $derived(
@@ -245,7 +260,7 @@
 
 	async function reconnect() {
 		if (!selectedHost || activeProtocol === 'sftp') return;
-		pausedSessionKey = null;
+		clearPersistedSessionPause(selectedHost.id, activeProtocol);
 
 		if (activeProtocol === 'ssh') {
 			const attachableSessions = selectedHostLiveSshSessions.filter(canAttachLiveSshSession);
@@ -269,8 +284,7 @@
 
 	function disconnect() {
 		if (!selectedHost || activeProtocol === 'sftp') return;
-		const key = sessionPauseKey(selectedHost.id, activeProtocol);
-		pausedSessionKey = key;
+		markSessionPaused(selectedHost.id, activeProtocol);
 		if (activeProtocol === 'ssh') {
 			liveSshAttach = null;
 			liveSshAttachPaneId = null;
@@ -327,7 +341,7 @@
 		params.set('host', host.id);
 		params.set('tab', protocol);
 		rememberProtocol(host.id, protocol);
-		pausedSessionKey = null;
+		clearPersistedSessionPause(host.id, protocol);
 		liveSshAttach = null;
 		liveSshAttachPaneId = null;
 		activeLiveSshSessionId = null;
@@ -353,7 +367,7 @@
 		params.set('host', selectedHost.id);
 		params.set('tab', protocol);
 		rememberProtocol(selectedHost.id, protocol);
-		pausedSessionKey = null;
+		clearPersistedSessionPause(selectedHost.id, protocol);
 		liveSshError = null;
 		if (protocol !== 'ssh') {
 			liveSshAttach = null;
@@ -401,9 +415,10 @@
 	}
 
 	async function reconnectPane(paneId: string) {
-		pausedSessionKey = null;
 		reconnectNonce += 1;
 		const pane = activeWorkspaceLayout.panes.find((entry) => entry.id === paneId);
+		const paneHost = pane ? hostForPane(pane) : null;
+		if (pane && paneHost) clearPersistedSessionPause(paneHost.id, pane.kind);
 		if (pane?.kind === 'ssh') {
 			liveSshAttach = null;
 			liveSshAttachPaneId = null;
@@ -458,6 +473,7 @@
 				rows: size.rows
 			});
 			activeLiveSshSessionId = launch.session.id;
+			clearPersistedSessionPause(host.id, 'ssh');
 			dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
 				(sessionId) => sessionId !== launch.session.id
 			);
@@ -507,6 +523,7 @@
 				cols: size.cols,
 				rows: size.rows
 			});
+			clearPersistedSessionPause(session.hostId, 'ssh');
 			dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
 				(sessionId) => sessionId !== session.id
 			);
@@ -552,6 +569,7 @@
 				liveSshAttach = null;
 				liveSshAttachPaneId = null;
 			}
+			markSessionPaused(session.hostId, 'ssh');
 		} catch (caught) {
 			liveSshError = {
 				action: 'close',
@@ -564,6 +582,7 @@
 
 	function handleLiveSshLaunch(launch: LiveSshAttach, paneId: string | null = null) {
 		activeLiveSshSessionId = launch.session.id;
+		clearPersistedSessionPause(launch.session.hostId, 'ssh');
 		dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
 			(sessionId) => sessionId !== launch.session.id
 		);
@@ -693,8 +712,31 @@
 		return `${failureDetail(copy)}${copy.diagnostic ? ` Diagnostic: ${copy.diagnostic}` : ''}`;
 	}
 
+	function markSessionPaused(hostId: string, protocol: string) {
+		const key = sessionPauseKey(hostId, protocol);
+		pausedSessionKey = key;
+		if (browser) {
+			persistedPausedSessionKeys = persistSessionPause(window.localStorage, hostId, protocol);
+			return;
+		}
+		persistedPausedSessionKeys = [...new Set([...persistedPausedSessionKeys, key])];
+	}
+
+	function clearPersistedSessionPause(hostId: string, protocol: string) {
+		const key = sessionPauseKey(hostId, protocol);
+		if (pausedSessionKey === key) pausedSessionKey = null;
+		if (browser) {
+			persistedPausedSessionKeys = clearSessionPause(window.localStorage, hostId, protocol);
+			return;
+		}
+		persistedPausedSessionKeys = persistedPausedSessionKeys.filter((entry) => entry !== key);
+	}
+
 	function isPanePaused(host: HostSummary, kind: SessionPaneKind) {
-		return pausedSessionKey === sessionPauseKey(host.id, kind);
+		return (
+			pausedSessionKey === sessionPauseKey(host.id, kind) ||
+			isSessionPaused(persistedPausedSessionKeys, host.id, kind)
+		);
 	}
 
 	function sessionUrl(params: SvelteURLSearchParams) {
@@ -716,10 +758,6 @@
 			'Attaching live SSH session...',
 			''
 		];
-	}
-
-	function sessionPauseKey(hostId: string, protocol: string) {
-		return `termix-session:${hostId}:${protocol}`;
 	}
 
 	function canAttachLiveSshSession(session: LiveSshSessionSummary) {
