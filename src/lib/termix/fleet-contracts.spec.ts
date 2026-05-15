@@ -7,11 +7,7 @@ import {
 	resolveFleetBulkOperationContract
 } from '$lib/termix/fleet-contracts';
 import { demoFleetOverview } from '$lib/components/termix/fleet/fleet-data';
-import {
-	automationTemplateKinds,
-	backgroundJobKinds,
-	workspacePolicyCapabilities
-} from '$lib/server/services/v6-resources';
+import { automationTemplateKinds, backgroundJobKinds } from '$lib/server/services/v6-resources';
 
 const dashboardSource = readFixture('../components/termix/fleet/FleetDashboard.svelte');
 const runbooksSource = readFixture('../components/termix/fleet/FleetRunbooksPage.svelte');
@@ -24,19 +20,17 @@ const executionBuilderSource = readFixture(
 const bulkOperationsPanelSource = readFixture(
 	'../components/termix/fleet/BulkOperationsPanel.svelte'
 );
-const approvalsSource = readFixture('../components/termix/fleet/FleetApprovalsPage.svelte');
 const routeSource = readFixture('../../routes/(app)/fleet/+page.svelte');
 const runbooksRouteSource = readFixture('../../routes/(app)/fleet/runbooks/+page.svelte');
 
 describe('V6 fleet UI and remote contract wiring', () => {
-	it('keeps visible bulk operation controls backed by V6 job and policy capabilities', () => {
+	it('keeps visible bulk operation controls backed by V6 job capabilities', () => {
 		expect(fleetBulkOperations.map((operation) => operation.id)).toEqual(
 			fleetBulkOperationContracts.map((operation) => operation.id)
 		);
 
 		for (const operation of fleetBulkOperationContracts) {
 			expect(backgroundJobKinds).toContain(operation.jobKind);
-			expect(workspacePolicyCapabilities).toContain(operation.policyCapability);
 			expect(operation.secretPolicy).toBe('redacted');
 			expect(resolveFleetBulkOperationContract(operation.id)).toMatchObject({
 				id: operation.id,
@@ -98,65 +92,29 @@ describe('V6 fleet UI and remote contract wiring', () => {
 		expect(runbooksPanelSource).toContain('onValueChange={changeVisibility}');
 
 		expect(executionBuilderSource).toContain('BulkOperationsPanel');
-		expect(executionBuilderSource).toContain('preflightFleetExecution');
+		expect(executionBuilderSource).not.toContain('preflightFleetExecution');
 		expect(executionBuilderSource).toContain('queueFleetBulkOperation');
 		expect(executionBuilderSource).toContain('.updates(getFleetOverview)');
-
-		expect(approvalsSource).toContain('PolicyApprovalsPanel');
-		expect(approvalsSource).toMatch(/decideFleetApproval[\s\S]+\.updates\(getFleetApprovals\)/);
 	});
 
-	it('keeps bulk execution preflight authoritative over local review state', () => {
-		expect(bulkOperationsPanelSource).toContain(
-			'const executionReview = $derived(preflight ?? review)'
-		);
+	it('keeps bulk execution as a simple target-count-and-run flow', () => {
 		expect(bulkOperationsPanelSource).toMatch(
-			/const canReviewExecution = \$derived\(\s*Boolean\(selectedOperation && selectedRunbook && targets\.length > 0\)\s*\)/
+			/const canRunOperation = \$derived\(\s*Boolean\(selectedOperation && selectedRunbook && targets\.length > 0\)\s*\)/
 		);
-		expect(bulkOperationsPanelSource).toContain('{executionReview.targetCount}');
-		expect(bulkOperationsPanelSource).toContain('{executionReview.highRiskTargets}');
-		expect(bulkOperationsPanelSource).toContain('{executionReview.offlineTargets}');
-		expect(bulkOperationsPanelSource).toContain('{#if executionReview.approvalRequired}');
-		expect(bulkOperationsPanelSource).toContain('{#each executionReview.blockers as blocker');
-		expect(bulkOperationsPanelSource).toContain('{#each executionReview.warnings as warning');
-		expect(bulkOperationsPanelSource).toContain('disabled={!canReviewExecution || reviewing}');
+		expect(bulkOperationsPanelSource).toContain('{summary.targetCount}');
+		expect(bulkOperationsPanelSource).toContain('{summary.warning}');
+		expect(bulkOperationsPanelSource).toContain('{#each summary.missingInputs as missingInput');
 		expect(bulkOperationsPanelSource).toContain(
-			'disabled={!canReviewExecution || !executionReview.canRun || reviewing || busy}'
+			'disabled={!canRunOperation || !summary.canRun || busy}'
 		);
-		expect(bulkOperationsPanelSource).toContain('if (reviewing) return;');
-		expect(bulkOperationsPanelSource).toContain(
-			"{busy ? 'Submitting...' : executionReview.ctaLabel}"
-		);
-		expect(executionBuilderSource).toContain('onPayloadChange={clearPreflight}');
-		expect(executionBuilderSource).toContain('let preflightRequestToken = 0;');
-		expect(executionBuilderSource).toContain('preflightRequestToken += 1;');
-		expect(executionBuilderSource).toContain('const requestToken = preflightRequestToken + 1;');
-		expect(executionBuilderSource).toMatch(
-			/const result = await preflightFleetExecution\(input\);[\s\S]+if \(requestToken === preflightRequestToken\) \{[\s\S]+preflight = result;/
-		);
+		expect(bulkOperationsPanelSource).toContain("{busy ? 'Running...' : summary.ctaLabel}");
+		expect(executionBuilderSource).not.toContain('clearPreflight');
+		expect(executionBuilderSource).not.toContain('preflightRequestToken');
 
-		expect(bulkOperationsPanelSource).not.toMatch(/\{#if review\.approvalRequired\}/);
-		expect(bulkOperationsPanelSource).not.toContain('{review.targetCount}');
-		expect(bulkOperationsPanelSource).not.toContain('{review.highRiskTargets}');
-		expect(bulkOperationsPanelSource).not.toContain('{review.offlineTargets}');
-		expect(bulkOperationsPanelSource).not.toMatch(/\{#each review\.blockers/);
-		expect(bulkOperationsPanelSource).not.toMatch(/\{#each review\.warnings/);
-		expect(bulkOperationsPanelSource).not.toContain(
-			'disabled={!executionReview.canRun || reviewing}'
-		);
-		expect(bulkOperationsPanelSource).not.toMatch(/disabled=\{!review\.canRun/);
-		expect(bulkOperationsPanelSource).not.toContain('preflight?.ctaLabel ?? review.ctaLabel');
-	});
-
-	it('clears stale preflight when local execution payload inputs change', () => {
-		expect(bulkOperationsPanelSource).toContain('onPayloadChange?: () => void');
-		expect(bulkOperationsPanelSource).toContain('onPayloadChange?.()');
-		expect(bulkOperationsPanelSource).toMatch(
-			/<Input[\s\S]+id="fleet-bulk-reason"[\s\S]+oninput=\{payloadChanged\}/
-		);
-		expect(bulkOperationsPanelSource).toMatch(
-			/<Input[\s\S]+id="fleet-bulk-concurrency"[\s\S]+oninput=\{payloadChanged\}/
-		);
+		expect(bulkOperationsPanelSource).not.toContain('Review policy');
+		expect(bulkOperationsPanelSource).not.toContain('Submit for approval');
+		expect(bulkOperationsPanelSource).not.toContain('approvalRequired');
+		expect(bulkOperationsPanelSource).not.toContain('executionReview');
 	});
 
 	it('keeps fleet overview routed to concrete operator sections', () => {

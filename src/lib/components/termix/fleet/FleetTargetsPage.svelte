@@ -59,7 +59,7 @@
 	<div>
 		<h1 class="text-lg font-semibold">Targets</h1>
 		<p class="text-sm text-muted-foreground">
-			Review explainable health, reachability, credentials, risk, and inferred action state.
+			Browse health, reachability, credentials, risk, and inferred action state.
 		</p>
 	</div>
 	<HostHealthInventoryPanel

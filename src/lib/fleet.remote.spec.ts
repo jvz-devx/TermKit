@@ -5,10 +5,8 @@ import { v6ResourcesService } from '$lib/server/services/v6-resources';
 import { workspaceService } from '$lib/server/services/workspaces';
 import {
 	createFleetAutomationTemplate,
-	decideFleetApproval,
 	getFleetOverview,
 	getFleetRunbooks,
-	preflightFleetExecution,
 	queueFleetBulkOperation
 } from './fleet.remote';
 
@@ -51,15 +49,11 @@ vi.mock('$lib/server/services/v6-resources', () => ({
 	v6ResourcesService: {
 		listAutomationTemplates: vi.fn(),
 		listBackgroundJobs: vi.fn(),
-		listApprovalRequests: vi.fn(),
 		listHostFacts: vi.fn(),
 		listHostHealth: vi.fn(),
 		createAutomationTemplate: vi.fn(),
 		createBackgroundJob: vi.fn(),
-		evaluateWorkspacePolicy: vi.fn(),
-		requestApproval: vi.fn(),
-		recordOperationReason: vi.fn(),
-		decideApproval: vi.fn()
+		recordOperationReason: vi.fn()
 	}
 }));
 
@@ -160,22 +154,17 @@ describe('fleet remote functions', () => {
 		};
 		vi.mocked(hostService.list).mockResolvedValue([]);
 		vi.mocked(workspaceService.list).mockResolvedValue([]);
-		vi.mocked(v6ResourcesService.listAutomationTemplates).mockResolvedValue([
-			templateRecord()
-		] as never);
-		vi.mocked(v6ResourcesService.listBackgroundJobs).mockResolvedValue([]);
-		vi.mocked(v6ResourcesService.listApprovalRequests).mockResolvedValue([]);
-		vi.mocked(v6ResourcesService.listHostFacts).mockResolvedValue([]);
-		vi.mocked(v6ResourcesService.listHostHealth).mockResolvedValue([]);
-		vi.mocked(v6ResourcesService.evaluateWorkspacePolicy).mockResolvedValue({
-			allowed: true,
-			approvalRequired: false
-		} as never);
 		vi.mocked(workspaceService.assertMember).mockResolvedValue({
 			userId: 'user-1',
 			workspaceId: 'workspace-1',
 			role: 'operator'
 		} as never);
+		vi.mocked(v6ResourcesService.listAutomationTemplates).mockResolvedValue([
+			templateRecord()
+		] as never);
+		vi.mocked(v6ResourcesService.listBackgroundJobs).mockResolvedValue([]);
+		vi.mocked(v6ResourcesService.listHostFacts).mockResolvedValue([]);
+		vi.mocked(v6ResourcesService.listHostHealth).mockResolvedValue([]);
 	});
 
 	it('builds fleet overview from user-visible service resources', async () => {
@@ -197,11 +186,12 @@ describe('fleet remote functions', () => {
 				os: 'NixOS'
 			})
 		]);
+		expect(overview).not.toHaveProperty('policies');
 		expect(v6ResourcesService.listHostFacts).toHaveBeenCalledWith(['host-1']);
 		expect(v6ResourcesService.listAutomationTemplates).toHaveBeenCalledWith('user-1', []);
 	});
 
-	it('shapes workspace hosts, health states, facts, jobs, and approvals in the overview', async () => {
+	it('shapes workspace hosts, health states, facts, jobs, and templates in the overview', async () => {
 		vi.mocked(hostService.list).mockResolvedValueOnce([
 			host({
 				id: 'host-1',
@@ -235,41 +225,9 @@ describe('fleet remote functions', () => {
 			})
 		] as never);
 		vi.mocked(v6ResourcesService.listBackgroundJobs).mockResolvedValueOnce([
-			job({
-				id: 'job-running',
-				status: 'cancelling',
-				startedAt: now,
-				createdAt: now
-			}),
-			job({
-				id: 'job-blocked',
-				status: 'cancelled',
-				startedAt: now,
-				finishedAt: later,
-				createdAt: now
-			}),
-			job({
-				id: 'job-failed',
-				status: 'failed',
-				startedAt: now,
-				finishedAt: later,
-				createdAt: now
-			})
-		] as never);
-		vi.mocked(v6ResourcesService.listApprovalRequests).mockResolvedValueOnce([
-			{
-				id: 'approval-1',
-				userId: 'user-1',
-				workspaceId: 'workspace-1',
-				capability: 'bulk_job',
-				status: 'expired',
-				reason: null,
-				requestedBy: 'operator',
-				decidedBy: null,
-				expiresAt: later,
-				createdAt: now,
-				updatedAt: now
-			}
+			job({ id: 'job-running', status: 'cancelling', startedAt: now, createdAt: now }),
+			job({ id: 'job-blocked', status: 'cancelled', startedAt: now, finishedAt: later }),
+			job({ id: 'job-failed', status: 'failed', startedAt: now, finishedAt: later })
 		] as never);
 		vi.mocked(v6ResourcesService.listHostFacts).mockResolvedValueOnce([
 			{ hostId: 'host-1', osName: 'Windows Server 2025', memory: { usedPercent: 71 } }
@@ -311,7 +269,6 @@ describe('fleet remote functions', () => {
 				expect.objectContaining({
 					id: 'template-high',
 					risk: 'high',
-					approvalRequired: true,
 					parameters: ['service'],
 					lastRun: later.toISOString()
 				})
@@ -324,15 +281,6 @@ describe('fleet remote functions', () => {
 				id: 'job-failed',
 				status: 'failed',
 				reportUrl: '/fleet/executions/job-failed'
-			})
-		]);
-		expect(overview.policies).toEqual([
-			expect.objectContaining({
-				id: 'approval-1',
-				scope: 'Platform',
-				status: 'rejected',
-				approver: 'Pending',
-				impact: 'No reason provided'
 			})
 		]);
 	});
@@ -373,7 +321,6 @@ describe('fleet remote functions', () => {
 		]);
 		expect(hostService.list).not.toHaveBeenCalled();
 		expect(v6ResourcesService.listBackgroundJobs).not.toHaveBeenCalled();
-		expect(v6ResourcesService.listApprovalRequests).not.toHaveBeenCalled();
 		expect(v6ResourcesService.listHostFacts).not.toHaveBeenCalled();
 		expect(v6ResourcesService.listHostHealth).not.toHaveBeenCalled();
 	});
@@ -390,12 +337,8 @@ describe('fleet remote functions', () => {
 		await expect(
 			queueFleetBulkOperation({ operationId: 'bulk-ssh-command', targetHostIds: ['host-1'] })
 		).rejects.toBeInstanceOf(ServiceUnauthorizedError);
-		await expect(
-			decideFleetApproval({ approvalId: 'approval-1', status: 'approved' })
-		).rejects.toBeInstanceOf(ServiceUnauthorizedError);
 		expect(v6ResourcesService.createAutomationTemplate).not.toHaveBeenCalled();
 		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
-		expect(v6ResourcesService.decideApproval).not.toHaveBeenCalled();
 	});
 
 	it('requires an explicit workspace id for workspace template visibility', async () => {
@@ -425,9 +368,9 @@ describe('fleet remote functions', () => {
 		expect(template).toMatchObject({
 			id: 'template-1',
 			name: 'Restart service',
-			risk: 'low',
-			approvalRequired: false
+			risk: 'low'
 		});
+		expect(template).not.toHaveProperty('approvalRequired');
 		expect(v6ResourcesService.createAutomationTemplate).toHaveBeenCalledWith(
 			'user-1',
 			expect.objectContaining({
@@ -438,7 +381,7 @@ describe('fleet remote functions', () => {
 				definition: { body: 'systemctl restart termix' }
 			})
 		);
-		expect(appServer.refresh).toHaveBeenCalledTimes(5);
+		expect(appServer.refresh).toHaveBeenCalledTimes(4);
 	});
 
 	it('creates workspace templates with an explicit workspace, normalized variables, and default body', async () => {
@@ -467,7 +410,6 @@ describe('fleet remote functions', () => {
 		expect(workspaceService.assertMember).toHaveBeenCalledWith('user-1', 'workspace-1');
 		expect(created).toMatchObject({
 			risk: 'high',
-			approvalRequired: true,
 			parameters: ['service']
 		});
 		expect(v6ResourcesService.createAutomationTemplate).toHaveBeenCalledWith(
@@ -521,16 +463,11 @@ describe('fleet remote functions', () => {
 		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
 	});
 
-	it('queues bulk jobs with explicit operation, runbook, deduped targets, and recorded reasons', async () => {
+	it('queues bulk jobs directly with explicit operation, runbook, deduped targets, and recorded reasons', async () => {
 		vi.mocked(hostService.list).mockResolvedValueOnce([
 			host({ id: 'host-1', workspaceId: 'workspace-1' }),
 			host({ id: 'host-2', workspaceId: 'workspace-1' })
 		] as never);
-		vi.mocked(workspaceService.assertMember).mockResolvedValueOnce({
-			userId: 'user-1',
-			workspaceId: 'workspace-1',
-			role: 'auditor'
-		} as never);
 		vi.mocked(v6ResourcesService.createBackgroundJob).mockResolvedValueOnce({
 			job: job({
 				id: 'job-file',
@@ -554,14 +491,7 @@ describe('fleet remote functions', () => {
 			concurrencyLimit: 99
 		});
 
-		expect(workspaceService.assertMember).toHaveBeenCalledWith('user-1', 'workspace-1');
-		expect(v6ResourcesService.evaluateWorkspacePolicy).toHaveBeenCalledWith({
-			workspaceId: 'workspace-1',
-			capability: 'bulk_job',
-			role: 'auditor',
-			targetCount: 2,
-			reason: 'maintenance window'
-		});
+		expect(workspaceService.assertMember).not.toHaveBeenCalled();
 		expect(v6ResourcesService.recordOperationReason).toHaveBeenCalledWith('user-1', {
 			workspaceId: 'workspace-1',
 			capability: 'bulk_job',
@@ -596,83 +526,44 @@ describe('fleet remote functions', () => {
 				reportUrl: '/fleet/executions/job-file'
 			})
 		});
-		expect(appServer.refresh).toHaveBeenCalledTimes(5);
+		expect(appServer.refresh).toHaveBeenCalledTimes(4);
 	});
 
-	it('queues personal bulk jobs with explicit operation and lower concurrency bound', async () => {
-		vi.mocked(hostService.list).mockResolvedValueOnce([host({ workspaceId: null })] as never);
+	it('queues mixed workspace and personal targets without scope blockers', async () => {
+		vi.mocked(hostService.list).mockResolvedValueOnce([
+			host({ id: 'host-1', workspaceId: 'workspace-1' }),
+			host({ id: 'host-2', workspaceId: null })
+		] as never);
 		vi.mocked(v6ResourcesService.createBackgroundJob).mockResolvedValueOnce({
-			job: job({ concurrencyLimit: 1 }),
+			job: job({ id: 'job-mixed', workspaceId: null, targetCount: 2 }),
 			targets: []
 		} as never);
 
-		await queueFleetBulkOperation({
-			operationId: 'bulk-ssh-command',
-			templateId: 'template-1',
-			targetHostIds: ['host-1'],
-			reason: ' operator reviewed ',
-			concurrencyLimit: 0
-		});
-
-		expect(workspaceService.assertMember).not.toHaveBeenCalled();
-		expect(v6ResourcesService.evaluateWorkspacePolicy).not.toHaveBeenCalled();
-		expect(v6ResourcesService.recordOperationReason).toHaveBeenCalledWith('user-1', {
-			workspaceId: null,
-			capability: 'bulk_job',
-			reason: 'operator reviewed'
+		await expect(
+			queueFleetBulkOperation({
+				operationId: 'bulk-file-transfer',
+				templateId: 'template-1',
+				targetHostIds: ['host-1', 'host-2'],
+				reason: 'run it'
+			})
+		).resolves.toMatchObject({
+			status: 'queued',
+			job: expect.objectContaining({ id: 'job-mixed' })
 		});
 		expect(v6ResourcesService.createBackgroundJob).toHaveBeenCalledWith(
 			'user-1',
 			expect.objectContaining({
 				workspaceId: null,
-				kind: 'bulk_ssh_command',
-				title: 'Bulk SSH command',
-				concurrencyLimit: 1,
-				reason: 'operator reviewed'
+				kind: 'bulk_file_transfer',
+				targetHostIds: ['host-1', 'host-2']
 			})
 		);
-	});
-
-	it('rejects non-approval jobs that mix workspace and personal targets', async () => {
-		vi.mocked(hostService.list).mockResolvedValue([
-			host({ id: 'host-1', workspaceId: 'workspace-1' }),
-			host({ id: 'host-2', workspaceId: null })
-		] as never);
-
-		const preflight = await preflightFleetExecution({
-			operationId: 'bulk-ssh-command',
-			templateId: 'template-1',
-			targetHostIds: ['host-1', 'host-2'],
-			reason: 'reviewed'
-		});
-
-		expect(preflight).toMatchObject({
-			approvalRequired: false,
-			canRun: false
-		});
-		expect(preflight.blockers).toContain(
-			'Select targets from one workspace or personal scope; mixed-scope executions are blocked until job history supports multiple scopes.'
-		);
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-ssh-command',
-				templateId: 'template-1',
-				targetHostIds: ['host-1', 'host-2'],
-				reason: 'reviewed'
-			})
-		).rejects.toMatchObject({
-			issues: [
-				'Select targets from one workspace or personal scope; mixed-scope executions are blocked until job history supports multiple scopes.'
-			]
-		});
-		expect(v6ResourcesService.recordOperationReason).not.toHaveBeenCalled();
-		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
 	});
 
 	it('uses the default reviewed reason when queueing without an operator reason', async () => {
 		vi.mocked(hostService.list).mockResolvedValueOnce([host({ workspaceId: null })] as never);
 		vi.mocked(v6ResourcesService.createBackgroundJob).mockResolvedValueOnce({
-			job: job({ reason: 'Reviewed from fleet operations' }),
+			job: job({ reason: 'Fleet operation' }),
 			targets: []
 		} as never);
 
@@ -686,418 +577,8 @@ describe('fleet remote functions', () => {
 		expect(v6ResourcesService.createBackgroundJob).toHaveBeenCalledWith(
 			'user-1',
 			expect.objectContaining({
-				reason: 'Reviewed from fleet operations'
+				reason: 'Fleet operation'
 			})
 		);
-	});
-
-	it('requests approval and returns an approval result when policy requires approval', async () => {
-		vi.mocked(hostService.list).mockResolvedValueOnce([
-			host({ id: 'host-1', workspaceId: 'workspace-1' })
-		] as never);
-		vi.mocked(v6ResourcesService.evaluateWorkspacePolicy).mockResolvedValueOnce({
-			allowed: false,
-			approvalRequired: true
-		} as never);
-
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-file-transfer',
-				templateId: 'template-1',
-				targetHostIds: ['host-1']
-			})
-		).resolves.toMatchObject({
-			status: 'approval_requested'
-		});
-
-		expect(v6ResourcesService.requestApproval).toHaveBeenCalledWith('user-1', {
-			workspaceId: 'workspace-1',
-			capability: 'bulk_job',
-			reason: 'bulk-file-transfer requires approval'
-		});
-		expect(v6ResourcesService.recordOperationReason).toHaveBeenCalledWith('user-1', {
-			workspaceId: 'workspace-1',
-			capability: 'bulk_job',
-			reason: 'bulk-file-transfer requires approval'
-		});
-		expect(
-			vi.mocked(v6ResourcesService.requestApproval).mock.invocationCallOrder[0]
-		).toBeLessThan(
-			vi.mocked(v6ResourcesService.recordOperationReason).mock.invocationCallOrder[0]
-		);
-		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
-	});
-
-	it('still returns approval requested when recording the approval reason fails', async () => {
-		vi.mocked(hostService.list).mockResolvedValueOnce([
-			host({ id: 'host-1', workspaceId: 'workspace-1' })
-		] as never);
-		vi.mocked(v6ResourcesService.recordOperationReason).mockRejectedValueOnce(
-			new Error('reason history unavailable') as never
-		);
-
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-file-transfer',
-				templateId: 'template-1',
-				targetHostIds: ['host-1'],
-				reason: 'needs approval'
-			})
-		).resolves.toMatchObject({
-			status: 'approval_requested',
-			message: 'Approval request submitted before this execution can run.'
-		});
-
-		expect(v6ResourcesService.requestApproval).toHaveBeenCalledWith('user-1', {
-			workspaceId: 'workspace-1',
-			capability: 'bulk_job',
-			reason: 'needs approval'
-		});
-		expect(v6ResourcesService.recordOperationReason).toHaveBeenCalledWith('user-1', {
-			workspaceId: 'workspace-1',
-			capability: 'bulk_job',
-			reason: 'needs approval'
-		});
-		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
-		expect(appServer.refresh).toHaveBeenCalledTimes(5);
-	});
-
-	it('requires approval when the selected runbook requires approval', async () => {
-		vi.mocked(hostService.list).mockResolvedValueOnce([
-			host({ id: 'host-1', workspaceId: 'workspace-1' })
-		] as never);
-		vi.mocked(workspaceService.list).mockResolvedValueOnce([workspace()] as never);
-		vi.mocked(v6ResourcesService.listAutomationTemplates).mockResolvedValueOnce([
-			templateRecord({ id: 'template-approval', requiresApproval: true })
-		] as never);
-
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-ssh-command',
-				templateId: 'template-approval',
-				targetHostIds: ['host-1'],
-				reason: 'runbook approval'
-			})
-		).resolves.toMatchObject({
-			status: 'approval_requested'
-		});
-
-		expect(v6ResourcesService.requestApproval).toHaveBeenCalledWith('user-1', {
-			workspaceId: 'workspace-1',
-			capability: 'bulk_job',
-			reason: 'runbook approval'
-		});
-		expect(v6ResourcesService.recordOperationReason).toHaveBeenCalledWith('user-1', {
-			workspaceId: 'workspace-1',
-			capability: 'bulk_job',
-			reason: 'runbook approval'
-		});
-		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
-	});
-
-	it('blocks approval-required executions that span multiple workspaces before approval side effects', async () => {
-		vi.mocked(hostService.list).mockResolvedValue([
-			host({ id: 'host-1', workspaceId: 'workspace-1' }),
-			host({ id: 'host-2', workspaceId: 'workspace-2' })
-		] as never);
-
-		const preflight = await preflightFleetExecution({
-			operationId: 'bulk-file-transfer',
-			templateId: 'template-1',
-			targetHostIds: ['host-1', 'host-2'],
-			reason: 'needs approval'
-		});
-
-		expect(preflight).toMatchObject({
-			approvalRequired: true,
-			canRun: false
-		});
-		expect(preflight.blockers).toContain(
-			'approval-required executions must target one workspace at a time until approval requests can be created atomically.'
-		);
-
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-file-transfer',
-				templateId: 'template-1',
-				targetHostIds: ['host-1', 'host-2'],
-				reason: 'needs approval'
-			})
-		).rejects.toMatchObject({
-			issues: [
-				'approval-required executions must target one workspace at a time until approval requests can be created atomically.'
-			]
-		});
-		expect(v6ResourcesService.requestApproval).not.toHaveBeenCalled();
-		expect(v6ResourcesService.recordOperationReason).not.toHaveBeenCalled();
-		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
-	});
-
-	it('does not record approval reasons when approval request creation fails', async () => {
-		const approvalError = new Error('approval store unavailable');
-		vi.mocked(hostService.list).mockResolvedValueOnce([
-			host({ id: 'host-1', workspaceId: 'workspace-1' })
-		] as never);
-		vi.mocked(v6ResourcesService.evaluateWorkspacePolicy).mockResolvedValueOnce({
-			allowed: false,
-			approvalRequired: true
-		} as never);
-		vi.mocked(v6ResourcesService.requestApproval).mockRejectedValueOnce(approvalError as never);
-
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-file-transfer',
-				templateId: 'template-1',
-				targetHostIds: ['host-1'],
-				reason: 'needs approval'
-			})
-		).rejects.toBe(approvalError);
-
-		expect(v6ResourcesService.requestApproval).toHaveBeenCalledWith('user-1', {
-			workspaceId: 'workspace-1',
-			capability: 'bulk_job',
-			reason: 'needs approval'
-		});
-		expect(v6ResourcesService.recordOperationReason).not.toHaveBeenCalled();
-		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
-	});
-
-	it('matches preflight to backend runbook approval requirements', async () => {
-		vi.mocked(hostService.list).mockResolvedValueOnce([
-			host({ id: 'host-1', workspaceId: 'workspace-1' })
-		] as never);
-		vi.mocked(workspaceService.list).mockResolvedValueOnce([workspace()] as never);
-		vi.mocked(v6ResourcesService.listAutomationTemplates).mockResolvedValueOnce([
-			templateRecord({ id: 'template-approval', requiresApproval: true })
-		] as never);
-
-		const preflight = await preflightFleetExecution({
-			operationId: 'bulk-ssh-command',
-			templateId: 'template-approval',
-			targetHostIds: ['host-1']
-		});
-
-		expect(preflight).toMatchObject({
-			approvalRequired: true,
-			canRun: true,
-			ctaLabel: 'Submit for approval'
-		});
-	});
-
-	it('rejects approval-required runbooks for personal targets without a workspace approver', async () => {
-		vi.mocked(hostService.list).mockResolvedValue([
-			host({ id: 'host-1', workspaceId: null })
-		] as never);
-		vi.mocked(workspaceService.list).mockResolvedValue([workspace()] as never);
-		vi.mocked(v6ResourcesService.listAutomationTemplates).mockResolvedValue([
-			templateRecord({ id: 'template-approval', requiresApproval: true })
-		] as never);
-
-		const preflight = await preflightFleetExecution({
-			operationId: 'bulk-ssh-command',
-			templateId: 'template-approval',
-			targetHostIds: ['host-1']
-		});
-
-		expect(preflight).toMatchObject({
-			approvalRequired: true,
-			canRun: false
-		});
-		expect(preflight.blockers).toContain(
-			'approval-required executions require every target to belong to a workspace'
-		);
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-ssh-command',
-				templateId: 'template-approval',
-				targetHostIds: ['host-1']
-			})
-		).rejects.toMatchObject({
-			issues: ['approval-required executions require every target to belong to a workspace']
-		});
-		expect(v6ResourcesService.recordOperationReason).not.toHaveBeenCalled();
-		expect(v6ResourcesService.requestApproval).not.toHaveBeenCalled();
-		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
-	});
-
-	it('rejects approval-required runbooks that mix workspace and personal targets', async () => {
-		vi.mocked(hostService.list).mockResolvedValue([
-			host({ id: 'host-1', workspaceId: 'workspace-1' }),
-			host({ id: 'host-2', workspaceId: null })
-		] as never);
-		vi.mocked(workspaceService.list).mockResolvedValue([workspace()] as never);
-		vi.mocked(v6ResourcesService.listAutomationTemplates).mockResolvedValue([
-			templateRecord({ id: 'template-approval', requiresApproval: true })
-		] as never);
-
-		const preflight = await preflightFleetExecution({
-			operationId: 'bulk-ssh-command',
-			templateId: 'template-approval',
-			targetHostIds: ['host-1', 'host-2']
-		});
-
-		expect(preflight).toMatchObject({
-			approvalRequired: true,
-			canRun: false
-		});
-		expect(preflight.blockers).toContain(
-			'approval-required executions require every target to belong to a workspace'
-		);
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-ssh-command',
-				templateId: 'template-approval',
-				targetHostIds: ['host-1', 'host-2']
-			})
-		).rejects.toMatchObject({
-			issues: ['approval-required executions require every target to belong to a workspace']
-		});
-		expect(v6ResourcesService.recordOperationReason).not.toHaveBeenCalled();
-		expect(v6ResourcesService.requestApproval).not.toHaveBeenCalled();
-		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
-	});
-
-	it('keeps high-risk targets as warnings when no policy, operation, or runbook requires approval', async () => {
-		vi.mocked(hostService.list).mockResolvedValue([
-			host({ id: 'host-1', workspaceId: 'workspace-1', tags: ['critical'] })
-		] as never);
-		vi.mocked(v6ResourcesService.createBackgroundJob).mockResolvedValueOnce({
-			job: job({ id: 'job-high-risk', workspaceId: 'workspace-1', targetCount: 1 }),
-			targets: []
-		} as never);
-
-		const preflight = await preflightFleetExecution({
-			operationId: 'bulk-ssh-command',
-			templateId: 'template-1',
-			targetHostIds: ['host-1'],
-			reason: 'reviewed'
-		});
-
-		expect(preflight).toMatchObject({
-			highRiskTargets: 1,
-			approvalRequired: false,
-			canRun: true,
-			ctaLabel: 'Queue execution'
-		});
-		expect(preflight.blockers).toEqual([]);
-		expect(preflight.warnings).toContain('1 selected target(s) are high risk.');
-
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-ssh-command',
-				templateId: 'template-1',
-				targetHostIds: ['host-1'],
-				reason: 'reviewed'
-			})
-		).resolves.toMatchObject({
-			status: 'queued',
-			job: expect.objectContaining({ id: 'job-high-risk' })
-		});
-		expect(v6ResourcesService.requestApproval).not.toHaveBeenCalled();
-	});
-
-	it('keeps degraded targets as attention warnings in preflight', async () => {
-		vi.mocked(hostService.list).mockResolvedValue([
-			host({ id: 'host-1', workspaceId: 'workspace-1', tags: ['production'] })
-		] as never);
-		vi.mocked(v6ResourcesService.listHostHealth).mockResolvedValueOnce([
-			{ hostId: 'host-1', state: 'degraded', checkedAt: now }
-		] as never);
-
-		const preflight = await preflightFleetExecution({
-			operationId: 'bulk-ssh-command',
-			templateId: 'template-1',
-			targetHostIds: ['host-1'],
-			reason: 'reviewed'
-		});
-
-		expect(preflight).toMatchObject({
-			highRiskTargets: 0,
-			offlineTargets: 0,
-			approvalRequired: false,
-			canRun: true
-		});
-		expect(preflight.warnings).toContain('1 selected target(s) need attention.');
-		expect(preflight.warnings).not.toContain('1 selected target(s) are high risk.');
-	});
-
-	it('rejects queueing when workspace policy blocks the bulk job', async () => {
-		vi.mocked(hostService.list).mockResolvedValueOnce([
-			host({ id: 'host-1', workspaceId: 'workspace-1' })
-		] as never);
-		vi.mocked(v6ResourcesService.evaluateWorkspacePolicy).mockResolvedValueOnce({
-			allowed: false,
-			approvalRequired: false,
-			blockedReason: 'viewer cannot run bulk jobs'
-		} as never);
-
-		await expect(
-			queueFleetBulkOperation({
-				operationId: 'bulk-ssh-command',
-				templateId: 'template-1',
-				targetHostIds: ['host-1'],
-				reason: 'reviewed'
-			})
-		).rejects.toMatchObject({
-			issues: ['viewer cannot run bulk jobs']
-		});
-		expect(v6ResourcesService.recordOperationReason).not.toHaveBeenCalled();
-		expect(v6ResourcesService.requestApproval).not.toHaveBeenCalled();
-		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
-	});
-
-	it('decides approvals with normalized status and reason', async () => {
-		vi.mocked(v6ResourcesService.decideApproval).mockResolvedValueOnce(undefined as never);
-
-		await expect(
-			decideFleetApproval({
-				approvalId: 'approval-1',
-				status: 'approved',
-				reason: 'reviewed'
-			})
-		).resolves.toBe(undefined);
-		expect(v6ResourcesService.decideApproval).toHaveBeenCalledWith(
-			'approval-1',
-			'user-1',
-			'approved',
-			'reviewed'
-		);
-		expect(appServer.refresh).toHaveBeenCalledTimes(5);
-	});
-
-	it('preflights explicit executions before queueing', async () => {
-		vi.mocked(hostService.list).mockResolvedValueOnce([
-			host({ id: 'host-1', workspaceId: 'workspace-1', tags: ['critical'] })
-		] as never);
-		vi.mocked(v6ResourcesService.listHostHealth).mockResolvedValueOnce([
-			{ hostId: 'host-1', state: 'auth_failed', checkedAt: now }
-		] as never);
-
-		const preflight = await preflightFleetExecution({
-			operationId: 'bulk-ssh-command',
-			templateId: 'template-1',
-			targetHostIds: ['host-1'],
-			reason: 'reviewed'
-		});
-
-		expect(preflight).toMatchObject({
-			runbookId: 'template-1',
-			operationId: 'bulk-ssh-command',
-			targetCount: 1,
-			highRiskTargets: 1,
-			offlineTargets: 1,
-			canRun: false
-		});
-		expect(preflight.blockers).toContain('Remove offline targets before running.');
-	});
-
-	it('validates approval decisions before service calls', async () => {
-		await expect(
-			decideFleetApproval({ approvalId: '', status: 'approved' })
-		).rejects.toBeInstanceOf(ServiceValidationError);
-		await expect(
-			decideFleetApproval({ approvalId: 'approval-1', status: 'cancelled' })
-		).rejects.toBeInstanceOf(ServiceValidationError);
-		expect(v6ResourcesService.decideApproval).not.toHaveBeenCalled();
 	});
 });

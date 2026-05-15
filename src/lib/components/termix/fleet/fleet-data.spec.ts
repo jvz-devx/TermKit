@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import {
-	buildBulkOperationReview,
+	buildBulkOperationSummary,
 	demoFleetOverview,
 	fleetRiskLabel,
 	fleetStatusLabel,
@@ -28,7 +28,7 @@ describe('fleet operations helpers', () => {
 		expect(uniqueFleetValues(['sfo', 'ams', 'ams', 'fra'])).toEqual(['ams', 'fra', 'sfo']);
 	});
 
-	it('blocks bulk operations with offline targets before execution', () => {
+	it('keeps health and risk as context without blocking execution', () => {
 		const operation = demoFleetOverview.bulkOperations.find(
 			(candidate) => candidate.id === 'bulk-file-transfer'
 		);
@@ -37,88 +37,32 @@ describe('fleet operations helpers', () => {
 			['host-ams-api-01', 'host-sfo-edge-03'].includes(host.id)
 		);
 
-		const review = buildBulkOperationReview(operation, runbook, targets);
+		const summary = buildBulkOperationSummary(operation, runbook, targets);
 
-		expect(review).toMatchObject({
+		expect(summary).toMatchObject({
 			targetCount: 2,
-			offlineTargets: 1,
-			approvalRequired: true,
-			canRun: false
+			canRun: true,
+			ctaLabel: 'Run operation',
+			warning: 'This will run on 2 hosts.'
 		});
-		expect(review.blockers).toContain('Remove offline targets before running.');
+		expect(summary.missingInputs).toEqual([]);
 	});
 
-	it('blocks approval-required mixed workspace and personal target reviews', () => {
-		const operation = demoFleetOverview.bulkOperations.find(
-			(candidate) => candidate.id === 'bulk-file-transfer'
-		);
-		const runbook = demoFleetOverview.templates[0];
-		const workspaceHost = demoFleetOverview.hosts[0];
-		const personalHost = {
-			...demoFleetOverview.hosts[5],
-			id: 'host-personal',
-			workspaceId: null,
-			workspace: 'Personal'
-		};
-
-		const review = buildBulkOperationReview(operation, runbook, [workspaceHost, personalHost]);
-
-		expect(review).toMatchObject({
-			approvalRequired: true,
-			canRun: false
-		});
-		expect(review.blockers).toContain(
-			'approval-required executions require every target to belong to a workspace'
-		);
-	});
-
-	it('blocks approval-required target reviews spanning multiple workspaces', () => {
-		const operation = demoFleetOverview.bulkOperations.find(
-			(candidate) => candidate.id === 'bulk-file-transfer'
-		);
-		const runbook = demoFleetOverview.templates[0];
-		const platformHost = demoFleetOverview.hosts[0];
-		const supportHost = demoFleetOverview.hosts[2];
-
-		const review = buildBulkOperationReview(operation, runbook, [platformHost, supportHost]);
-
-		expect(review).toMatchObject({
-			approvalRequired: true,
-			canRun: false
-		});
-		expect(review.blockers).toContain(
-			'approval-required executions must target one workspace at a time until approval requests can be created atomically.'
-		);
-	});
-
-	it('blocks non-approval mixed workspace and personal target reviews', () => {
+	it('only blocks technically missing execution inputs', () => {
 		const operation = demoFleetOverview.bulkOperations.find(
 			(candidate) => candidate.id === 'bulk-ssh-command'
 		);
-		const runbook = demoFleetOverview.templates.find(
-			(candidate) => candidate.id === 'template-inventory-sync'
-		);
-		const workspaceHost = demoFleetOverview.hosts[3];
-		const personalHost = {
-			...demoFleetOverview.hosts[5],
-			id: 'host-personal',
-			workspaceId: null,
-			workspace: 'Personal',
-			riskScore: 12
-		};
+		const summary = buildBulkOperationSummary(operation, null, []);
 
-		const review = buildBulkOperationReview(operation, runbook, [workspaceHost, personalHost]);
-
-		expect(review).toMatchObject({
-			approvalRequired: false,
-			canRun: false
+		expect(summary).toMatchObject({
+			targetCount: 0,
+			canRun: false,
+			warning: 'This will run on 0 hosts.'
 		});
-		expect(review.blockers).toContain(
-			'Select targets from one workspace or personal scope; mixed-scope executions are blocked until job history supports multiple scopes.'
-		);
+		expect(summary.missingInputs).toEqual(['Choose a runbook.', 'Select at least one target.']);
 	});
 
-	it('keeps high-risk non-approval operations runnable with a warning', () => {
+	it('allows mixed workspace, personal, and high-risk targets once inputs exist', () => {
 		const operation = demoFleetOverview.bulkOperations.find(
 			(candidate) => candidate.id === 'bulk-ssh-command'
 		);
@@ -131,39 +75,21 @@ describe('fleet operations helpers', () => {
 			riskScore: 12,
 			tags: ['critical']
 		};
-
-		const review = buildBulkOperationReview(operation, runbook, [highRiskTarget]);
-
-		expect(review).toMatchObject({
-			highRiskTargets: 1,
-			approvalRequired: false,
-			canRun: true
-		});
-		expect(review.blockers).toEqual([]);
-		expect(review.warnings).toContain('1 selected target(s) are high risk.');
-	});
-
-	it('uses critical tags rather than riskScore for high-risk warning parity', () => {
-		const operation = demoFleetOverview.bulkOperations.find(
-			(candidate) => candidate.id === 'bulk-ssh-command'
-		);
-		const runbook = demoFleetOverview.templates.find(
-			(candidate) => candidate.id === 'template-inventory-sync'
-		);
-		const scoredTarget = {
-			...demoFleetOverview.hosts[0],
-			id: 'host-score-only',
-			riskScore: 95,
-			tags: ['production']
+		const personalTarget = {
+			...demoFleetOverview.hosts[5],
+			id: 'host-personal',
+			workspaceId: null,
+			workspace: 'Personal'
 		};
 
-		const review = buildBulkOperationReview(operation, runbook, [scoredTarget]);
+		const summary = buildBulkOperationSummary(operation, runbook, [highRiskTarget, personalTarget]);
 
-		expect(review).toMatchObject({
-			highRiskTargets: 0,
-			canRun: true
+		expect(summary).toMatchObject({
+			targetCount: 2,
+			canRun: true,
+			warning: 'This will run on 2 hosts.'
 		});
-		expect(review.warnings).not.toContain('1 selected target(s) are high risk.');
+		expect(summary.missingInputs).toEqual([]);
 	});
 
 	it('labels fleet status and risk values without leaking enum casing into rendering helpers', () => {

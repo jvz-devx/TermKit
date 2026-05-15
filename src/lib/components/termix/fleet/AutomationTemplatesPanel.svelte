@@ -164,7 +164,7 @@
 					</span>
 					<span class="inline-flex items-center gap-1">
 						<ShieldCheck class="size-3.5" />
-						{template.approvalRequired ? 'Approval' : 'No approval'}
+						{fleetRiskLabel(template.risk)} risk
 					</span>
 					<span>{template.category}</span>
 				</div>
@@ -257,7 +257,7 @@
 					</div>
 					<label class="flex items-center gap-2 text-sm">
 						<Checkbox bind:checked={createDangerous} />
-						Requires approval
+						Mark as high risk
 					</label>
 					{#if createError}
 						<p class="text-sm text-destructive">{createError}</p>

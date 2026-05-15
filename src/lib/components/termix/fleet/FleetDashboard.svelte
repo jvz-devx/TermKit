@@ -2,7 +2,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
-	import { Activity, ClipboardCheck, FileClock, Server, ShieldAlert, Workflow } from '@lucide/svelte';
+	import { Activity, ClipboardCheck, FileClock, Server, Workflow } from '@lucide/svelte';
 	import { explainFleetTargetHealth, type FleetOverview } from './fleet-data';
 
 	let {
@@ -14,16 +14,17 @@
 	} = $props();
 
 	const healthCounts = $derived({
-		healthy: overview.hosts.filter((host) => explainFleetTargetHealth(host).status === 'healthy').length,
-		attention: overview.hosts.filter((host) => explainFleetTargetHealth(host).status === 'needs_attention')
+		healthy: overview.hosts.filter((host) => explainFleetTargetHealth(host).status === 'healthy')
 			.length,
-		offline: overview.hosts.filter((host) => explainFleetTargetHealth(host).status === 'offline').length,
-		notChecked: overview.hosts.filter((host) => explainFleetTargetHealth(host).status === 'not_checked')
-			.length
+		attention: overview.hosts.filter(
+			(host) => explainFleetTargetHealth(host).status === 'needs_attention'
+		).length,
+		offline: overview.hosts.filter((host) => explainFleetTargetHealth(host).status === 'offline')
+			.length,
+		notChecked: overview.hosts.filter(
+			(host) => explainFleetTargetHealth(host).status === 'not_checked'
+		).length
 	});
-	const pendingApprovals = $derived(
-		overview.policies.filter((policy) => policy.status === 'pending').length
-	);
 	const activeExecutions = $derived(
 		overview.jobs.filter((job) => job.status === 'queued' || job.status === 'running').length
 	);
@@ -41,7 +42,7 @@
 				<Badge variant="outline">{dataSourceLabel}</Badge>
 			</div>
 			<p class="max-w-3xl text-sm text-muted-foreground">
-				Runbooks, targets, executions, and approvals are split into explicit operator sections.
+				Run an action across selected hosts and track the resulting executions.
 			</p>
 		</div>
 		<div class="flex flex-wrap gap-2">
@@ -51,12 +52,12 @@
 			</Button>
 			<Button href="/fleet/targets" size="sm" variant="outline">
 				<Server class="size-4" />
-				Review targets
+				Targets
 			</Button>
 		</div>
 	</div>
 
-	<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+	<div class="grid gap-3 md:grid-cols-3">
 		<Card.Root size="sm">
 			<Card.Content class="p-4">
 				<div class="flex items-center gap-2 text-xs text-muted-foreground">
@@ -76,9 +77,7 @@
 					Runbooks
 				</div>
 				<div class="mt-2 text-2xl font-semibold">{overview.templates.length}</div>
-				<div class="mt-1 text-xs text-muted-foreground">
-					{overview.templates.filter((template) => template.approvalRequired).length} require approval
-				</div>
+				<div class="mt-1 text-xs text-muted-foreground">Reusable actions</div>
 			</Card.Content>
 		</Card.Root>
 		<Card.Root size="sm">
@@ -91,16 +90,6 @@
 				<div class="mt-1 text-xs text-muted-foreground">{overview.jobs.length} total records</div>
 			</Card.Content>
 		</Card.Root>
-		<Card.Root size="sm">
-			<Card.Content class="p-4">
-				<div class="flex items-center gap-2 text-xs text-muted-foreground">
-					<ShieldAlert class="size-3.5" />
-					Pending approvals
-				</div>
-				<div class="mt-2 text-2xl font-semibold">{pendingApprovals}</div>
-				<div class="mt-1 text-xs text-muted-foreground">Decisions before execution</div>
-			</Card.Content>
-		</Card.Root>
 	</div>
 
 	<div class="grid gap-4 xl:grid-cols-[1fr_360px]">
@@ -108,10 +97,10 @@
 			<Card.Header>
 				<Card.Title class="flex items-center gap-2 text-base">
 					<Activity class="size-4" />
-					Target health model
+					Target health context
 				</Card.Title>
 				<Card.Description>
-					Health is now explainable: status, reason, checks, credentials, reachability, and risk are separated.
+					Health stays visible as context. It does not block a fleet operation.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-2 sm:grid-cols-4">
@@ -141,8 +130,8 @@
 			<Card.Content class="space-y-2 text-sm">
 				<div class="rounded-md border p-3">1. Choose a runbook</div>
 				<div class="rounded-md border p-3">2. Choose an operation</div>
-				<div class="rounded-md border p-3">3. Select targets deliberately</div>
-				<div class="rounded-md border p-3">4. Review policy and health blockers</div>
+				<div class="rounded-md border p-3">3. Select hosts</div>
+				<div class="rounded-md border p-3">4. Run after checking the host count</div>
 			</Card.Content>
 		</Card.Root>
 	</div>

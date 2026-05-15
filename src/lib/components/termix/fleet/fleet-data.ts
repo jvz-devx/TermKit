@@ -1,15 +1,9 @@
-import {
-	fleetBulkOperations,
-	formatFleetAttentionWarning,
-	formatFleetHighRiskWarning,
-	hasFleetCriticalTargetTag
-} from '$lib/termix/fleet-contracts';
+import { fleetBulkOperations } from '$lib/termix/fleet-contracts';
 
 export type FleetHealthStatus = 'healthy' | 'degraded' | 'offline' | 'maintenance';
 export type FleetTargetStatus = 'healthy' | 'needs_attention' | 'offline' | 'not_checked';
 export type FleetRiskLevel = 'low' | 'medium' | 'high';
 export type FleetJobStatus = 'queued' | 'running' | 'blocked' | 'completed' | 'failed';
-export type FleetApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 export type FleetTargetHealthSummary = {
 	status: FleetTargetStatus;
@@ -53,7 +47,6 @@ export type FleetAutomationTemplate = {
 	category: string;
 	description: string;
 	risk: FleetRiskLevel;
-	approvalRequired: boolean;
 	estimatedDuration: string;
 	lastRun: string;
 	parameters: string[];
@@ -65,7 +58,6 @@ export type FleetBulkOperation = {
 	category: string;
 	description: string;
 	risk: FleetRiskLevel;
-	approvalRequired: boolean;
 	estimatedDuration: string;
 	guardrails: string[];
 };
@@ -83,17 +75,6 @@ export type FleetJob = {
 	reportUrl: string;
 };
 
-export type FleetPolicy = {
-	id: string;
-	name: string;
-	scope: string;
-	status: FleetApprovalStatus;
-	requestedBy: string;
-	approver: string;
-	dueAt: string;
-	impact: string;
-};
-
 export type FleetWorkspace = {
 	id: string;
 	name: string;
@@ -102,7 +83,6 @@ export type FleetWorkspace = {
 export type FleetRunbook = FleetAutomationTemplate;
 export type FleetTarget = FleetHost;
 export type FleetExecution = FleetJob;
-export type FleetApprovalRequest = FleetPolicy;
 
 export type FleetOverview = {
 	workspaces: FleetWorkspace[];
@@ -110,7 +90,6 @@ export type FleetOverview = {
 	templates: FleetAutomationTemplate[];
 	bulkOperations: FleetBulkOperation[];
 	jobs: FleetJob[];
-	policies: FleetPolicy[];
 };
 
 export type FleetRunbooksData = {
@@ -126,33 +105,15 @@ export type FleetHostFilters = {
 	patchState: FleetHost['patchState'] | 'all';
 };
 
-export type FleetTargetReview = {
+export type FleetExecutionSummary = {
 	targetCount: number;
-	highRiskTargets: number;
-	offlineTargets: number;
-	approvalRequired: boolean;
 	canRun: boolean;
 	ctaLabel: string;
-	blockers: string[];
-	warnings: string[];
+	missingInputs: string[];
+	warning: string;
 };
 
-export type FleetExecutionPreflight = FleetTargetReview & {
-	runbookId: string | null;
-	operationId: string | null;
-	targetHostIds: string[];
-};
-
-export type FleetExecutionSubmitResult =
-	| { status: 'queued'; job: FleetJob; message: string }
-	| { status: 'approval_requested'; job?: null; message: string };
-
-const approvalWorkspaceTargetMessage =
-	'approval-required executions require every target to belong to a workspace';
-const approvalWorkspaceScopeMessage =
-	'approval-required executions must target one workspace at a time until approval requests can be created atomically.';
-const mixedExecutionScopeMessage =
-	'Select targets from one workspace or personal scope; mixed-scope executions are blocked until job history supports multiple scopes.';
+export type FleetExecutionSubmitResult = { status: 'queued'; job: FleetJob; message: string };
 
 export const demoFleetOverview: FleetOverview = {
 	hosts: [
@@ -280,7 +241,6 @@ export const demoFleetOverview: FleetOverview = {
 			description:
 				'Apply package updates, restart affected services, and capture post-check evidence.',
 			risk: 'medium',
-			approvalRequired: true,
 			estimatedDuration: '18m',
 			lastRun: '2 days ago',
 			parameters: ['maintenance window', 'reboot policy', 'service allowlist']
@@ -293,7 +253,6 @@ export const demoFleetOverview: FleetOverview = {
 			description:
 				'Distribute renewed certificates and verify listeners before replacing the active bundle.',
 			risk: 'high',
-			approvalRequired: true,
 			estimatedDuration: '9m',
 			lastRun: '6 hours ago',
 			parameters: ['certificate source', 'listener probe', 'rollback secret']
@@ -305,7 +264,6 @@ export const demoFleetOverview: FleetOverview = {
 			category: 'Discovery',
 			description: 'Refresh OS, protocol, tag, and workspace metadata from reachable hosts.',
 			risk: 'low',
-			approvalRequired: false,
 			estimatedDuration: '4m',
 			lastRun: '23 minutes ago',
 			parameters: ['probe depth', 'tag overwrite mode']
@@ -356,39 +314,6 @@ export const demoFleetOverview: FleetOverview = {
 			requestedBy: 'security',
 			reportUrl: '/fleet/executions/job-1840'
 		}
-	],
-	policies: [
-		{
-			id: 'policy-prod-bulk',
-			name: 'Production bulk guardrail',
-			scope: 'production hosts',
-			status: 'pending',
-			requestedBy: 'security',
-			approver: 'SRE lead',
-			dueAt: 'Today 17:00',
-			impact:
-				'Requires approval for high-risk operations touching more than three production hosts.'
-		},
-		{
-			id: 'policy-rdp-clipboard',
-			name: 'RDP clipboard approvals',
-			scope: 'Support workspace',
-			status: 'approved',
-			requestedBy: 'helpdesk',
-			approver: 'Compliance',
-			dueAt: 'Approved yesterday',
-			impact: 'Allows clipboard sync for audited support sessions only.'
-		},
-		{
-			id: 'policy-maintenance-freeze',
-			name: 'Maintenance freeze',
-			scope: 'Network workspace',
-			status: 'pending',
-			requestedBy: 'netops',
-			approver: 'Platform owner',
-			dueAt: 'Tomorrow 09:00',
-			impact: 'Blocks disruptive operations while edge reachability is degraded.'
-		}
 	]
 };
 
@@ -426,61 +351,27 @@ export function uniqueFleetValues<T extends string>(values: T[]) {
 	return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
-export function buildBulkOperationReview(
+export function buildBulkOperationSummary(
 	operation: FleetBulkOperation | null | undefined,
 	runbook: FleetAutomationTemplate | null | undefined,
 	targets: FleetHost[]
-): FleetTargetReview {
-	const highRiskTargets = targets.filter((host) => hasFleetCriticalTargetTag(host.tags)).length;
-	const offlineTargets = targets.filter(
-		(host) => explainFleetTargetHealth(host).status === 'offline'
-	).length;
-	const attentionTargets = targets.filter(
-		(host) => explainFleetTargetHealth(host).status === 'needs_attention'
-	).length;
-	const approvalRequired = Boolean(operation?.approvalRequired || runbook?.approvalRequired);
-	const blockers: string[] = [];
-	const warnings: string[] = [];
+): FleetExecutionSummary {
+	const missingInputs: string[] = [];
 
-	if (!runbook) blockers.push('Choose a runbook.');
-	if (!operation) blockers.push('Choose an operation.');
-	if (!targets.length) blockers.push('Select at least one target.');
-	if (offlineTargets > 0) blockers.push('Remove offline targets before running.');
-	if (approvalRequired && targets.some((host) => !host.workspaceId)) {
-		blockers.push(approvalWorkspaceTargetMessage);
-	}
-	if (approvalRequired && targetWorkspaceIds(targets).length > 1) {
-		blockers.push(approvalWorkspaceScopeMessage);
-	}
-	if (!approvalRequired && hasMixedFleetScopes(targets)) {
-		blockers.push(mixedExecutionScopeMessage);
-	}
-	if (attentionTargets > 0) warnings.push(formatFleetAttentionWarning(attentionTargets));
-	if (highRiskTargets > 0) warnings.push(formatFleetHighRiskWarning(highRiskTargets));
+	if (!runbook) missingInputs.push('Choose a runbook.');
+	if (!operation) missingInputs.push('Choose an operation.');
+	if (!targets.length) missingInputs.push('Select at least one target.');
 
 	return {
 		targetCount: targets.length,
-		highRiskTargets,
-		offlineTargets,
-		approvalRequired,
-		canRun: blockers.length === 0,
-		ctaLabel: approvalRequired ? 'Submit for approval' : 'Queue execution',
-		blockers,
-		warnings
+		canRun: missingInputs.length === 0,
+		ctaLabel: 'Run operation',
+		missingInputs,
+		warning:
+			targets.length === 1
+				? 'This will run on 1 host.'
+				: `This will run on ${targets.length} hosts.`
 	};
-}
-
-function targetWorkspaceIds(targets: FleetHost[]): string[] {
-	return [
-		...new Set(targets.map((host) => host.workspaceId).filter((id): id is string => Boolean(id)))
-	];
-}
-
-function hasMixedFleetScopes(targets: FleetHost[]): boolean {
-	const scopes = new Set(
-		targets.map((host) => (host.workspaceId ? `workspace:${host.workspaceId}` : 'personal'))
-	);
-	return scopes.size > 1;
 }
 
 export function explainFleetTargetHealth(host: FleetHost): FleetTargetHealthSummary {

@@ -1,14 +1,9 @@
 <script lang="ts">
-	import {
-		getFleetOverview,
-		preflightFleetExecution,
-		queueFleetBulkOperation
-	} from '$lib/fleet.remote';
+	import { getFleetOverview, queueFleetBulkOperation } from '$lib/fleet.remote';
 	import BulkOperationsPanel from './BulkOperationsPanel.svelte';
 	import {
-		buildBulkOperationReview,
+		buildBulkOperationSummary,
 		filterFleetHosts,
-		type FleetExecutionPreflight,
 		type FleetHealthStatus,
 		type FleetHostFilters,
 		type FleetOverview,
@@ -21,13 +16,11 @@
 	let selectedRunbookId = $state('');
 	let selectedOperationId = $state('');
 	let selectedHostIds = $state<string[]>([]);
-	let preflight = $state<FleetExecutionPreflight | null>(null);
 	let search = $state('');
 	let statusFilter = $state<FleetHostFilters['status']>('all');
 	let workspaceFilter = $state('all');
 	let regionFilter = $state('all');
 	let patchFilter = $state<FleetHostFilters['patchState']>('all');
-	let preflightRequestToken = 0;
 
 	const selectedRunbook = $derived(
 		overview.templates.find((template) => template.id === selectedRunbookId) ?? null
@@ -38,8 +31,8 @@
 	const selectedHosts = $derived(
 		overview.hosts.filter((host) => selectedHostIds.includes(host.id))
 	);
-	const review = $derived(
-		buildBulkOperationReview(selectedOperation, selectedRunbook, selectedHosts)
+	const summary = $derived(
+		buildBulkOperationSummary(selectedOperation, selectedRunbook, selectedHosts)
 	);
 	const filters = $derived<FleetHostFilters>({
 		search,
@@ -52,31 +45,10 @@
 	const workspaces = $derived(uniqueFleetValues(overview.hosts.map((host) => host.workspace)));
 	const regions = $derived(uniqueFleetValues(overview.hosts.map((host) => host.region)));
 
-	function clearPreflight() {
-		preflightRequestToken += 1;
-		preflight = null;
-	}
-
-	async function reviewPreflight(input: {
-		operationId: string;
-		templateId: string;
-		targetHostIds: string[];
-		reason: string;
-		concurrencyLimit: number;
-	}) {
-		const requestToken = preflightRequestToken + 1;
-		preflightRequestToken = requestToken;
-		const result = await preflightFleetExecution(input);
-		if (requestToken === preflightRequestToken) {
-			preflight = result;
-		}
-	}
-
 	function toggleHost(hostId: string) {
 		selectedHostIds = selectedHostIds.includes(hostId)
 			? selectedHostIds.filter((id) => id !== hostId)
 			: [...selectedHostIds, hostId];
-		clearPreflight();
 	}
 
 	function toggleVisibleHosts() {
@@ -85,7 +57,6 @@
 		selectedHostIds = allVisibleSelected
 			? selectedHostIds.filter((id) => !visibleIds.includes(id))
 			: [...new Set([...selectedHostIds, ...visibleIds])];
-		clearPreflight();
 	}
 
 	function clearFilters() {
@@ -105,7 +76,7 @@
 	<div>
 		<h1 class="text-lg font-semibold">New execution</h1>
 		<p class="text-sm text-muted-foreground">
-			Choose every execution input explicitly, then review policy and health blockers.
+			Pick an action, pick hosts, confirm the target count, and run.
 		</p>
 	</div>
 	<BulkOperationsPanel
@@ -114,12 +85,9 @@
 		operations={overview.bulkOperations}
 		{selectedOperationId}
 		targets={selectedHosts}
-		{review}
-		{preflight}
-		onSelectRunbook={(runbookId) => ((selectedRunbookId = runbookId), clearPreflight())}
-		onSelectOperation={(operationId) => ((selectedOperationId = operationId), clearPreflight())}
-		onPreflight={reviewPreflight}
-		onPayloadChange={clearPreflight}
+		{summary}
+		onSelectRunbook={(runbookId) => (selectedRunbookId = runbookId)}
+		onSelectOperation={(operationId) => (selectedOperationId = operationId)}
 		onQueueOperation={async (input) => queueFleetBulkOperation(input).updates(getFleetOverview)}
 	/>
 	<HostHealthInventoryPanel

@@ -61,8 +61,7 @@
 					{ title: 'Overview', url: '/fleet' },
 					{ title: 'Runbooks', url: '/fleet/runbooks' },
 					{ title: 'Targets', url: '/fleet/targets' },
-					{ title: 'Executions', url: '/fleet/executions' },
-					{ title: 'Approvals', url: '/fleet/approvals' }
+					{ title: 'Executions', url: '/fleet/executions' }
 				]
 			},
 			{

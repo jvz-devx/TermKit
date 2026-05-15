@@ -24,7 +24,6 @@
 		'/fleet/targets': 'Fleet Targets',
 		'/fleet/executions': 'Fleet Executions',
 		'/fleet/executions/new': 'New Fleet Execution',
-		'/fleet/approvals': 'Fleet Approvals',
 		'/admin': 'Admin',
 		'/settings': 'Settings'
 	};

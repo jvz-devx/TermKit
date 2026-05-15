@@ -4,60 +4,41 @@ export type FleetBulkOperationContract = {
 	category: string;
 	description: string;
 	risk: 'low' | 'medium' | 'high';
-	approvalRequired: boolean;
 	estimatedDuration: string;
 	guardrails: string[];
 	jobKind: 'bulk_ssh_command' | 'bulk_file_transfer';
 	jobTitle: string;
-	policyCapability: 'bulk_job';
 	secretPolicy: 'redacted';
 };
 
 export type VisibleFleetBulkOperation = Omit<
 	FleetBulkOperationContract,
-	'jobKind' | 'jobTitle' | 'policyCapability' | 'secretPolicy'
+	'jobKind' | 'jobTitle' | 'secretPolicy'
 >;
-
-export const fleetCriticalTargetTag = 'critical';
-
-export function hasFleetCriticalTargetTag(tags: readonly string[]) {
-	return tags.includes(fleetCriticalTargetTag);
-}
-
-export function formatFleetAttentionWarning(count: number) {
-	return `${count} selected target(s) need attention.`;
-}
-
-export function formatFleetHighRiskWarning(count: number) {
-	return `${count} selected target(s) are high risk.`;
-}
 
 export const fleetBulkOperationContracts = [
 	{
 		id: 'bulk-ssh-command',
 		name: 'Bulk SSH command',
 		category: 'SSH',
-		description: 'Run a reviewed SSH command job against the selected visible hosts.',
+		description: 'Run an SSH command job against the selected hosts.',
 		risk: 'medium',
-		approvalRequired: false,
 		estimatedDuration: 'queued',
 		guardrails: [
-			'Requires explicit target review',
+			'Shows exact target count before running',
 			'Limits fan-out concurrency',
 			'Stores bounded, redacted per-host status'
 		],
 		jobKind: 'bulk_ssh_command',
 		jobTitle: 'Bulk SSH command',
-		policyCapability: 'bulk_job',
 		secretPolicy: 'redacted'
 	},
 	{
 		id: 'bulk-file-transfer',
 		name: 'Bulk file transfer',
 		category: 'Files',
-		description: 'Queue an SFTP/FTP/FTPS transfer job against the reviewed target set.',
+		description: 'Queue an SFTP/FTP/FTPS transfer job against the selected hosts.',
 		risk: 'high',
-		approvalRequired: true,
 		estimatedDuration: 'queued',
 		guardrails: [
 			'Requires visible target selection',
@@ -66,7 +47,6 @@ export const fleetBulkOperationContracts = [
 		],
 		jobKind: 'bulk_file_transfer',
 		jobTitle: 'Bulk file transfer',
-		policyCapability: 'bulk_job',
 		secretPolicy: 'redacted'
 	}
 ] as const satisfies readonly FleetBulkOperationContract[];
@@ -90,7 +70,6 @@ function toVisibleFleetBulkOperation(
 		category: operation.category,
 		description: operation.description,
 		risk: operation.risk,
-		approvalRequired: operation.approvalRequired,
 		estimatedDuration: operation.estimatedDuration,
 		guardrails: operation.guardrails
 	};

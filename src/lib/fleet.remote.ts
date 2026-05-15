@@ -9,15 +9,10 @@ import {
 } from '$lib/termix/automation-template';
 import {
 	fleetBulkOperations,
-	formatFleetAttentionWarning,
-	formatFleetHighRiskWarning,
-	hasFleetCriticalTargetTag,
 	resolveFleetBulkOperationContract
 } from '$lib/termix/fleet-contracts';
 import type {
-	FleetApprovalStatus,
 	FleetAutomationTemplate,
-	FleetExecutionPreflight,
 	FleetExecutionSubmitResult,
 	FleetHealthStatus,
 	FleetHost,
@@ -33,8 +28,7 @@ import type {
 	AutomationTemplateRecord,
 	BackgroundJobRecord,
 	HostFactsRecord,
-	HostHealthRecord,
-	WorkspacePolicyRole
+	HostHealthRecord
 } from '$lib/server/services/v6-resources';
 
 export type CreateFleetAutomationTemplateInput = {
@@ -56,27 +50,11 @@ export type QueueFleetBulkOperationInput = {
 	concurrencyLimit?: unknown;
 };
 
-export type PreflightFleetExecutionInput = QueueFleetBulkOperationInput;
-
-export type DecideFleetApprovalInput = {
-	approvalId?: unknown;
-	status?: unknown;
-	reason?: unknown;
-};
-
 export const getFleetOverview = query(loadFleetOverview);
 
 export const getFleetRunbooks = query(loadFleetRunbooks);
 export const getFleetTargets = query(async () => (await loadFleetOverview()).hosts);
 export const getFleetExecutions = query(async () => (await loadFleetOverview()).jobs);
-export const getFleetApprovals = query(async () => (await loadFleetOverview()).policies);
-
-const approvalWorkspaceTargetMessage =
-	'approval-required executions require every target to belong to a workspace';
-const approvalWorkspaceScopeMessage =
-	'approval-required executions must target one workspace at a time until approval requests can be created atomically.';
-const mixedExecutionScopeMessage =
-	'Select targets from one workspace or personal scope; mixed-scope executions are blocked until job history supports multiple scopes.';
 
 async function loadFleetOverview(): Promise<FleetOverview> {
 	const user = requireRemoteUser();
@@ -86,10 +64,9 @@ async function loadFleetOverview(): Promise<FleetOverview> {
 	]);
 	const workspaceIds = workspaces.map((workspace) => workspace.id);
 	const hostIds = hosts.map((host) => host.id);
-	const [templates, jobs, approvals, facts, health] = await Promise.all([
+	const [templates, jobs, facts, health] = await Promise.all([
 		v6ResourcesService.listAutomationTemplates(user.id, workspaceIds),
 		v6ResourcesService.listBackgroundJobs(user.id, workspaceIds),
-		v6ResourcesService.listApprovalRequests(user.id, workspaceIds),
 		v6ResourcesService.listHostFacts(hostIds),
 		v6ResourcesService.listHostHealth(hostIds)
 	]);
@@ -109,19 +86,7 @@ async function loadFleetOverview(): Promise<FleetOverview> {
 		),
 		templates: toFleetTemplates(templates),
 		bulkOperations: fleetBulkOperations,
-		jobs: jobs.map(toFleetJob).sort((left, right) => right.startedAt.localeCompare(left.startedAt)),
-		policies: approvals.map((approval) => ({
-			id: approval.id,
-			name: `${approval.capability.replaceAll('_', ' ')} approval`,
-			scope: approval.workspaceId
-				? (workspacesById.get(approval.workspaceId)?.name ?? 'Workspace')
-				: 'Personal',
-			status: toFleetApprovalStatus(approval.status),
-			requestedBy: approval.requestedBy,
-			approver: approval.decidedBy ?? 'Pending',
-			dueAt: approval.expiresAt?.toISOString() ?? 'No expiry',
-			impact: approval.reason ?? 'No reason provided'
-		}))
+		jobs: jobs.map(toFleetJob).sort((left, right) => right.startedAt.localeCompare(left.startedAt))
 	};
 }
 
@@ -168,94 +133,17 @@ export const createFleetAutomationTemplate = command<
 	return toFleetTemplate(template);
 });
 
-export const preflightFleetExecution = command<
-	PreflightFleetExecutionInput,
-	FleetExecutionPreflight
->('unchecked', async (input) => {
-	const { operation, operationId, template, templateId, targetHostIds, targetHosts, policy } =
-		await prepareExecutionReview(input);
-	const highRiskTargets = targetHosts.filter((host) => hasFleetCriticalTargetTag(host.tags)).length;
-	const health = await v6ResourcesService.listHostHealth(targetHostIds);
-	const healthByHost = new Map(health.map((record) => [record.hostId, record]));
-	const offlineTargets = targetHosts.filter((host) => {
-		const state = healthByHost.get(host.id)?.state;
-		return state === 'unreachable' || state === 'auth_failed';
-	}).length;
-	const attentionTargets = targetHosts.filter((host) => {
-		const state = healthByHost.get(host.id)?.state;
-		return state === 'stale' || state === 'degraded';
-	}).length;
-	const blockers: string[] = [];
-	const warnings: string[] = [];
-
-	if (offlineTargets > 0) blockers.push('Remove offline targets before running.');
-	if (attentionTargets > 0) warnings.push(formatFleetAttentionWarning(attentionTargets));
-	if (highRiskTargets > 0) warnings.push(formatFleetHighRiskWarning(highRiskTargets));
-	const approvalRequired =
-		policy.approvalRequired || operation.approvalRequired || template.requiresApproval;
-	if (policy.blockedReason) blockers.push(policy.blockedReason);
-	if (approvalRequired && !allTargetsHaveWorkspace(targetHosts)) {
-		blockers.push(approvalWorkspaceTargetMessage);
-	}
-	if (approvalRequired && targetWorkspaceIds(targetHosts).length > 1) {
-		blockers.push(approvalWorkspaceScopeMessage);
-	}
-	if (!approvalRequired && hasMixedExecutionScopes(targetHosts)) {
-		blockers.push(mixedExecutionScopeMessage);
-	}
-
-	return {
-		runbookId: templateId,
-		operationId,
-		targetHostIds,
-		targetCount: targetHostIds.length,
-		highRiskTargets,
-		offlineTargets,
-		approvalRequired,
-		canRun: blockers.length === 0,
-		ctaLabel: approvalRequired ? 'Submit for approval' : 'Queue execution',
-		blockers,
-		warnings
-	};
-});
-
 export const queueFleetBulkOperation = command<
 	QueueFleetBulkOperationInput,
 	FleetExecutionSubmitResult
 >('unchecked', async (input) => {
-	const { user, operation, operationId, template, templateId, targetHostIds, targetHosts, policy } =
-		await prepareExecutionReview(input);
-	if (policy.blockedReason) {
-		throw new ServiceValidationError([policy.blockedReason]);
-	}
-	const approvalRequired =
-		policy.approvalRequired || operation.approvalRequired || template.requiresApproval;
-	if (approvalRequired && !allTargetsHaveWorkspace(targetHosts)) {
-		throw new ServiceValidationError([approvalWorkspaceTargetMessage]);
-	}
-	if (approvalRequired && targetWorkspaceIds(targetHosts).length > 1) {
-		throw new ServiceValidationError([approvalWorkspaceScopeMessage]);
-	}
-	if (!approvalRequired && hasMixedExecutionScopes(targetHosts)) {
-		throw new ServiceValidationError([mixedExecutionScopeMessage]);
-	}
-	if (approvalRequired) {
-		const approvalReason = asTrimmedString(input.reason) ?? `${operationId} requires approval`;
-		await requestBulkJobApprovals(user.id, targetHosts, {
-			reason: approvalReason,
-			operationId
-		});
-		await ignoreReasonRecordFailure(recordBulkJobReason(user.id, targetHosts, approvalReason));
-		refreshFleetQueries();
-		return {
-			status: 'approval_requested',
-			message: 'Approval request submitted before this execution can run.'
-		};
-	}
+	const { user, operation, operationId, template, templateId, targetHostIds, targetHosts } =
+		await prepareExecution(input);
 
 	await recordBulkJobReason(user.id, targetHosts, asTrimmedString(input.reason));
+	const workspaceId = singleWorkspaceId(targetHosts);
 	const result = await v6ResourcesService.createBackgroundJob(user.id, {
-		workspaceId: targetHosts[0]?.workspaceId ?? null,
+		workspaceId,
 		templateId,
 		templateVersion: template.version,
 		kind: operation.jobKind,
@@ -268,7 +156,7 @@ export const queueFleetBulkOperation = command<
 		},
 		targetHostIds,
 		concurrencyLimit: normalizeConcurrency(input.concurrencyLimit),
-		reason: asTrimmedString(input.reason) ?? 'Reviewed from fleet operations'
+		reason: asTrimmedString(input.reason) ?? 'Fleet operation'
 	});
 	refreshFleetQueries();
 	return {
@@ -278,31 +166,11 @@ export const queueFleetBulkOperation = command<
 	};
 });
 
-export const decideFleetApproval = command<DecideFleetApprovalInput, void>(
-	'unchecked',
-	async (input) => {
-		const user = requireRemoteUser();
-		const approvalId = requireId(input.approvalId, 'approvalId');
-		const status = input.status === 'approved' || input.status === 'rejected' ? input.status : null;
-		if (!status) {
-			throw new ServiceValidationError(['status must be approved or rejected']);
-		}
-		await v6ResourcesService.decideApproval(
-			approvalId,
-			user.id,
-			status,
-			asTrimmedString(input.reason) ?? `${status} from fleet operations`
-		);
-		refreshFleetQueries();
-	}
-);
-
 function refreshFleetQueries() {
 	void getFleetOverview().refresh();
 	void getFleetRunbooks().refresh();
 	void getFleetTargets().refresh();
 	void getFleetExecutions().refresh();
-	void getFleetApprovals().refresh();
 }
 
 function requireRemoteUser(): { id: string; username: string } {
@@ -348,15 +216,14 @@ function toFleetHost(
 	};
 }
 
-async function prepareExecutionReview(input: PreflightFleetExecutionInput): Promise<{
+async function prepareExecution(input: QueueFleetBulkOperationInput): Promise<{
 	user: { id: string; username: string };
 	operation: NonNullable<ReturnType<typeof resolveFleetBulkOperationContract>>;
 	operationId: string;
-	template: { id: string; version: number; requiresApproval: boolean };
+	template: { id: string; version: number };
 	templateId: string;
 	targetHostIds: string[];
 	targetHosts: HostRecord[];
-	policy: { approvalRequired: boolean; blockedReason: string | null };
 }> {
 	const user = requireRemoteUser();
 	const operationId = requireId(input.operationId, 'operationId');
@@ -379,25 +246,19 @@ async function prepareExecutionReview(input: PreflightFleetExecutionInput): Prom
 		templateId
 	);
 	const targetHosts = visibleHosts.filter((host) => targetHostIds.includes(host.id));
-	const policy = await evaluateBulkJobPolicies(user.id, targetHosts, {
-		reason: asTrimmedString(input.reason),
-		operationId
-	});
-	return { user, operation, operationId, template, templateId, targetHostIds, targetHosts, policy };
+	return { user, operation, operationId, template, templateId, targetHostIds, targetHosts };
 }
 
 async function resolveExecutionTemplate(
 	userId: string,
 	workspaceIds: string[],
 	templateId: string
-): Promise<{ id: string; version: number; requiresApproval: boolean }> {
+): Promise<{ id: string; version: number }> {
 	const builtInTemplate = builtInAutomationTemplates.find((template) => template.id === templateId);
 	if (builtInTemplate) {
 		return {
 			id: builtInTemplate.id,
-			version: 1,
-			requiresApproval:
-				builtInTemplate.kind === 'file_transfer' || builtInTemplate.kind === 'ssh_tunnel'
+			version: 1
 		};
 	}
 
@@ -408,13 +269,8 @@ async function resolveExecutionTemplate(
 	}
 	return {
 		id: template.id,
-		version: template.version,
-		requiresApproval: template.requiresApproval
+		version: template.version
 	};
-}
-
-function allTargetsHaveWorkspace(targetHosts: HostRecord[]): boolean {
-	return targetHosts.every((host) => Boolean(host.workspaceId));
 }
 
 function targetWorkspaceIds(targetHosts: HostRecord[]): string[] {
@@ -425,51 +281,12 @@ function targetWorkspaceIds(targetHosts: HostRecord[]): string[] {
 	];
 }
 
-function targetExecutionScopes(targetHosts: HostRecord[]): string[] {
-	return [
-		...new Set(
-			targetHosts.map((host) => (host.workspaceId ? `workspace:${host.workspaceId}` : 'personal'))
-		)
-	];
-}
-
-function hasMixedExecutionScopes(targetHosts: HostRecord[]): boolean {
-	return targetExecutionScopes(targetHosts).length > 1;
-}
-
-async function evaluateBulkJobPolicies(
-	userId: string,
-	targetHosts: HostRecord[],
-	input: { reason: string | null; operationId: string }
-): Promise<{ approvalRequired: boolean; blockedReason: string | null }> {
-	let approvalRequired = false;
-	const workspaceIds = [
-		...new Set(
-			targetHosts.map((host) => host.workspaceId).filter((id): id is string => Boolean(id))
-		)
-	];
-	for (const workspaceId of workspaceIds) {
-		const membership = await workspaceService.assertMember(userId, workspaceId);
-		const targetCount = targetHosts.filter((host) => host.workspaceId === workspaceId).length;
-		const decision = await v6ResourcesService.evaluateWorkspacePolicy({
-			workspaceId,
-			capability: 'bulk_job',
-			role: membership.role as WorkspacePolicyRole,
-			targetCount,
-			reason: input.reason
-		});
-		if (decision.approvalRequired) {
-			approvalRequired = true;
-			continue;
-		}
-		if (!decision.allowed) {
-			return {
-				approvalRequired,
-				blockedReason: decision.blockedReason ?? 'bulk job is blocked by policy'
-			};
-		}
-	}
-	return { approvalRequired, blockedReason: null };
+function singleWorkspaceId(targetHosts: HostRecord[]): string | null {
+	const workspaceIds = targetWorkspaceIds(targetHosts);
+	return workspaceIds.length === 1 &&
+		targetHosts.every((host) => host.workspaceId === workspaceIds[0])
+		? workspaceIds[0]
+		: null;
 }
 
 async function recordBulkJobReason(
@@ -493,37 +310,6 @@ async function recordBulkJobReason(
 				workspaceId,
 				capability: 'bulk_job',
 				reason
-			})
-		)
-	);
-}
-
-async function ignoreReasonRecordFailure(recording: Promise<void>) {
-	try {
-		await recording;
-	} catch {
-		// Approval creation is the durable side effect; reason history must not mask that result.
-	}
-}
-
-async function requestBulkJobApprovals(
-	userId: string,
-	targetHosts: HostRecord[],
-	input: { reason: string | null; operationId: string }
-) {
-	const workspaceIds = targetWorkspaceIds(targetHosts);
-	if (workspaceIds.length === 0) {
-		throw new ServiceValidationError([approvalWorkspaceTargetMessage]);
-	}
-	if (workspaceIds.length > 1) {
-		throw new ServiceValidationError([approvalWorkspaceScopeMessage]);
-	}
-	await Promise.all(
-		workspaceIds.map((workspaceId) =>
-			v6ResourcesService.requestApproval(userId, {
-				workspaceId,
-				capability: 'bulk_job',
-				reason: input.reason ?? `${input.operationId} requires approval`
 			})
 		)
 	);
@@ -598,7 +384,7 @@ function toFleetTargetHealth(health: HostHealthRecord | undefined): FleetTargetH
 		...base,
 		status: 'needs_attention',
 		label: health.state === 'stale' ? 'Stale check' : 'Needs attention',
-		reason: health.failureReason ?? 'The latest health signal needs operator review.',
+		reason: health.failureReason ?? 'The latest health signal needs attention.',
 		credentialSignal: 'unknown',
 		reachabilitySignal: 'unknown'
 	};
@@ -614,7 +400,6 @@ function toBuiltInFleetTemplate(
 		category: template.kind.replaceAll('_', ' '),
 		description: template.description,
 		risk: template.kind === 'file_transfer' || template.kind === 'ssh_tunnel' ? 'medium' : 'low',
-		approvalRequired: template.kind === 'file_transfer' || template.kind === 'ssh_tunnel',
 		estimatedDuration: 'preview',
 		lastRun: 'built-in',
 		parameters: template.variables.map((variable) => variable.key)
@@ -641,8 +426,7 @@ function toFleetTemplate(template: AutomationTemplateRecord): FleetAutomationTem
 		workspaceId: template.workspaceId,
 		category: template.kind.replaceAll('_', ' '),
 		description: template.description ?? 'Workspace automation template',
-		risk: template.isDangerous ? 'high' : template.requiresApproval ? 'medium' : 'low',
-		approvalRequired: template.requiresApproval,
+		risk: template.isDangerous ? 'high' : 'low',
 		estimatedDuration: 'queued',
 		lastRun: template.lastUsedAt?.toISOString() ?? 'Never',
 		parameters: template.variables.map((variable) => variable.name)
@@ -680,12 +464,6 @@ function toFleetJobStatus(status: BackgroundJobRecord['status']): FleetJobStatus
 	if (status === 'running' || status === 'cancelling') return 'running';
 	if (status === 'cancelled') return 'blocked';
 	return 'queued';
-}
-
-function toFleetApprovalStatus(status: string): FleetApprovalStatus {
-	if (status === 'approved') return 'approved';
-	if (status === 'rejected' || status === 'cancelled' || status === 'expired') return 'rejected';
-	return 'pending';
 }
 
 function requireTemplateKind(value: unknown): AutomationTemplateKind {
