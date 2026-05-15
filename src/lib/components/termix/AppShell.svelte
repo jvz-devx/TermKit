@@ -4,6 +4,7 @@
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
+	import PwaInstallPrompt from './PwaInstallPrompt.svelte';
 
 	type ShellUser = {
 		username: string;
@@ -72,4 +73,5 @@
 		</header>
 		<main class="min-h-0 flex-1 overflow-auto">{@render children()}</main>
 	</Sidebar.Inset>
+	<PwaInstallPrompt />
 </Sidebar.Provider>
