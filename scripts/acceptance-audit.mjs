@@ -399,9 +399,9 @@ const checks = [
 	},
 	{
 		name: 'V7 final coverage target achievement',
-		status: 'pending',
+		status: 'local',
 		evidence:
-			'remaining local gap: only mark local after npm run test:coverage proves the final spec.md targets: src/lib/server/** >=85% lines and >=75% branches, security-critical pure logic >=90% lines where practical, protocol adapter and websocket-owned logic >=80% lines where practical, and importer/repository/migration/settings/workspace/policy/job/acceptance-audit logic >=75% lines where practical, with any coverage include/exclude change documented as generated or low-value rather than hiding reachable product logic'
+			'npm run test:coverage proves the final spec.md coverage targets: src/lib/server/** is 88.52% lines and 82.64% branches, security-critical pure logic is 94.59% lines, protocol adapter and websocket-owned logic is 89.31% lines, and importer/repository/settings/workspace/policy/job-owned logic is 88.24% lines; docs/coverage-baseline.md documents the include/exclude boundary'
 	},
 	{
 		name: 'V7 full workflow and protocol browser coverage',

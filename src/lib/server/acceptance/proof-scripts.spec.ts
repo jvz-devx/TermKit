@@ -270,7 +270,7 @@ describe('acceptance proof scripts', () => {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
 		});
 
-		expect(result.status).toBe(2);
+		expect(result.status).toBe(0);
 		expect(result.stdout).toContain('[local] V4 admin SSH tunnel visibility and termination');
 		expect(result.stdout).toContain(
 			'[local] V4 admin FTP and FTPS long-running activity visibility'
@@ -299,9 +299,7 @@ describe('acceptance proof scripts', () => {
 		);
 		expect(result.stdout).toContain('[local] V6 fleet operations UI shell and navigation');
 		expectV7Rows(result.stdout);
-		expect(result.stdout).toContain(
-			'acceptance audit: 1 repo-owned requirement(s) still need implementation or stronger local proof'
-		);
+		expect(result.stdout).toContain('acceptance audit: no blocked requirements detected');
 	});
 
 	it('keeps V7 acceptance rows aligned with spec, README, and coverage gap docs', () => {
@@ -315,13 +313,13 @@ describe('acceptance proof scripts', () => {
 		const readme = readFileSync('README.md', 'utf8');
 		const coverageDocs = readFileSync('docs/coverage-baseline.md', 'utf8');
 
-		expect(result.status).toBe(2);
+		expect(result.status).toBe(0);
 		expect(v7AuditRows(result.stdout)).toEqual([
 			'[local] V7 coverage tooling and baseline reporting',
 			'[local] V7 server and security regression foundation',
 			'[local] V7 fleet wiring and browser workflow foundation',
 			'[local] V7 coverage ratchet threshold foundation',
-			'[pending] V7 final coverage target achievement',
+			'[local] V7 final coverage target achievement',
 			'[local] V7 full workflow and protocol browser coverage',
 			'[local] V7 reliability and performance budget foundation',
 			'[local] V7 final reliability and performance budgets',
@@ -333,12 +331,12 @@ describe('acceptance proof scripts', () => {
 		expect(spec).toContain('Requiring real Microsoft, RDP, VNC, SSH, FTP, or FTPS infrastructure');
 		expect(readme).toContain('V7 test hardening');
 		expect(readme).toContain('docs/coverage-baseline.md');
-		expect(coverageDocs).toContain('remaining final target');
-		expect(coverageDocs).toContain('src/lib/server/**` at or above 85% line coverage');
-		expect(coverageDocs).toContain('security-critical pure logic at or above 90% line coverage');
+		expect(coverageDocs).toContain('V7 final local coverage is complete');
+		expect(coverageDocs).toContain('src/lib/server/**` is at 88.52% line coverage');
+		expect(coverageDocs).toContain('security-critical pure logic is at 94.59% line coverage');
 		expect(coverageDocs).toContain('workspace layout/rendering helpers');
 		expect(coverageDocs).toContain('Real Microsoft, RDP, VNC, SSH, FTP, and FTPS');
-		expect(result.stdout).toContain('src/lib/server/** >=85% lines and >=75% branches');
+		expect(result.stdout).toContain('src/lib/server/** is 88.52% lines and 82.64% branches');
 		expect(result.stdout).toContain(
 			'npm run test:performance runs the explicit coarse budget checks'
 		);
@@ -416,7 +414,7 @@ describe('acceptance proof scripts', () => {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
 		});
 
-		expect(result.status).toBe(2);
+		expect(result.status).toBe(0);
 		expect(result.stdout).toContain('[external-blocked] V2 real Microsoft Entra discovery');
 		expect(result.stdout).toContain('[external-blocked] V2 Microsoft interactive login acceptance');
 		expect(result.stdout).toContain(
@@ -435,7 +433,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[local] V6 host health and SSH fact intelligence');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: 1 repo-owned requirement(s) still need implementation or stronger local proof'
+			'acceptance audit: repo-owned requirements passed; 2 external proof item(s) remain blocked until real tenant or target infrastructure is available'
 		);
 	});
 
@@ -448,11 +446,11 @@ describe('acceptance proof scripts', () => {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
 		});
 
-		expect(result.status).toBe(2);
+		expect(result.status).toBe(0);
 		expect(result.stdout).toContain('[external-blocked] V7 real FTP external proof');
 		expect(result.stdout).toContain('[external-blocked] V7 real FTPS external proof');
 		expect(result.stdout).toContain(
-			'acceptance audit: 1 repo-owned requirement(s) still need implementation or stronger local proof; 2 external proof item(s) remain blocked until real tenant or target infrastructure is available'
+			'acceptance audit: repo-owned requirements passed; 2 external proof item(s) remain blocked until real tenant or target infrastructure is available'
 		);
 	});
 });
@@ -462,7 +460,7 @@ function expectV7Rows(output: string) {
 	expect(output).toContain('[local] V7 server and security regression foundation');
 	expect(output).toContain('[local] V7 fleet wiring and browser workflow foundation');
 	expect(output).toContain('[local] V7 coverage ratchet threshold foundation');
-	expect(output).toContain('[pending] V7 final coverage target achievement');
+	expect(output).toContain('[local] V7 final coverage target achievement');
 	expect(output).toContain('[local] V7 full workflow and protocol browser coverage');
 	expect(output).toContain('[local] V7 reliability and performance budget foundation');
 	expect(output).toContain('[local] V7 final reliability and performance budgets');

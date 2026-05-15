@@ -1,5 +1,23 @@
-import { describe, expect, it } from 'vitest';
-import { InMemoryV6ResourcesRepository, V6ResourcesService } from '../v6-resources';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+	DrizzleV6ResourcesRepository,
+	InMemoryV6ResourcesRepository,
+	V6ResourcesService,
+	type ApprovalRequestRecord,
+	type AutomationTemplateRecord,
+	type BackgroundJobRecord,
+	type HostFactsRecord,
+	type HostHealthRecord,
+	type JobEventRecord,
+	type JobReportRecord,
+	type JobTargetRecord,
+	type OperationReasonRecord,
+	type WorkspacePolicyRecord
+} from '../v6-resources';
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 describe('V6ResourcesService', () => {
 	it('creates validated private and workspace automation templates', async () => {
@@ -157,7 +175,7 @@ describe('V6ResourcesService', () => {
 	});
 
 	it('rejects malformed automation, job, policy, approval, and reason inputs before persistence', async () => {
-		expect.assertions(8);
+		expect.assertions(9);
 
 		const repository = new InMemoryV6ResourcesRepository();
 		const service = new V6ResourcesService(repository);
@@ -201,6 +219,20 @@ describe('V6ResourcesService', () => {
 			issues: [
 				'concurrencyLimit must be an integer between 1 and 64',
 				'templateVersion must be a positive integer'
+			]
+		});
+		await expect(
+			service.createBackgroundJob('operator-1', {
+				kind: 'shell_script' as never,
+				title: ' ',
+				targetHostIds: ['host-1'],
+				concurrencyLimit: 'many' as never
+			})
+		).rejects.toMatchObject({
+			issues: [
+				'kind must be a supported background job kind',
+				'title is required',
+				'concurrencyLimit must be an integer between 1 and 64'
 			]
 		});
 		await expect(
@@ -800,9 +832,802 @@ describe('V6ResourcesService', () => {
 			expect.objectContaining({
 				id: result.targets[0].id,
 				status: 'pending',
-				errorCode: null,
-				errorMessage: null
+				errorCode: null as never,
+				errorMessage: null as never
+			})
+		]);
+	});
+
+	it('normalizes template defaults and rejects malformed variable entries without writes', async () => {
+		expect.assertions(4);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+
+		const template = await service.createAutomationTemplate('author-1', {
+			name: ' Collect version ',
+			kind: 'operator_note',
+			description: '  Keep an audit note  ',
+			requiresApproval: true,
+			variables: [
+				{
+					name: ' channel ',
+					kind: 'enum',
+					required: true,
+					defaultValue: 'stable',
+					options: [' stable ', '', 'canary']
+				}
+			],
+			metadata: ['legacy'] as never
+		});
+
+		expect(template).toMatchObject({
+			userId: 'author-1',
+			workspaceId: null as never,
+			name: 'Collect version',
+			description: 'Keep an audit note',
+			visibility: 'private',
+			version: 1,
+			isDangerous: false,
+			requiresApproval: true,
+			updatedBy: 'author-1',
+			metadata: {}
+		});
+		expect(template.variables).toEqual([
+			{
+				name: 'channel',
+				kind: 'enum',
+				required: true,
+				defaultValue: 'stable',
+				options: ['stable', 'canary']
+			}
+		]);
+		await expect(
+			service.createAutomationTemplate('author-1', {
+				name: 'Broken variables',
+				kind: 'operator_note',
+				variables: ['stale', { name: ' ', kind: 'string' }] as never
+			})
+		).rejects.toMatchObject({
+			issues: ['variables must contain objects', 'variable name is required']
+		});
+		expect(repository.automationTemplates.size).toBe(1);
+	});
+
+	it('keeps approval decisions, reasons, and missing approval behavior explicit', async () => {
+		expect.assertions(6);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+		const expiresAt = new Date('2026-05-16T09:00:00.000Z');
+
+		const privateApproval = await service.requestApproval('operator-1', {
+			capability: 'ssh_tunnel',
+			reason: ' Temporary diagnostic tunnel ',
+			expiresAt,
+			metadata: ['legacy'] as never
+		});
+		const workspaceApproval = await service.requestApproval('operator-2', {
+			workspaceId: 'workspace-2',
+			capability: 'host_facts'
+		});
+
+		expect(privateApproval).toMatchObject({
+			workspaceId: null as never,
+			status: 'pending',
+			requestedBy: 'operator-1',
+			reason: 'Temporary diagnostic tunnel',
+			expiresAt,
+			metadata: {}
+		});
+		await expect(
+			service.decideApproval(privateApproval.id, 'owner-1', 'rejected')
+		).resolves.toMatchObject({
+			status: 'rejected',
+			decidedBy: 'owner-1',
+			decisionReason: null as never
+		});
+		await expect(
+			service.decideApproval('missing-approval', 'owner-1', 'cancelled', 'No longer needed')
+		).rejects.toMatchObject({
+			message: 'Approval request not found'
+		});
+		await expect(service.listApprovalRequests('operator-1')).resolves.toEqual([
+			expect.objectContaining({ id: privateApproval.id })
+		]);
+		await expect(service.listApprovalRequests('member-1', ['workspace-2'])).resolves.toEqual([
+			expect.objectContaining({ id: workspaceApproval.id })
+		]);
+		await expect(
+			service.recordOperationReason('operator-1', {
+				workspaceId: ' workspace-2 ',
+				hostId: ' host-1 ',
+				jobId: ' job-1 ',
+				templateId: ' template-1 ',
+				capability: 'host_facts',
+				reason: '  Refresh stale inventory  ',
+				metadata: ['legacy'] as never
+			})
+		).resolves.toMatchObject({
+			workspaceId: 'workspace-2',
+			hostId: 'host-1',
+			jobId: 'job-1',
+			templateId: 'template-1',
+			reason: 'Refresh stale inventory',
+			metadata: {}
+		});
+	});
+
+	it('generates reports with default dates and tolerates malformed summary metadata', async () => {
+		expect.assertions(6);
+
+		const fallbackNow = new Date('2026-05-20T10:30:00.000Z');
+		vi.useFakeTimers();
+		vi.setSystemTime(fallbackNow);
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+		const result = await service.createBackgroundJob('operator-1', {
+			kind: 'inventory_check',
+			title: 'Refresh host facts',
+			targetHostIds: ['host-1'],
+			retentionExpiresAt: '2026-05-16' as never,
+			request: ['legacy'] as never,
+			metadata: null as never
+		});
+
+		expect(result.job).toMatchObject({
+			request: {},
+			retentionExpiresAt: null as never,
+			metadata: {}
+		});
+
+		const report = await service.createJobReport({
+			jobId: ` ${result.job.id} `,
+			format: 'json',
+			storageKey: ' reports/host-facts.json ',
+			summary: ['legacy'] as never,
+			generatedBy: ' operator-1 ',
+			generatedAt: '2026-05-15' as never,
+			expiresAt: '2026-06-15' as never,
+			metadata: null as never
+		});
+
+		expect(report).toMatchObject({
+			jobId: result.job.id,
+			storageKey: 'reports/host-facts.json',
+			summary: {},
+			generatedBy: 'operator-1',
+			expiresAt: null as never,
+			metadata: {}
+		});
+		expect(report.generatedAt).toBeInstanceOf(Date);
+		expect(report.generatedAt.getTime()).toBe(fallbackNow.getTime());
+		expect(report.createdAt).toBeInstanceOf(Date);
+		expect([...repository.jobReports.values()]).toEqual([
+			expect.objectContaining({ id: report.id })
+		]);
+	});
+
+	it('normalizes host health defaults, dates, metadata, and missing lookups', async () => {
+		expect.assertions(7);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+		const checkedAt = new Date('2026-05-15T10:00:00.000Z');
+		const nextCheckAt = new Date('2026-05-15T10:05:00.000Z');
+		const lastSuccessfulConnectionAt = new Date('2026-05-15T09:55:00.000Z');
+
+		const health = await service.upsertHostHealth({
+			hostId: ' host-1 ',
+			workspaceId: ' workspace-1 ',
+			lastSuccessfulConnectionAt,
+			consecutiveFailures: '2' as never,
+			checkedAt,
+			nextCheckAt,
+			metadata: ['legacy'] as never
+		});
+
+		expect(health).toMatchObject({
+			hostId: 'host-1',
+			workspaceId: 'workspace-1',
+			state: 'unknown',
+			lastSuccessfulConnectionAt,
+			lastFailedConnectionAt: null as never,
+			consecutiveFailures: 2,
+			failureReason: null as never,
+			checkedAt,
+			nextCheckAt,
+			metadata: {}
+		});
+		await expect(service.listHostHealth(['host-1', 'host-1', 'missing-host'])).resolves.toEqual([
+			expect.objectContaining({ hostId: 'host-1' })
+		]);
+		await expect(service.listHostHealth([])).resolves.toEqual([]);
+		await expect(repository.getHostHealth('missing-host')).resolves.toBeNull();
+		await expect(
+			service.upsertHostHealth({
+				hostId: 'host-1',
+				state: 'healthy',
+				consecutiveFailures: 1.5
+			})
+		).rejects.toMatchObject({
+			issues: ['consecutiveFailures must be a non-negative integer']
+		});
+		await expect(repository.getHostHealth('host-1')).resolves.toMatchObject({
+			state: 'unknown',
+			consecutiveFailures: 2
+		});
+		expect(repository.hostHealth.size).toBe(1);
+	});
+
+	it('maps Drizzle repository fallback rows and database patch payloads', async () => {
+		expect.assertions(25);
+
+		const now = new Date('2026-05-15T10:00:00.000Z');
+		const database = new QueuedDrizzleDatabase({
+			selectRows: [
+				[
+					automationTemplate({
+						id: 'template-visible',
+						workspaceId: 'workspace-1',
+						metadata: null as never,
+						definition: null as never,
+						variables: null as never
+					})
+				],
+				[
+					automationTemplate({
+						id: 'template-get',
+						metadata: null as never,
+						definition: null as never,
+						variables: null as never
+					})
+				],
+				[
+					backgroundJob({
+						id: 'job-visible',
+						workspaceId: 'workspace-1',
+						request: null as never,
+						metadata: null as never
+					})
+				],
+				[backgroundJob({ id: 'job-get', request: null as never, metadata: null as never })],
+				[
+					jobTarget({
+						id: 'target-visible',
+						output: null as never,
+						report: null as never,
+						metadata: null as never
+					})
+				],
+				[workspacePolicy({ settings: null as never })],
+				[approvalRequest({ id: 'approval-visible', metadata: null as never })],
+				[
+					hostFacts({
+						hostId: 'host-visible',
+						cpu: null as never,
+						memory: null as never,
+						disk: null as never,
+						serviceHints: null as never,
+						facts: null as never
+					})
+				],
+				[
+					hostFacts({
+						hostId: 'host-get',
+						cpu: null as never,
+						memory: null as never,
+						disk: null as never,
+						serviceHints: null as never,
+						facts: null as never
+					})
+				],
+				[hostHealth({ hostId: 'health-visible', metadata: null as never })],
+				[hostHealth({ hostId: 'health-get', metadata: null as never })]
+			],
+			insertRows: [
+				[automationTemplate({ id: 'template-created' })],
+				[backgroundJob({ id: 'job-created' })],
+				[jobTarget({ id: 'target-created', jobId: 'job-created' })],
+				[jobEvent({ id: 'event-created', details: null as never })],
+				[jobReport({ id: 'report-created', summary: null as never, metadata: null as never })],
+				[workspacePolicy({ effect: 'deny', settings: null as never })],
+				[approvalRequest({ id: 'approval-created', metadata: null as never })],
+				[operationReason({ id: 'reason-created', metadata: null as never })],
+				[
+					hostFacts({
+						hostId: 'host-upsert',
+						cpu: null as never,
+						memory: null as never,
+						disk: null as never,
+						serviceHints: null as never,
+						facts: null as never
+					})
+				],
+				[hostHealth({ hostId: 'health-upsert', metadata: null as never })]
+			],
+			updateRows: [
+				[backgroundJob({ id: 'job-get', status: 'running', metadata: null as never })],
+				[
+					jobTarget({
+						id: 'target-visible',
+						status: 'failed',
+						output: null as never,
+						report: null as never,
+						metadata: null as never
+					})
+				],
+				[approvalRequest({ id: 'approval-visible', status: 'cancelled', metadata: null as never })]
+			]
+		});
+		const repository = new DrizzleV6ResourcesRepository(database as never);
+
+		await expect(repository.listAutomationTemplates('member-1', ['workspace-1'])).resolves.toEqual([
+			expect.objectContaining({
+				id: 'template-visible',
+				definition: {},
+				variables: [],
+				metadata: {}
+			})
+		]);
+		await expect(repository.getAutomationTemplate('template-get')).resolves.toMatchObject({
+			id: 'template-get',
+			definition: {},
+			variables: [],
+			metadata: {}
+		});
+		await expect(
+			repository.createAutomationTemplate(automationTemplate({ id: 'template-created' }))
+		).resolves.toMatchObject({ id: 'template-created' });
+		await expect(repository.listBackgroundJobs('member-1', ['workspace-1'])).resolves.toEqual([
+			expect.objectContaining({ id: 'job-visible', request: {}, metadata: {} })
+		]);
+		await expect(repository.getBackgroundJob('job-get')).resolves.toMatchObject({
+			id: 'job-get',
+			request: {},
+			metadata: {}
+		});
+		await expect(
+			repository.createBackgroundJobWithTargets(backgroundJob({ id: 'job-created' }), [
+				jobTarget({ id: 'target-created', jobId: 'job-created' })
+			])
+		).resolves.toMatchObject({
+			job: { id: 'job-created' },
+			targets: [expect.objectContaining({ id: 'target-created' })]
+		});
+		await expect(
+			repository.updateBackgroundJob('job-get', {
+				status: 'running',
+				completedCount: 1,
+				failedCount: 1,
+				skippedCount: 0,
+				startedAt: now,
+				finishedAt: now,
+				metadata: { summary: 'partial' },
+				updatedAt: now
+			})
+		).resolves.toMatchObject({ id: 'job-get', status: 'running', metadata: {} });
+		await expect(repository.listJobTargets('job-get')).resolves.toEqual([
+			expect.objectContaining({ id: 'target-visible', output: {}, report: {}, metadata: {} })
+		]);
+		await expect(
+			repository.updateJobTarget('target-visible', {
+				status: 'failed',
+				attempt: 2,
+				startedAt: now,
+				finishedAt: now,
+				errorCode: 'auth_failed',
+				errorMessage: 'Credential rejected',
+				output: { stdout: 'failed' },
+				report: { changed: false },
+				metadata: { retry: false },
+				updatedAt: now
+			})
+		).resolves.toMatchObject({
+			id: 'target-visible',
+			status: 'failed',
+			output: {},
+			report: {},
+			metadata: {}
+		});
+		await expect(
+			repository.recordJobEvent(jobEvent({ id: 'event-created' }))
+		).resolves.toMatchObject({
+			id: 'event-created',
+			details: {}
+		});
+		await expect(
+			repository.createJobReport(jobReport({ id: 'report-created' }))
+		).resolves.toMatchObject({
+			id: 'report-created',
+			summary: {},
+			metadata: {}
+		});
+		await expect(repository.getWorkspacePolicy('workspace-1', 'bulk_job')).resolves.toMatchObject({
+			workspaceId: 'workspace-1',
+			settings: {}
+		});
+		await expect(
+			repository.upsertWorkspacePolicy(workspacePolicy({ effect: 'deny' }))
+		).resolves.toMatchObject({ effect: 'deny', settings: {} });
+		await expect(repository.listApprovalRequests('member-1', ['workspace-1'])).resolves.toEqual([
+			expect.objectContaining({ id: 'approval-visible', metadata: {} })
+		]);
+		await expect(
+			repository.createApprovalRequest(approvalRequest({ id: 'approval-created' }))
+		).resolves.toMatchObject({ id: 'approval-created', metadata: {} });
+		await expect(
+			repository.updateApprovalRequest('approval-visible', {
+				status: 'cancelled',
+				decidedBy: 'owner-1',
+				decisionReason: 'Expired',
+				decidedAt: now,
+				metadata: { source: 'retention-cleanup' },
+				updatedAt: now
+			})
+		).resolves.toMatchObject({ id: 'approval-visible', status: 'cancelled', metadata: {} });
+		await expect(
+			repository.recordOperationReason(operationReason({ id: 'reason-created' }))
+		).resolves.toMatchObject({ id: 'reason-created', metadata: {} });
+		await expect(repository.listHostFacts(['host-visible'])).resolves.toEqual([
+			expect.objectContaining({
+				hostId: 'host-visible',
+				cpu: {},
+				memory: {},
+				disk: {},
+				serviceHints: [],
+				facts: {}
+			})
+		]);
+		await expect(repository.getHostFacts('host-get')).resolves.toMatchObject({
+			hostId: 'host-get',
+			cpu: {},
+			memory: {},
+			disk: {},
+			serviceHints: [],
+			facts: {}
+		});
+		await expect(
+			repository.upsertHostFacts(hostFacts({ hostId: 'host-upsert' }))
+		).resolves.toMatchObject({
+			hostId: 'host-upsert',
+			cpu: {},
+			memory: {},
+			disk: {},
+			serviceHints: [],
+			facts: {}
+		});
+		await expect(repository.listHostHealth(['health-visible'])).resolves.toEqual([
+			expect.objectContaining({ hostId: 'health-visible', metadata: {} })
+		]);
+		await expect(repository.getHostHealth('health-get')).resolves.toMatchObject({
+			hostId: 'health-get',
+			metadata: {}
+		});
+		await expect(
+			repository.upsertHostHealth(hostHealth({ hostId: 'health-upsert' }))
+		).resolves.toMatchObject({ hostId: 'health-upsert', metadata: {} });
+		expect(database.updatePatches).toEqual([
+			expect.objectContaining({
+				status: 'running',
+				completedCount: 1,
+				failedCount: 1,
+				skippedCount: 0,
+				cancellationRequestedAt: undefined,
+				startedAt: now,
+				finishedAt: now,
+				metadata: { summary: 'partial' },
+				updatedAt: now
+			}),
+			expect.objectContaining({
+				status: 'failed',
+				attempt: 2,
+				errorCode: 'auth_failed',
+				errorMessage: 'Credential rejected',
+				output: { stdout: 'failed' },
+				report: { changed: false },
+				metadata: { retry: false },
+				updatedAt: now
+			}),
+			expect.objectContaining({
+				status: 'cancelled',
+				decidedBy: 'owner-1',
+				decisionReason: 'Expired',
+				decidedAt: now,
+				metadata: { source: 'retention-cleanup' },
+				updatedAt: now
+			})
+		]);
+		expect(database.conflictPatches).toEqual([
+			expect.objectContaining({
+				effect: 'deny',
+				minimumRole: 'operator',
+				maxTargets: 100,
+				requireReason: true,
+				settings: { window: 'maintenance' }
+			}),
+			expect.objectContaining({
+				workspaceId: 'workspace-1',
+				collectedBy: 'operator-1',
+				source: 'ssh',
+				osName: 'NixOS',
+				serviceHints: [{ name: 'sshd', state: 'running' }]
+			}),
+			expect.objectContaining({
+				workspaceId: 'workspace-1',
+				state: 'healthy',
+				consecutiveFailures: 0,
+				metadata: { checkedBy: 'probe' }
 			})
 		]);
 	});
 });
+
+class QueuedDrizzleDatabase {
+	readonly updatePatches: unknown[] = [];
+	readonly conflictPatches: unknown[] = [];
+
+	constructor(
+		private readonly queues: {
+			selectRows: unknown[][];
+			insertRows: unknown[][];
+			updateRows: unknown[][];
+		}
+	) {}
+
+	select() {
+		return {
+			from: () => ({
+				where: () => rowsWithLimit(this.queues.selectRows.shift() ?? [])
+			})
+		};
+	}
+
+	insert() {
+		return {
+			values: () => {
+				const rows = this.queues.insertRows.shift() ?? [];
+				const returning = () => rows;
+				return {
+					returning,
+					onConflictDoUpdate: (config: { set: unknown }) => {
+						this.conflictPatches.push(config.set);
+						return { returning };
+					}
+				};
+			}
+		};
+	}
+
+	update() {
+		return {
+			set: (patch: unknown) => {
+				this.updatePatches.push(patch);
+				return {
+					where: () => ({
+						returning: () => this.queues.updateRows.shift() ?? []
+					})
+				};
+			}
+		};
+	}
+
+	transaction<T>(callback: (transaction: Pick<QueuedDrizzleDatabase, 'insert'>) => T): T {
+		return callback({ insert: this.insert.bind(this) });
+	}
+}
+
+function rowsWithLimit(rows: unknown[]) {
+	return Object.assign([...rows], {
+		limit: (count: number) => rows.slice(0, count)
+	});
+}
+
+function automationTemplate(
+	patch: Partial<AutomationTemplateRecord> = {}
+): AutomationTemplateRecord {
+	const now = new Date('2026-05-15T10:00:00.000Z');
+	return {
+		id: 'template-1',
+		userId: 'owner-1',
+		workspaceId: null as never,
+		name: 'Restart service',
+		kind: 'ssh_command',
+		visibility: 'private',
+		version: 1,
+		description: null as never,
+		definition: { command: 'systemctl restart sshd' },
+		variables: [],
+		isDangerous: false,
+		requiresApproval: false,
+		lastUsedAt: null as never,
+		usageCount: 0,
+		updatedBy: 'owner-1',
+		metadata: { source: 'test' },
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function backgroundJob(patch: Partial<BackgroundJobRecord> = {}): BackgroundJobRecord {
+	const now = new Date('2026-05-15T10:00:00.000Z');
+	return {
+		id: 'job-1',
+		userId: 'operator-1',
+		workspaceId: null as never,
+		templateId: null as never,
+		templateVersion: null as never,
+		kind: 'bulk_ssh_command',
+		status: 'pending',
+		title: 'Patch hosts',
+		request: { command: 'uptime' },
+		targetCount: 1,
+		completedCount: 0,
+		failedCount: 0,
+		skippedCount: 0,
+		concurrencyLimit: 1,
+		reason: null as never,
+		cancellationRequestedAt: null as never,
+		startedAt: null as never,
+		finishedAt: null as never,
+		retentionExpiresAt: null as never,
+		metadata: { rollout: 'v7' },
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function jobTarget(patch: Partial<JobTargetRecord> = {}): JobTargetRecord {
+	const now = new Date('2026-05-15T10:00:00.000Z');
+	return {
+		id: 'target-1',
+		jobId: 'job-1',
+		hostId: 'host-1',
+		status: 'pending',
+		attempt: 0,
+		maxAttempts: 1,
+		startedAt: null as never,
+		finishedAt: null as never,
+		errorCode: null as never,
+		errorMessage: null as never,
+		output: { stdout: 'ok' },
+		report: { changed: true },
+		metadata: { retry: false },
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function jobEvent(patch: Partial<JobEventRecord> = {}): JobEventRecord {
+	return {
+		id: 'event-1',
+		jobId: 'job-1',
+		targetId: null as never,
+		severity: 'info',
+		code: 'job.started',
+		message: 'Job started',
+		details: { targetCount: 1 },
+		createdAt: new Date('2026-05-15T10:00:00.000Z'),
+		...patch
+	};
+}
+
+function jobReport(patch: Partial<JobReportRecord> = {}): JobReportRecord {
+	const now = new Date('2026-05-15T10:00:00.000Z');
+	return {
+		id: 'report-1',
+		jobId: 'job-1',
+		format: 'json',
+		storageKey: 'reports/job-1.json',
+		summary: { completed: 1 },
+		generatedBy: 'operator-1',
+		generatedAt: now,
+		expiresAt: null as never,
+		metadata: { retained: true },
+		createdAt: now,
+		...patch
+	};
+}
+
+function workspacePolicy(patch: Partial<WorkspacePolicyRecord> = {}): WorkspacePolicyRecord {
+	const now = new Date('2026-05-15T10:00:00.000Z');
+	return {
+		id: 'policy-1',
+		workspaceId: 'workspace-1',
+		capability: 'bulk_job',
+		effect: 'approval_required',
+		minimumRole: 'operator',
+		maxTargets: 100,
+		requireReason: true,
+		settings: { window: 'maintenance' },
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function approvalRequest(patch: Partial<ApprovalRequestRecord> = {}): ApprovalRequestRecord {
+	const now = new Date('2026-05-15T10:00:00.000Z');
+	return {
+		id: 'approval-1',
+		workspaceId: 'workspace-1',
+		jobId: 'job-1',
+		templateId: null as never,
+		capability: 'bulk_job',
+		status: 'pending',
+		requestedBy: 'operator-1',
+		decidedBy: null as never,
+		reason: 'Patch hosts',
+		decisionReason: null as never,
+		requestedAt: now,
+		decidedAt: null as never,
+		expiresAt: null as never,
+		metadata: { source: 'test' },
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function operationReason(patch: Partial<OperationReasonRecord> = {}): OperationReasonRecord {
+	return {
+		id: 'reason-1',
+		workspaceId: 'workspace-1',
+		userId: 'operator-1',
+		hostId: 'host-1',
+		jobId: 'job-1',
+		templateId: null as never,
+		capability: 'bulk_job',
+		reason: 'Patch hosts',
+		metadata: { source: 'test' },
+		createdAt: new Date('2026-05-15T10:00:00.000Z'),
+		...patch
+	};
+}
+
+function hostFacts(patch: Partial<HostFactsRecord> = {}): HostFactsRecord {
+	const now = new Date('2026-05-15T10:00:00.000Z');
+	return {
+		id: 'facts-1',
+		hostId: 'host-1',
+		workspaceId: 'workspace-1',
+		collectedBy: 'operator-1',
+		source: 'ssh',
+		osName: 'NixOS',
+		osVersion: '25.05',
+		kernel: '6.12.1',
+		uptimeSeconds: 3600,
+		cpu: { cores: 8 },
+		memory: { totalMiB: 32768 },
+		disk: { rootGiB: 512 },
+		serviceHints: [{ name: 'sshd', state: 'running' }],
+		facts: { arch: 'x86_64' },
+		collectedAt: now,
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}
+
+function hostHealth(patch: Partial<HostHealthRecord> = {}): HostHealthRecord {
+	const now = new Date('2026-05-15T10:00:00.000Z');
+	return {
+		id: 'health-1',
+		hostId: 'host-1',
+		workspaceId: 'workspace-1',
+		state: 'healthy',
+		lastSuccessfulConnectionAt: now,
+		lastFailedConnectionAt: null as never,
+		consecutiveFailures: 0,
+		failureReason: null as never,
+		checkedAt: now,
+		nextCheckAt: null as never,
+		metadata: { checkedBy: 'probe' },
+		createdAt: now,
+		updatedAt: now,
+		...patch
+	};
+}

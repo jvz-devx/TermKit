@@ -139,6 +139,40 @@ describe('websocket upgrade routing', () => {
 		expect(parseWebSocketRoute({ url: '/ws/rdp/ticket-123' })).toBeNull();
 	});
 
+	it('rejects path mismatches before auth or ticket lookup', async () => {
+		expect.assertions(6);
+
+		const authenticateSession = vi.fn(testSessionAuthenticator());
+		let consumeCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession,
+			tickets: {
+				async consume() {
+					consumeCalled = true;
+					return testConsumedTicket();
+				}
+			}
+		});
+
+		await listen(server);
+
+		await expect(rawUpgrade(server, '/ws/ssh')).resolves.toContain('404 Unknown websocket route');
+		await expect(rawUpgrade(server, '/ws/ssh/ticket-1/extra')).resolves.toContain(
+			'404 Unknown websocket route'
+		);
+		await expect(rawUpgrade(server, '/ws/tunnels/session-1')).resolves.toContain(
+			'404 Unknown websocket route'
+		);
+		await expect(rawUpgrade(server, '/ws/rdp/ticket-1')).resolves.toContain(
+			'404 Unknown websocket route'
+		);
+		expect(authenticateSession).not.toHaveBeenCalled();
+		expect(consumeCalled).toBe(false);
+	});
+
 	it('leaves ignored upgrade paths for later server upgrade handlers', async () => {
 		expect.assertions(1);
 
@@ -1213,6 +1247,45 @@ describe('websocket upgrade routing', () => {
 		}
 	});
 
+	it('masks unexpected authentication error details in upgrade diagnostics', async () => {
+		expect.assertions(4);
+
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		let consumeCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			async authenticateSession() {
+				throw new Error('cookie token contains secret-session-token');
+			},
+			tickets: {
+				async consume() {
+					consumeCalled = true;
+					return testConsumedTicket();
+				}
+			}
+		});
+
+		try {
+			await listen(server);
+			const response = await rawUpgrade(server, '/ws/ssh/ticket-1');
+			const warned = JSON.stringify(warn.mock.calls);
+
+			expect(response).toContain('401 Authentication required');
+			expect(warn).toHaveBeenCalledWith('WebSocket session authentication failed', {
+				error: {
+					name: 'Error',
+					message: 'Session ticket upgrade failed before websocket acceptance'
+				}
+			});
+			expect(warned).not.toContain('secret-session-token');
+			expect(consumeCalled).toBe(false);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
 	it('keeps credential encryption diagnostics actionable without logging raw secrets', async () => {
 		expect.assertions(3);
 
@@ -1399,6 +1472,54 @@ describe('websocket upgrade routing', () => {
 		await expect(webSocketClose(server, `/ws/ssh/${created.ticket}`)).resolves.toEqual(1000);
 	});
 
+	it.each(['ssh', 'vnc', 'telnet'] as const)(
+		'dispatches %s upgrades only to the matching protocol adapter',
+		async (protocol) => {
+			expect.assertions(3);
+
+			const consumedRequests: Array<{ ticket: string; requestedProtocol: string; userId: string }> =
+				[];
+			const handledProtocols: string[] = [];
+			const lifecycle = createLifecycleRecorder();
+			const server = createServer((_request, response) => response.end('ok'));
+			servers.push(server);
+
+			installWebSocketUpgrades(server, {
+				authenticateSession: testSessionAuthenticator(),
+				tickets: {
+					async consume(ticket, requestedProtocol, userId) {
+						consumedRequests.push({
+							ticket: ticket ?? '',
+							requestedProtocol: requestedProtocol ?? '',
+							userId: userId ?? ''
+						});
+						return testConsumedTicket({ protocol: protocol as never });
+					}
+				},
+				adapters: [
+					createClosingAdapter('ssh', handledProtocols),
+					createClosingAdapter('vnc', handledProtocols),
+					createClosingAdapter('telnet', handledProtocols)
+				],
+				connectionSessions: lifecycle.recorder
+			});
+
+			await listen(server);
+
+			await expect(webSocketClose(server, `/ws/${protocol}/${protocol}-ticket`)).resolves.toEqual(
+				1000
+			);
+			expect(consumedRequests).toEqual([
+				{
+					ticket: `${protocol}-ticket`,
+					requestedProtocol: protocol,
+					userId: 'user-1'
+				}
+			]);
+			expect(handledProtocols).toEqual([protocol]);
+		}
+	);
+
 	it('rejects consumed tickets with invalid session context before recording sessions', async () => {
 		expect.assertions(3);
 
@@ -1412,6 +1533,45 @@ describe('websocket upgrade routing', () => {
 			tickets: {
 				async consume() {
 					return { ...testConsumedTicket(), userId: '' };
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						adapterCalled = true;
+					}
+				}
+			],
+			connectionSessions: lifecycle.recorder
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/ticket-1');
+
+		expect(response).toContain('401 Invalid or expired session ticket');
+		expect(adapterCalled).toBe(false);
+		expect(lifecycle.calls).toEqual([]);
+	});
+
+	it('rejects consumed tickets with invalid target context before recording sessions', async () => {
+		expect.assertions(3);
+
+		let adapterCalled = false;
+		const lifecycle = createLifecycleRecorder();
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			tickets: {
+				async consume() {
+					return testConsumedTicket({
+						target: {
+							host: 'shell.example.test',
+							port: 0
+						}
+					});
 				}
 			},
 			adapters: [
@@ -1498,6 +1658,161 @@ describe('websocket upgrade routing', () => {
 			errorCode: 'adapter_error'
 		});
 	});
+
+	it('records adapter-specific failure codes and closes once when an adapter throws', async () => {
+		expect.assertions(3);
+
+		class HostKeyRejected extends Error {
+			override name = 'HostKeyRejected';
+		}
+
+		const lifecycle = createLifecycleRecorder();
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			tickets: {
+				async consume() {
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						throw new HostKeyRejected('host key changed');
+					}
+				}
+			],
+			connectionSessions: lifecycle.recorder
+		});
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/ssh/ticket-1')).resolves.toEqual(1011);
+		await waitFor(() => lifecycle.calls.some((call) => call.action === 'fail'));
+		expect(lifecycle.calls.map((call) => call.action)).toEqual(['start', 'active', 'fail']);
+		expect(lifecycle.calls.at(-1)).toMatchObject({
+			action: 'fail',
+			errorCode: 'adapter_hostkeyrejected'
+		});
+	});
+
+	it('marks connection sessions failed when an accepted socket closes abnormally', async () => {
+		expect.assertions(3);
+
+		const lifecycle = createLifecycleRecorder();
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			tickets: {
+				async consume() {
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle(socket) {
+						socket.close(1012, 'service restart');
+					}
+				}
+			],
+			connectionSessions: lifecycle.recorder
+		});
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/ssh/ticket-1')).resolves.toEqual(1012);
+		await waitFor(() => lifecycle.calls.some((call) => call.action === 'fail'));
+		expect(lifecycle.calls.map((call) => call.action)).toEqual(['start', 'active', 'fail']);
+		expect(lifecycle.calls.at(-1)).toMatchObject({
+			action: 'fail',
+			errorCode: 'websocket_close_1012'
+		});
+	});
+
+	it('marks connection sessions failed when an accepted socket emits an error', async () => {
+		expect.assertions(3);
+
+		const lifecycle = createLifecycleRecorder();
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			tickets: {
+				async consume() {
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					async handle(socket) {
+						socket.emit('error', new Error('client socket failed'));
+						socket.close(1000, 'closed after error');
+					}
+				}
+			],
+			connectionSessions: lifecycle.recorder
+		});
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/ssh/ticket-1')).resolves.toEqual(1000);
+		await waitFor(() => lifecycle.calls.some((call) => call.action === 'fail'));
+		expect(lifecycle.calls.map((call) => call.action)).toEqual(['start', 'active', 'fail']);
+		expect(lifecycle.calls.at(-1)).toMatchObject({
+			action: 'fail',
+			errorCode: 'websocket_error'
+		});
+	});
+
+	it('skips lifecycle cleanup when session start fails before adapter attachment fails', async () => {
+		expect.assertions(2);
+
+		const lifecycle = createLifecycleRecorder();
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			tickets: {
+				async consume() {
+					return testConsumedTicket();
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						throw new Error('adapter failed after untracked start');
+					}
+				}
+			],
+			connectionSessions: {
+				...lifecycle.recorder,
+				async start(input) {
+					lifecycle.calls.push({ action: 'start', input });
+					throw new Error('start failed');
+				}
+			}
+		});
+		await listen(server);
+
+		await expect(webSocketClose(server, '/ws/ssh/ticket-1')).resolves.toEqual(1011);
+		expect(lifecycle.calls).toEqual([
+			{
+				action: 'start',
+				input: {
+					userId: 'user-1',
+					hostId: 'host-1',
+					protocol: 'ssh'
+				}
+			}
+		]);
+	});
 });
 
 function createTicketTestServices(): {
@@ -1533,6 +1848,19 @@ function testEncryptionMetadata(): EncryptionMetadata {
 		iv: 'iv',
 		authTag: 'auth-tag',
 		salt: 'salt'
+	};
+}
+
+function createClosingAdapter(
+	protocol: ProtocolAdapter['protocol'],
+	calls: string[]
+): ProtocolAdapter {
+	return {
+		protocol,
+		handle(socket) {
+			calls.push(protocol);
+			socket.close(1000, 'ok');
+		}
 	};
 }
 

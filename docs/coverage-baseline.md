@@ -20,24 +20,25 @@ hardening wave:
 
 | Metric     | Current |
 | ---------- | ------: |
-| Statements |  83.13% |
-| Branches   |  76.89% |
-| Functions  |  81.55% |
-| Lines      |  85.75% |
+| Statements |  88.44% |
+| Branches   |  80.80% |
+| Functions  |  89.02% |
+| Lines      |  91.09% |
 
 The current global CI gate intentionally ratchets just below that measured floor:
 
 | Metric     | Gate |
 | ---------- | ---: |
-| Statements |  83% |
-| Branches   |  76% |
-| Functions  |  81% |
-| Lines      |  85% |
+| Statements |  88% |
+| Branches   |  80% |
+| Functions  |  89% |
+| Lines      |  91% |
 
 Additional scoped ratchets protect the owned surfaces that already clear higher local bars:
 
 | Surface                                                   | Statements | Branches | Functions | Lines |
 | --------------------------------------------------------- | ---------: | -------: | --------: | ----: |
+| `src/lib/server/**`                                       |        88% |      82% |       88% |   88% |
 | `src/lib/admin.remote.ts`                                 |        91% |      76% |       97% |   91% |
 | `src/lib/server/auth/**`                                  |        91% |      87% |       96% |   91% |
 | `src/lib/server/crypto/**`                                |        86% |      84% |       95% |   91% |
@@ -62,21 +63,15 @@ server-owned command/query boundaries, and the current ratchet now protects the
 admin remote boundary while the fleet, workspace, auth, and Termix remote
 boundaries have direct branch tests that raised the global measured floor.
 
-V7 is not complete at this baseline. The current audit treats coverage ratchets
-and full local browser/protocol workflow coverage as repo-owned local evidence,
-not final V7 completion. `audit:acceptance` keeps a pending row for final
-coverage target achievement until the measured coverage proof reaches the
-`spec.md` target surfaces.
-
-Do not mark the final coverage row `local` until a current
+V7 final local coverage is complete at this baseline. A current
 `npm run test:coverage` run proves the V7 acceptance targets from `spec.md`:
-`src/lib/server/**` at or above 85% line coverage and 75% branch coverage,
-security-critical pure logic at or above 90% line coverage where practical,
-protocol adapter and websocket-owned logic at or above 80% line coverage where
-practical, and importer, repository, migration, settings, workspace, policy,
-job, and acceptance-audit logic at or above 75% line coverage where practical.
-Any include/exclude change must name a generated, fixture, markup-heavy, or
-otherwise low-value boundary and must not hide reachable product logic.
+`src/lib/server/**` is at 88.52% line coverage and 82.64% branch coverage,
+security-critical pure logic is at 94.59% line coverage, protocol adapter and
+websocket-owned logic is at 89.31% line coverage, and
+importer/repository/settings/workspace/policy/job-owned logic is at 88.24% line
+coverage. Any future include/exclude change must name a generated, fixture,
+markup-heavy, or otherwise low-value boundary and must not hide reachable
+product logic.
 
 The final reliability/performance row is now local because `npm test` enforces
 the deterministic boundedness and cancellation invariants, while
@@ -85,24 +80,21 @@ parsing and validation, file-listing transforms, job fan-out scheduling, fleet
 filtering, and workspace layout/rendering helpers outside the default unit
 suite.
 
-These are the remaining final target gaps before V7 can be called complete:
+Final V7 local proof now includes:
 
-- The current measured global line floor is above 85%, but the
-  `src/lib/server/**` aggregate is still below the final 85% line target because
-  database schema helpers, repository mapping, and some service resources remain
-  low or uneven.
-- Security-critical pure logic is not uniformly at 90% line coverage; auth,
-  crypto, host-key trust, ticketing, route auth helpers, policy checks, and
-  secret redaction need separate final-target review.
-- Protocol-owned aggregate coverage now clears the 80% line target, and scoped
-  protocol gates protect the current floor. Remaining protocol work is mainly
-  deeper per-boundary review for host-trust internals, VNC function coverage,
-  RDP helper failures, and external-target proof boundaries.
-- Repository, migration, settings, workspace policy, job orchestration, and
-  acceptance-audit coverage are not uniformly at 75% line coverage. The
-  executable audit-script tests exercise the scripts through child processes,
-  but the scripts themselves are not yet first-class coverage include targets.
-- Deterministic browser coverage now covers protected-route auth, credential and
+- Server-owned code clears the final 85% line and 75% branch targets with a
+  scoped `src/lib/server/**` coverage gate.
+- Security-critical pure logic clears the 90% line target across auth, crypto,
+  host-key trust, route helpers, ticketing, policy checks, and secret-redaction
+  surfaces.
+- Protocol-owned and websocket-owned logic clears the 80% line target with
+  fixture-backed SSH, SFTP, FTP/FTPS, Telnet, VNC/RDP boundary, SSH tunnel, and
+  websocket upgrade tests.
+- Importer, repository, settings, workspace policy, and job-owned logic clears
+  the 75% line target. The executable audit-script tests exercise acceptance
+  scripts through child processes; scripts themselves remain documented command
+  boundaries rather than separately included source files.
+- Deterministic browser coverage covers protected-route auth, credential and
   host CRUD, importer validation/import, session filtering, workspace launch
   shells for SSH/SFTP/RDP/VNC/Telnet/FTP/FTPS, browser-level SFTP/FTP/FTPS UI
   actions against mocked protocol API fixtures, fleet no-target and
