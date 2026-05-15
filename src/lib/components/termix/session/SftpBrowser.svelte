@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import {
 		Ban,
@@ -30,6 +31,7 @@
 	import * as Collapsible from '$lib/components/ui/collapsible';
 	import { Input } from '$lib/components/ui/input';
 	import { Progress } from '$lib/components/ui/progress';
+	import * as Resizable from '$lib/components/ui/resizable';
 	import * as Table from '$lib/components/ui/table';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import StatePanel from '../StatePanel.svelte';
@@ -146,6 +148,9 @@
 	let fileInput: HTMLInputElement;
 	let activeAbort = $state<(() => void) | null>(null);
 	let transferCancelled = false;
+	let desktop = $state(browser ? window.matchMedia('(min-width: 1024px)').matches : false);
+	let managerElement = $state<HTMLElement | null>(null);
+	let wideLayout = $state(false);
 
 	let visibleEntries = $derived(filterRemoteEntries(entries, searchQuery));
 	let selectedEntryList = $derived(selectedEntries(entries, selectedPaths));
@@ -1109,13 +1114,275 @@
 	}
 
 	onMount(() => {
+		const media = window.matchMedia('(min-width: 1024px)');
+		const syncDesktop = () => (desktop = media.matches);
+		const resizeObserver = new ResizeObserver((entries) => {
+			wideLayout = (entries[0]?.contentRect.width ?? 0) >= 960;
+		});
+		syncDesktop();
+		media.addEventListener('change', syncDesktop);
+		if (managerElement) resizeObserver.observe(managerElement);
 		path = normalizePath(initialPath);
 		loadBookmarks();
 		void loadDirectory(path);
+
+		return () => {
+			media.removeEventListener('change', syncDesktop);
+			resizeObserver.disconnect();
+		};
 	});
 </script>
 
+{#snippet resizeHandle(handleLabel = `Resize ${label.toLowerCase()} file-manager pane boundary`)}
+	<Resizable.Handle
+		withHandle
+		tabindex={0}
+		aria-label={handleLabel}
+		class="bg-transparent hover:bg-muted/60 focus-visible:ring-2 data-[direction=horizontal]:mx-1 data-[direction=horizontal]:w-2 data-[direction=horizontal]:after:w-2 data-[direction=vertical]:my-1 data-[direction=vertical]:h-2 data-[direction=vertical]:after:h-2"
+	/>
+{/snippet}
+
+{#snippet bookmarksPane()}
+	<aside
+		class={`h-full min-h-0 border-b p-2 transition-[padding] lg:border-r lg:border-b-0 ${
+			bookmarksOpen ? '' : 'lg:p-1'
+		}`}
+	>
+		<Collapsible.Root bind:open={bookmarksOpen}>
+			<Collapsible.Trigger
+				class={`mb-2 flex h-7 w-full items-center rounded-md text-xs font-medium text-muted-foreground outline-hidden hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring ${
+					bookmarksOpen ? 'justify-between px-1 text-left' : 'justify-center px-0'
+				}`}
+				aria-label={`${bookmarksOpen ? 'Collapse' : 'Expand'} bookmarks`}
+				title={`${bookmarksOpen ? 'Collapse' : 'Expand'} bookmarks`}
+			>
+				<span
+					class={`flex min-w-0 items-center ${bookmarksOpen ? 'gap-1.5' : 'justify-center gap-1'}`}
+				>
+					{#if bookmarksOpen}
+						<ChevronDown class="size-3.5 shrink-0" />
+					{:else}
+						<ChevronRight class="size-3.5 shrink-0" />
+					{/if}
+					{#if bookmarksOpen}
+						<span>Bookmarks</span>
+						<span class="text-[11px] text-muted-foreground/75">({bookmarks.length})</span>
+					{/if}
+				</span>
+				<Bookmark class="size-3.5 shrink-0 text-muted-foreground" />
+			</Collapsible.Trigger>
+			<Collapsible.Content>
+				<div class="space-y-1">
+					{#each bookmarks as bookmark (bookmark.id)}
+						<div class="flex items-center gap-1">
+							<Button
+								size="xs"
+								variant={bookmark.path === path ? 'secondary' : 'ghost'}
+								class="min-w-0 flex-1 justify-start font-mono"
+								title={bookmark.path}
+								onclick={() => loadDirectory(bookmark.path)}
+							>
+								<span class="truncate">{bookmark.label}</span>
+							</Button>
+							<Button
+								size="icon-xs"
+								variant="ghost"
+								aria-label={`Remove bookmark ${bookmark.path}`}
+								onclick={() => removeBookmark(bookmark.id)}
+							>
+								<X class="size-3" />
+							</Button>
+						</div>
+					{:else}
+						<div class="rounded-md border border-dashed p-2 text-xs text-muted-foreground">
+							No bookmarks for this host.
+						</div>
+					{/each}
+				</div>
+			</Collapsible.Content>
+		</Collapsible.Root>
+
+		{#if bookmarksOpen && remoteSearchResults.length}
+			<div class="mt-4 border-t pt-3">
+				<div class="mb-2 text-xs font-medium text-muted-foreground">
+					Search results ({remoteSearchResults.length})
+				</div>
+				<div class="max-h-52 space-y-1 overflow-auto">
+					{#each remoteSearchResults as result (result.path)}
+						<Button
+							size="xs"
+							variant="ghost"
+							class="w-full justify-start font-mono"
+							title={result.path}
+							onclick={() => openSearchResult(result)}
+						>
+							{#if result.type === 'directory'}
+								<Folder class="size-3.5 text-amber-500" />
+							{:else if result.type === 'symlink'}
+								<FileSymlink class="size-3.5 text-sky-500" />
+							{:else}
+								<FileIcon class="size-3.5 text-muted-foreground" />
+							{/if}
+							<span class="truncate">{result.path}</span>
+						</Button>
+					{/each}
+				</div>
+			</div>
+		{/if}
+	</aside>
+{/snippet}
+
+{#snippet fileListPane()}
+	<div class="relative h-full min-h-0 min-w-0 overflow-auto">
+		{#if dragging}
+			<div
+				class="pointer-events-none absolute inset-3 z-20 grid place-items-center rounded-md border-2 border-dashed border-primary bg-background/85 text-sm font-medium"
+			>
+				Drop files or folders to upload into {path}
+			</div>
+		{/if}
+
+		<Table.Root>
+			<Table.Header class="sticky top-0 z-10 bg-background">
+				<Table.Row>
+					<Table.Head class="w-10">
+						<Checkbox
+							aria-label="Select visible entries"
+							checked={selection.allVisible}
+							indeterminate={selection.someVisible}
+							onclick={(event) => {
+								event.stopPropagation();
+								toggleVisible(!selection.allVisible);
+							}}
+						/>
+					</Table.Head>
+					<Table.Head>Name</Table.Head>
+					<Table.Head class="w-28">Type</Table.Head>
+					<Table.Head class="w-28">Size</Table.Head>
+					<Table.Head class="w-44">Modified</Table.Head>
+					<Table.Head class="w-20" aria-label="Actions"></Table.Head>
+				</Table.Row>
+			</Table.Header>
+			<Table.Body>
+				{#each visibleEntries as entry (entry.path)}
+					<Table.Row
+						data-selected={selected?.path === entry.path || selectedPaths.includes(entry.path)}
+						onclick={() => selectEntry(entry)}
+					>
+						<Table.Cell>
+							<Checkbox
+								aria-label={`Select ${entry.name}`}
+								checked={selectedPaths.includes(entry.path)}
+								onclick={(event) => {
+									event.stopPropagation();
+									toggleEntry(entry, !selectedPaths.includes(entry.path));
+								}}
+							/>
+						</Table.Cell>
+						<Table.Cell>
+							<Button
+								variant="ghost"
+								size="sm"
+								class="max-w-full justify-start px-1 font-normal"
+								title={entry.path}
+								onclick={(event) => (event.stopPropagation(), activateEntry(entry))}
+							>
+								{#if entry.type === 'directory'}
+									<Folder class="size-4 text-amber-500" />
+								{:else if entry.type === 'symlink'}
+									<FileSymlink class="size-4 text-sky-500" />
+								{:else}
+									<FileIcon class="size-4 text-muted-foreground" />
+								{/if}
+								<span class="truncate">{entry.name}</span>
+							</Button>
+							{#if symlinkTarget(entry)}
+								<div
+									class="mt-1 flex items-center gap-1 pl-1 font-mono text-[11px] text-muted-foreground"
+								>
+									<Link class="size-3" />
+									<span class="truncate">{symlinkTarget(entry)}</span>
+								</div>
+							{/if}
+						</Table.Cell>
+						<Table.Cell>
+							<Badge variant={entry.type === 'symlink' ? 'outline' : 'secondary'}>
+								{entryTypeLabel(entry)}
+							</Badge>
+						</Table.Cell>
+						<Table.Cell class="font-mono text-xs text-muted-foreground">
+							{entry.type === 'directory' ? '-' : formatSize(entry.size)}
+							{#if modeLabel(entry)}
+								<div>{modeLabel(entry)}</div>
+							{/if}
+						</Table.Cell>
+						<Table.Cell class="font-mono text-xs text-muted-foreground">
+							{formatModified(entry)}
+						</Table.Cell>
+						<Table.Cell>
+							{#if isDownloadableFile(entry)}
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									href={downloadUrl(entry)}
+									download={entry.name}
+									aria-label={`Download ${entry.name}`}
+									onclick={(event) => event.stopPropagation()}
+								>
+									<Download class="size-4" />
+								</Button>
+							{/if}
+						</Table.Cell>
+					</Table.Row>
+				{:else}
+					<Table.Row>
+						<Table.Cell colspan={6} class="h-24 text-center text-muted-foreground">
+							{searchQuery ? 'No matching entries.' : 'No entries.'}
+						</Table.Cell>
+					</Table.Row>
+				{/each}
+			</Table.Body>
+		</Table.Root>
+
+		{#if loading || error}
+			<StatePanel
+				state={error ? 'error' : 'loading'}
+				title={error ? `${label} request failed` : 'Loading remote directory'}
+				detail={error ?? path}
+				class="absolute right-3 bottom-3 left-3 bg-background"
+			/>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet editorPane()}
+	<div class="flex h-full min-h-0 min-w-0 flex-col border-t p-2 lg:border-t-0 lg:border-l">
+		<div class="mb-2 flex h-8 shrink-0 items-center justify-between gap-2">
+			<div class="min-w-0 truncate font-mono text-xs text-muted-foreground">
+				{textPath ?? 'No text file open'}
+			</div>
+			<Button
+				size="icon-sm"
+				variant="outline"
+				aria-label="Save text file"
+				disabled={!textPath || !textDirty}
+				onclick={saveText}
+			>
+				<Save class="size-4" />
+			</Button>
+		</div>
+		<Textarea
+			class="min-h-40 flex-1 resize-none font-mono text-xs"
+			placeholder="Open a text file to edit it"
+			bind:value={textValue}
+			disabled={!textPath}
+			oninput={() => (textDirty = Boolean(textPath))}
+		/>
+	</div>
+{/snippet}
+
 <div
+	bind:this={managerElement}
 	class={`grid h-full min-h-0 min-w-0 grid-rows-[auto_1fr] overflow-hidden rounded-md border transition-colors ${dragging ? 'border-primary bg-primary/5' : ''}`}
 	role="region"
 	aria-label={`${label} file manager`}
@@ -1301,248 +1568,33 @@
 		{/if}
 	</div>
 
-	<div
-		class={`grid min-h-0 min-w-0 grid-cols-1 transition-[grid-template-columns] ${
-			bookmarksOpen
-				? 'lg:grid-cols-[220px_minmax(0,1fr)_360px]'
-				: 'lg:grid-cols-[44px_minmax(0,1fr)_360px]'
-		}`}
+	<Resizable.PaneGroup
+		direction={desktop && wideLayout ? 'horizontal' : 'vertical'}
+		keyboardResizeBy={5}
+		autoSaveId={`termixkit-file-manager:${apiBase}:${hostId}:${desktop && wideLayout ? 'wide' : 'stacked'}`}
+		class="min-h-0 min-w-0"
 	>
-		<aside
-			class={`min-h-0 border-b p-2 transition-[padding] lg:border-r lg:border-b-0 ${
-				bookmarksOpen ? '' : 'lg:p-1'
-			}`}
+		<Resizable.Pane
+			defaultSize={desktop && wideLayout ? (bookmarksOpen ? 18 : 7) : 18}
+			minSize={desktop && wideLayout ? 6 : 10}
 		>
-			<Collapsible.Root bind:open={bookmarksOpen}>
-				<Collapsible.Trigger
-					class={`mb-2 flex h-7 w-full items-center rounded-md text-xs font-medium text-muted-foreground outline-hidden hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring ${
-						bookmarksOpen ? 'justify-between px-1 text-left' : 'justify-center px-0'
-					}`}
-					aria-label={`${bookmarksOpen ? 'Collapse' : 'Expand'} bookmarks`}
-					title={`${bookmarksOpen ? 'Collapse' : 'Expand'} bookmarks`}
-				>
-					<span
-						class={`flex min-w-0 items-center ${
-							bookmarksOpen ? 'gap-1.5' : 'justify-center gap-1'
-						}`}
-					>
-						{#if bookmarksOpen}
-							<ChevronDown class="size-3.5 shrink-0" />
-						{:else}
-							<ChevronRight class="size-3.5 shrink-0" />
-						{/if}
-						{#if bookmarksOpen}
-							<span>Bookmarks</span>
-							<span class="text-[11px] text-muted-foreground/75">({bookmarks.length})</span>
-						{/if}
-					</span>
-					<Bookmark class="size-3.5 shrink-0 text-muted-foreground" />
-				</Collapsible.Trigger>
-				<Collapsible.Content>
-					<div class="space-y-1">
-						{#each bookmarks as bookmark (bookmark.id)}
-							<div class="flex items-center gap-1">
-								<Button
-									size="xs"
-									variant={bookmark.path === path ? 'secondary' : 'ghost'}
-									class="min-w-0 flex-1 justify-start font-mono"
-									title={bookmark.path}
-									onclick={() => loadDirectory(bookmark.path)}
-								>
-									<span class="truncate">{bookmark.label}</span>
-								</Button>
-								<Button
-									size="icon-xs"
-									variant="ghost"
-									aria-label={`Remove bookmark ${bookmark.path}`}
-									onclick={() => removeBookmark(bookmark.id)}
-								>
-									<X class="size-3" />
-								</Button>
-							</div>
-						{:else}
-							<div class="rounded-md border border-dashed p-2 text-xs text-muted-foreground">
-								No bookmarks for this host.
-							</div>
-						{/each}
-					</div>
-				</Collapsible.Content>
-			</Collapsible.Root>
-
-			{#if bookmarksOpen && remoteSearchResults.length}
-				<div class="mt-4 border-t pt-3">
-					<div class="mb-2 text-xs font-medium text-muted-foreground">
-						Search results ({remoteSearchResults.length})
-					</div>
-					<div class="max-h-52 space-y-1 overflow-auto">
-						{#each remoteSearchResults as result (result.path)}
-							<Button
-								size="xs"
-								variant="ghost"
-								class="w-full justify-start font-mono"
-								title={result.path}
-								onclick={() => openSearchResult(result)}
-							>
-								{#if result.type === 'directory'}
-									<Folder class="size-3.5 text-amber-500" />
-								{:else if result.type === 'symlink'}
-									<FileSymlink class="size-3.5 text-sky-500" />
-								{:else}
-									<FileIcon class="size-3.5 text-muted-foreground" />
-								{/if}
-								<span class="truncate">{result.path}</span>
-							</Button>
-						{/each}
-					</div>
-				</div>
-			{/if}
-		</aside>
-
-		<div class="relative min-h-0 min-w-0 overflow-auto">
-			{#if dragging}
-				<div
-					class="pointer-events-none absolute inset-3 z-20 grid place-items-center rounded-md border-2 border-dashed border-primary bg-background/85 text-sm font-medium"
-				>
-					Drop files or folders to upload into {path}
-				</div>
-			{/if}
-
-			<Table.Root>
-				<Table.Header class="sticky top-0 z-10 bg-background">
-					<Table.Row>
-						<Table.Head class="w-10">
-							<Checkbox
-								aria-label="Select visible entries"
-								checked={selection.allVisible}
-								indeterminate={selection.someVisible}
-								onclick={(event) => {
-									event.stopPropagation();
-									toggleVisible(!selection.allVisible);
-								}}
-							/>
-						</Table.Head>
-						<Table.Head>Name</Table.Head>
-						<Table.Head class="w-28">Type</Table.Head>
-						<Table.Head class="w-28">Size</Table.Head>
-						<Table.Head class="w-44">Modified</Table.Head>
-						<Table.Head class="w-20" aria-label="Actions"></Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each visibleEntries as entry (entry.path)}
-						<Table.Row
-							data-selected={selected?.path === entry.path || selectedPaths.includes(entry.path)}
-							onclick={() => selectEntry(entry)}
-						>
-							<Table.Cell>
-								<Checkbox
-									aria-label={`Select ${entry.name}`}
-									checked={selectedPaths.includes(entry.path)}
-									onclick={(event) => {
-										event.stopPropagation();
-										toggleEntry(entry, !selectedPaths.includes(entry.path));
-									}}
-								/>
-							</Table.Cell>
-							<Table.Cell>
-								<Button
-									variant="ghost"
-									size="sm"
-									class="max-w-full justify-start px-1 font-normal"
-									title={entry.path}
-									onclick={(event) => (event.stopPropagation(), activateEntry(entry))}
-								>
-									{#if entry.type === 'directory'}
-										<Folder class="size-4 text-amber-500" />
-									{:else if entry.type === 'symlink'}
-										<FileSymlink class="size-4 text-sky-500" />
-									{:else}
-										<FileIcon class="size-4 text-muted-foreground" />
-									{/if}
-									<span class="truncate">{entry.name}</span>
-								</Button>
-								{#if symlinkTarget(entry)}
-									<div
-										class="mt-1 flex items-center gap-1 pl-1 font-mono text-[11px] text-muted-foreground"
-									>
-										<Link class="size-3" />
-										<span class="truncate">{symlinkTarget(entry)}</span>
-									</div>
-								{/if}
-							</Table.Cell>
-							<Table.Cell>
-								<Badge variant={entry.type === 'symlink' ? 'outline' : 'secondary'}>
-									{entryTypeLabel(entry)}
-								</Badge>
-							</Table.Cell>
-							<Table.Cell class="font-mono text-xs text-muted-foreground">
-								{entry.type === 'directory' ? '-' : formatSize(entry.size)}
-								{#if modeLabel(entry)}
-									<div>{modeLabel(entry)}</div>
-								{/if}
-							</Table.Cell>
-							<Table.Cell class="font-mono text-xs text-muted-foreground">
-								{formatModified(entry)}
-							</Table.Cell>
-							<Table.Cell>
-								{#if isDownloadableFile(entry)}
-									<Button
-										size="icon-sm"
-										variant="ghost"
-										href={downloadUrl(entry)}
-										download={entry.name}
-										aria-label={`Download ${entry.name}`}
-										onclick={(event) => event.stopPropagation()}
-									>
-										<Download class="size-4" />
-									</Button>
-								{/if}
-							</Table.Cell>
-						</Table.Row>
-					{:else}
-						<Table.Row>
-							<Table.Cell colspan={6} class="h-24 text-center text-muted-foreground">
-								{searchQuery ? 'No matching entries.' : 'No entries.'}
-							</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-
-			{#if loading || error}
-				<StatePanel
-					state={error ? 'error' : 'loading'}
-					title={error ? `${label} request failed` : 'Loading remote directory'}
-					detail={error ?? path}
-					class="absolute right-3 bottom-3 left-3 bg-background"
-				/>
-			{/if}
-		</div>
-
-		<div class="min-h-0 min-w-0 border-t p-2 lg:border-t-0 lg:border-l">
-			<div class="mb-2 flex h-8 items-center justify-between gap-2">
-				<div class="min-w-0 truncate font-mono text-xs text-muted-foreground">
-					{textPath ?? 'No text file open'}
-				</div>
-				<Button
-					size="icon-sm"
-					variant="outline"
-					aria-label="Save text file"
-					disabled={!textPath || !textDirty}
-					onclick={saveText}
-				>
-					<Save class="size-4" />
-				</Button>
-			</div>
-			<Textarea
-				class="h-[calc(100%-2.5rem)] resize-none font-mono text-xs"
-				placeholder="Open a text file to edit it"
-				bind:value={textValue}
-				disabled={!textPath}
-				oninput={() => (textDirty = Boolean(textPath))}
-			/>
-		</div>
-	</div>
+			{@render bookmarksPane()}
+		</Resizable.Pane>
+		{@render resizeHandle()}
+		<Resizable.Pane
+			defaultSize={desktop && wideLayout ? 56 : 56}
+			minSize={desktop && wideLayout ? 34 : 32}
+		>
+			{@render fileListPane()}
+		</Resizable.Pane>
+		{@render resizeHandle()}
+		<Resizable.Pane
+			defaultSize={desktop && wideLayout ? 26 : 26}
+			minSize={desktop && wideLayout ? 18 : 16}
+		>
+			{@render editorPane()}
+		</Resizable.Pane>
+	</Resizable.PaneGroup>
 
 	<AlertDialog.Root bind:open={deleteDialogOpen}>
 		<AlertDialog.Content>

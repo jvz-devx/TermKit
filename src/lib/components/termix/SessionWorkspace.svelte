@@ -120,8 +120,8 @@
 	);
 	let sessionSearch = $state('');
 	let activeLiveSshSessionId = $state<string | null>(null);
-	let liveSshAttach = $state<LiveSshAttach | null>(null);
-	let liveSshAttachPaneId = $state<string | null>(null);
+	let liveSshAttachByPaneId = $state<Record<string, LiveSshAttach>>({});
+	let liveSshBusyPaneId = $state<string | null>(null);
 	let liveSshBusy = $state(false);
 	let liveSshError = $state<LiveSshErrorState | null>(null);
 	let dismissedLiveSshSessionIds = $state<string[]>([]);
@@ -198,7 +198,7 @@
 	let sessionPaused = $derived(
 		Boolean(
 			activePauseKey &&
-				(pausedSessionKey === activePauseKey || persistedPausedSessionKeys.includes(activePauseKey))
+			(pausedSessionKey === activePauseKey || persistedPausedSessionKeys.includes(activePauseKey))
 		)
 	);
 	let primaryPaneKind = $derived<SessionPaneKind>(activeProtocol);
@@ -235,7 +235,9 @@
 	let isSinglePaneLayout = $derived(activeWorkspaceLayout.layout === 'single');
 	let workspaceLayoutLabel = $derived(layoutLabels[activeWorkspaceLayout.layout]);
 	let workspacePaneSummary = $derived(
-		isSinglePaneLayout ? `${activeProtocol.toUpperCase()} session` : `${workspaceLayoutLabel} workspace`
+		isSinglePaneLayout
+			? `${activeProtocol.toUpperCase()} session`
+			: `${workspaceLayoutLabel} workspace`
 	);
 	let workspacePaneKinds = $derived(
 		[
@@ -253,14 +255,14 @@
 		if (!selectedHost) return 'No host';
 		if (liveSshError) return 'Failure';
 		if (sessionPaused) return 'Closed';
-		if (activeProtocol === 'ssh' && liveSshAttach) return 'Attached';
+		if (activeProtocol === 'ssh' && Object.keys(liveSshAttachByPaneId).length) return 'Attached';
 		if (activeProtocol === 'ssh' && detachedSshCount) return `${detachedSshCount} detached`;
 		return 'Ready';
 	});
 	let workspaceStatusVariant = $derived.by<BadgeVariant>(() => {
 		if (liveSshError) return 'destructive';
 		if (sessionPaused) return 'outline';
-		if (activeProtocol === 'ssh' && liveSshAttach) return 'secondary';
+		if (activeProtocol === 'ssh' && Object.keys(liveSshAttachByPaneId).length) return 'secondary';
 		return 'outline';
 	});
 	let FullscreenIcon = $derived(isFullscreen ? Minimize2 : Maximize2);
@@ -288,8 +290,7 @@
 			const existingSession =
 				attachableSessions.find((session) => session.id === activeLiveSshSessionId) ??
 				attachableSessions[0];
-			liveSshAttach = null;
-			liveSshAttachPaneId = null;
+			clearLiveSshViewState(preferredLiveSshPaneId(selectedHost.id));
 			reconnectNonce += 1;
 
 			if (existingSession) {
@@ -307,8 +308,7 @@
 		if (!selectedHost || activeProtocol === 'sftp') return;
 		markSessionPaused(selectedHost.id, activeProtocol);
 		if (activeProtocol === 'ssh') {
-			liveSshAttach = null;
-			liveSshAttachPaneId = null;
+			clearLiveSshViewState(preferredLiveSshPaneId(selectedHost.id));
 		}
 		reconnectNonce += 1;
 	}
@@ -345,8 +345,7 @@
 			params.set('tab', protocol);
 		}
 		pausedSessionKey = null;
-		liveSshAttach = null;
-		liveSshAttachPaneId = null;
+		clearLiveSshViewState();
 		activeLiveSshSessionId = null;
 		liveSshError = null;
 		void goto(resolve(sessionUrl(params) as '/'), {
@@ -363,8 +362,7 @@
 		params.set('tab', protocol);
 		rememberProtocol(host.id, protocol);
 		clearPersistedSessionPause(host.id, protocol);
-		liveSshAttach = null;
-		liveSshAttachPaneId = null;
+		clearLiveSshViewState();
 		activeLiveSshSessionId = null;
 		liveSshError = null;
 		void goto(resolve(`/sessions?${params.toString()}` as '/'));
@@ -375,8 +373,7 @@
 		params.delete('host');
 		if (activeProtocol) params.set('tab', activeProtocol);
 		pausedSessionKey = null;
-		liveSshAttach = null;
-		liveSshAttachPaneId = null;
+		clearLiveSshViewState();
 		activeLiveSshSessionId = null;
 		liveSshError = null;
 		void goto(resolve(sessionUrl(params) as '/'));
@@ -391,8 +388,7 @@
 		clearPersistedSessionPause(selectedHost.id, protocol);
 		liveSshError = null;
 		if (protocol !== 'ssh') {
-			liveSshAttach = null;
-			liveSshAttachPaneId = null;
+			clearLiveSshViewState();
 			activeLiveSshSessionId = null;
 		}
 		void goto(resolve(`/sessions?${params.toString()}` as '/'));
@@ -420,7 +416,8 @@
 			...paneKindOverrides,
 			[paneId]: kind
 		};
-		if (previousPane?.kind === 'ssh' || kind === 'ssh') clearLiveSshViewState();
+		if (previousPane?.kind === 'ssh') clearLiveSshViewState(paneId);
+		if (kind === 'ssh') liveSshError = null;
 		await persistSessionLayout(nextLayout);
 	}
 
@@ -431,7 +428,7 @@
 			...paneHostIdOverrides,
 			[paneId]: hostId
 		};
-		if (previousPane?.kind === 'ssh') clearLiveSshViewState();
+		if (previousPane?.kind === 'ssh') clearLiveSshViewState(paneId);
 		await persistSessionLayout(nextLayout);
 	}
 
@@ -441,8 +438,7 @@
 		const paneHost = pane ? hostForPane(pane) : null;
 		if (pane && paneHost) clearPersistedSessionPause(paneHost.id, pane.kind);
 		if (pane?.kind === 'ssh') {
-			liveSshAttach = null;
-			liveSshAttachPaneId = null;
+			clearLiveSshViewState(pane.id);
 			liveSshError = null;
 		}
 	}
@@ -460,7 +456,7 @@
 		paneHostIdOverrides = Object.fromEntries(
 			nextLayout.panes.flatMap((pane) => (pane.hostId ? [[pane.id, pane.hostId]] : []))
 		);
-		if (previousPane?.kind === 'ssh') clearLiveSshViewState();
+		if (previousPane?.kind === 'ssh') clearLiveSshViewState(paneId);
 		await persistSessionLayout(nextLayout);
 	}
 
@@ -483,7 +479,7 @@
 		liveSshBusy = true;
 		liveSshError = null;
 		const targetPaneId = target.paneId ?? preferredLiveSshPaneId(host.id);
-		liveSshAttachPaneId = targetPaneId;
+		liveSshBusyPaneId = targetPaneId;
 
 		try {
 			const size = estimateWorkspaceTerminalSize(host);
@@ -498,7 +494,7 @@
 			dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
 				(sessionId) => sessionId !== launch.session.id
 			);
-			liveSshAttach = launch;
+			setLiveSshAttachForPane(targetPaneId, launch);
 			pausedSessionKey = null;
 		} catch (caught) {
 			liveSshError = {
@@ -509,6 +505,7 @@
 			};
 		} finally {
 			liveSshBusy = false;
+			liveSshBusyPaneId = null;
 		}
 	}
 
@@ -520,7 +517,8 @@
 		liveSshBusy = true;
 		liveSshError = null;
 		activeLiveSshSessionId = session.id;
-		liveSshAttachPaneId = targetPaneId ?? preferredLiveSshPaneId(session.hostId);
+		let resolvedPaneId = targetPaneId ?? preferredLiveSshPaneId(session.hostId);
+		liveSshBusyPaneId = resolvedPaneId;
 
 		if (selectedHost?.id !== session.hostId) {
 			const params = new SvelteURLSearchParams(page.url.searchParams);
@@ -531,7 +529,8 @@
 				keepFocus: true,
 				noScroll: true
 			});
-			liveSshAttachPaneId = targetPaneId ?? preferredLiveSshPaneId(session.hostId);
+			resolvedPaneId = targetPaneId ?? preferredLiveSshPaneId(session.hostId);
+			liveSshBusyPaneId = resolvedPaneId;
 		}
 
 		try {
@@ -539,11 +538,12 @@
 			const size = host
 				? estimateWorkspaceTerminalSize(host)
 				: { cols: session.terminalCols, rows: session.terminalRows };
-			liveSshAttach = await attachLiveSshSession({
+			const attach = await attachLiveSshSession({
 				sessionId: session.id,
 				cols: size.cols,
 				rows: size.rows
 			});
+			setLiveSshAttachForPane(resolvedPaneId, attach);
 			clearPersistedSessionPause(session.hostId, 'ssh');
 			dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
 				(sessionId) => sessionId !== session.id
@@ -558,6 +558,7 @@
 			};
 		} finally {
 			liveSshBusy = false;
+			liveSshBusyPaneId = null;
 		}
 	}
 
@@ -587,9 +588,8 @@
 
 			if (activeLiveSshSessionId === session.id) {
 				activeLiveSshSessionId = null;
-				liveSshAttach = null;
-				liveSshAttachPaneId = null;
 			}
+			clearLiveSshAttachBySession(session.id);
 			markSessionPaused(session.hostId, 'ssh');
 		} catch (caught) {
 			liveSshError = {
@@ -607,8 +607,7 @@
 		dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
 			(sessionId) => sessionId !== launch.session.id
 		);
-		liveSshAttach = launch;
-		liveSshAttachPaneId = paneId ?? preferredLiveSshPaneId(launch.session.hostId);
+		setLiveSshAttachForPane(paneId ?? preferredLiveSshPaneId(launch.session.hostId), launch);
 		pausedSessionKey = null;
 	}
 
@@ -622,19 +621,38 @@
 		paneId: string | null = null
 	) {
 		if (state === 'error' || state === 'disconnected') {
-			if (paneId && liveSshAttachPaneId && paneId !== liveSshAttachPaneId) return;
-			liveSshAttach = null;
-			liveSshAttachPaneId = null;
-			activeLiveSshSessionId = null;
+			if (paneId) clearLiveSshViewState(paneId);
 			refreshLiveSshSessionsSoon();
 		}
 	}
 
-	function clearLiveSshViewState() {
-		liveSshAttach = null;
+	function setLiveSshAttachForPane(paneId: string | null, launch: LiveSshAttach) {
+		if (!paneId) return;
+		liveSshAttachByPaneId = {
+			...liveSshAttachByPaneId,
+			[paneId]: launch
+		};
+		activeLiveSshSessionId = launch.session.id;
+	}
+
+	function clearLiveSshAttachBySession(sessionId: string) {
+		liveSshAttachByPaneId = Object.fromEntries(
+			Object.entries(liveSshAttachByPaneId).filter(([, attach]) => attach.session.id !== sessionId)
+		);
+	}
+
+	function clearLiveSshViewState(paneId: string | null = null) {
 		liveSshError = null;
-		activeLiveSshSessionId = null;
-		liveSshAttachPaneId = null;
+		if (!paneId) {
+			liveSshAttachByPaneId = {};
+			activeLiveSshSessionId = null;
+			return;
+		}
+		const attach = liveSshAttachByPaneId[paneId];
+		liveSshAttachByPaneId = Object.fromEntries(
+			Object.entries(liveSshAttachByPaneId).filter(([entryPaneId]) => entryPaneId !== paneId)
+		);
+		if (attach?.session.id === activeLiveSshSessionId) activeLiveSshSessionId = null;
 	}
 
 	function protocolForSelectedHost(host: HostSummary): WorkspaceProtocol {
@@ -680,11 +698,18 @@
 	function preferredLiveSshPaneId(hostId: string) {
 		const matchingPane = activeWorkspaceLayout.panes.find((pane) => {
 			if (pane.kind !== 'ssh') return false;
+			if (liveSshAttachByPaneId[pane.id]) return false;
 			return hostForPane(pane)?.id === hostId;
 		});
 		if (matchingPane) return matchingPane.id;
 
-		return activeWorkspaceLayout.panes.find((pane) => pane.kind === 'ssh')?.id ?? null;
+		return (
+			activeWorkspaceLayout.panes.find(
+				(pane) => pane.kind === 'ssh' && !liveSshAttachByPaneId[pane.id]
+			)?.id ??
+			activeWorkspaceLayout.panes.find((pane) => pane.kind === 'ssh')?.id ??
+			null
+		);
 	}
 
 	function liveSshSessionsForHost(hostId: string) {
@@ -692,7 +717,12 @@
 	}
 
 	function attachableLiveSshSessionsForHost(hostId: string) {
-		return liveSshSessionsForHost(hostId).filter(canAttachLiveSshSession);
+		const attachedSessionIds = new Set(
+			Object.values(liveSshAttachByPaneId).map((attach) => attach.session.id)
+		);
+		return liveSshSessionsForHost(hostId).filter(
+			(session) => canAttachLiveSshSession(session) && !attachedSessionIds.has(session.id)
+		);
 	}
 
 	function failedLiveSshSessionsForHost(hostId: string) {
@@ -1018,6 +1048,7 @@
 						{@const endedSshSessions = endedLiveSshSessionsForHost(paneHost.id)}
 						{@const attachableSshSessions = attachableLiveSshSessionsForHost(paneHost.id)}
 						{@const hostKeyLaunchBlocked = isSshHostKeyLaunchBlocked(paneHost)}
+						{@const paneLiveSshAttach = liveSshAttachByPaneId[pane.id] ?? null}
 						<div class="min-h-0 flex-1 p-3">
 							{#if paneLiveSshError}
 								<StatePanel
@@ -1039,20 +1070,20 @@
 									<Button size="sm" variant="outline" onclick={returnToLauncher}>Change host</Button
 									>
 								</StatePanel>
-							{:else if liveSshBusy && liveSshAttachPaneId === pane.id}
+							{:else if liveSshBusy && liveSshBusyPaneId === pane.id}
 								<StatePanel
 									state="loading"
 									title="Opening SSH tab"
 									detail="Preparing attach ticket."
 								/>
-							{:else if liveSshAttach && liveSshAttachPaneId === pane.id && liveSshAttach.session.hostId === paneHost.id}
+							{:else if paneLiveSshAttach && paneLiveSshAttach.session.hostId === paneHost.id}
 								<SshHostKeyTrustPanel host={paneHost} onEnrolled={reconnect} />
-								{#key `ssh-live:${liveSshAttach.session.id}:${liveSshAttach.liveTicket}:${reconnectNonce}`}
+								{#key `ssh-live:${paneLiveSshAttach.session.id}:${paneLiveSshAttach.liveTicket}:${reconnectNonce}`}
 									<TerminalPane
-										title={liveSshAttach.session.title}
-										subtitle={`${liveSshAttach.session.username ?? 'user'}@${liveSshAttach.session.hostname}`}
-										websocketUrl={toWebSocketUrl(liveSshAttach.liveWebsocketPath)}
-										welcome={sshWelcome(paneHost, liveSshAttach.session.hostname)}
+										title={paneLiveSshAttach.session.title}
+										subtitle={`${paneLiveSshAttach.session.username ?? 'user'}@${paneLiveSshAttach.session.hostname}`}
+										websocketUrl={toWebSocketUrl(paneLiveSshAttach.liveWebsocketPath)}
+										welcome={sshWelcome(paneHost, paneLiveSshAttach.session.hostname)}
 										fontSize={terminalFontSize(
 											paneHost.terminalPreferences,
 											appSettings.terminalFontSize
