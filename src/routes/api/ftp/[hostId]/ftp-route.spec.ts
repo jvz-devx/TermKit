@@ -3,6 +3,7 @@ import {
 	createFtpDirectory,
 	deleteFtpPath,
 	listFtpDirectory,
+	maxFtpUploadBytes,
 	openRecordedFtpDownload,
 	readFtpTextFile,
 	renameFtpPath,
@@ -10,6 +11,7 @@ import {
 	writeFtpFile,
 	writeFtpTextFile
 } from '$lib/server/protocols/ftp';
+import { multipartUploadBodyLimit } from '../../_helpers';
 import { DELETE as DELETE_PATH } from './delete/+server';
 import { GET as DOWNLOAD } from './download/+server';
 import { GET as LIST } from './list/+server';
@@ -370,6 +372,35 @@ describe('FTP API routes', () => {
 		expect(writeFtpFile).not.toHaveBeenCalled();
 	});
 
+	it('rejects honest oversized upload bodies before recording the action', async () => {
+		const response = await UPLOAD(
+			uploadEvent({
+				path: '/srv/upload.txt',
+				contentLength: multipartUploadBodyLimit(maxFtpUploadBytes) + 1
+			})
+		);
+
+		expect(response.status).toBe(413);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'request exceeds the 50 MiB upload limit'
+		});
+		expect(runRecordedFtpAction).not.toHaveBeenCalled();
+		expect(writeFtpFile).not.toHaveBeenCalled();
+	});
+
+	it('rejects invalid upload content-length before recording the action', async () => {
+		const response = await UPLOAD(
+			uploadEvent({ path: '/srv/upload.txt', contentLength: 'invalid' })
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toMatchObject({
+			issues: ['content-length must be a non-negative integer']
+		});
+		expect(runRecordedFtpAction).not.toHaveBeenCalled();
+		expect(writeFtpFile).not.toHaveBeenCalled();
+	});
+
 	it('uploads multipart files through the recorded action callback', async () => {
 		const response = await UPLOAD(uploadEvent({ path: '/srv/upload.txt', contents: 'uploaded' }));
 
@@ -449,6 +480,7 @@ function uploadEvent(input: {
 	contents?: string;
 	includeFile?: boolean;
 	authenticated?: boolean;
+	contentLength?: number | string;
 }) {
 	const url = new URL('https://termix.test/api/ftp/host-1/upload');
 	url.searchParams.set('path', input.path);
@@ -458,7 +490,14 @@ function uploadEvent(input: {
 	}
 
 	return {
-		request: new Request(url, { method: 'POST', body: form }),
+		request: new Request(url, {
+			method: 'POST',
+			body: form,
+			headers:
+				input.contentLength === undefined
+					? undefined
+					: { 'content-length': String(input.contentLength) }
+		}),
 		params: { hostId: 'host-1' },
 		url,
 		locals: input.authenticated === false ? {} : { user: { id: 'user-1' } }

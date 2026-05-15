@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { HostService } from '../hosts';
 import { InMemoryTermixServicesRepository } from '../repository';
-import { InMemorySshTunnelRepository, publicSshTunnelPath, SshTunnelService } from '../ssh-tunnels';
+import {
+	InMemorySshTunnelRepository,
+	PersistentSshTunnelRepository,
+	publicSshTunnelPath,
+	SshTunnelService
+} from '../ssh-tunnels';
 
 describe('SshTunnelService', () => {
 	it('saves host-bound profiles and starts browser-addressable sessions', async () => {
@@ -145,7 +150,7 @@ describe('SshTunnelService', () => {
 	});
 
 	it('enforces per-user session limits and tracks idle, expired, ended, and failed states', async () => {
-		expect.assertions(11);
+		expect.assertions(12);
 
 		const services = new InMemoryTermixServicesRepository();
 		const tunnels = new InMemorySshTunnelRepository();
@@ -224,5 +229,170 @@ describe('SshTunnelService', () => {
 
 		const ended = await service.terminateSession('user-1', second.id);
 		expect(ended.status).toBe('ended');
+		await expect(service.touchSessionForProxy('user-1', second.id)).rejects.toMatchObject({
+			issues: ['SSH tunnel session has ended']
+		});
+	});
+
+	it('updates and deletes profiles while keeping profile limits scoped to creates', async () => {
+		expect.assertions(7);
+
+		const services = new InMemoryTermixServicesRepository();
+		const tunnels = new InMemorySshTunnelRepository();
+		const hosts = new HostService(services);
+		const service = new SshTunnelService(tunnels, hosts, services, {
+			maxProfilesPerUser: 1
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Jump host',
+			protocol: 'ssh',
+			hostname: 'jump.example.test',
+			port: 22,
+			username: 'ops'
+		});
+
+		const profile = await service.saveProfile('user-1', {
+			hostId: host.id,
+			name: ' Dashboard ',
+			targetHost: 'internal.example.test',
+			targetPort: '8080'
+		});
+
+		await expect(
+			service.saveProfile('user-1', {
+				hostId: host.id,
+				name: 'Metrics',
+				targetHost: 'metrics.example.test',
+				targetPort: 9090
+			})
+		).rejects.toMatchObject({ issues: ['SSH tunnel profile limit reached (1)'] });
+		await expect(
+			service.saveProfile('user-1', {
+				id: profile.id,
+				hostId: host.id,
+				name: 'Updated dashboard',
+				targetHost: '127.0.0.1',
+				targetPort: 8081
+			})
+		).resolves.toMatchObject({
+			id: profile.id,
+			name: 'Updated dashboard',
+			targetHost: '127.0.0.1',
+			targetPort: 8081
+		});
+		await expect(service.deleteProfile('user-1', '')).rejects.toMatchObject({
+			issues: ['profileId is required']
+		});
+		await expect(service.deleteProfile('user-2', profile.id)).rejects.toMatchObject({
+			status: 404
+		});
+		await expect(service.deleteProfile('user-1', profile.id)).resolves.toBeUndefined();
+		await expect(service.listProfiles('user-1')).resolves.toEqual([]);
+		expect(publicSshTunnelPath('session/with spaces', 'nested/path')).toBe(
+			'/api/tunnels/session%2Fwith%20spaces/proxy/nested/path'
+		);
+	});
+
+	it('allows credential usernames and maps persistent tunnel records without leaking storage shape', async () => {
+		expect.assertions(7);
+
+		const services = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(services);
+		const tunnels = new InMemorySshTunnelRepository();
+		const service = new SshTunnelService(tunnels, hosts, services);
+		const now = new Date('2026-05-14T12:00:00.000Z');
+		await services.createCredential({
+			id: 'credential-1',
+			userId: 'user-1',
+			workspaceId: null,
+			name: 'Jump credential',
+			kind: 'password',
+			username: 'credential-user',
+			encryptedSecret: 'encrypted-password',
+			encryption: {
+				algorithm: 'aes-256-gcm',
+				keyVersion: 1,
+				iv: 'iv',
+				authTag: 'auth-tag',
+				salt: 'salt'
+			},
+			metadata: {},
+			createdAt: now,
+			updatedAt: now
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Credential host',
+			protocol: 'ssh',
+			hostname: 'jump.example.test',
+			port: 22,
+			credentialId: 'credential-1'
+		});
+
+		await expect(
+			service.startSession('user-1', {
+				hostId: host.id,
+				name: 'Dashboard',
+				targetHost: '127.0.0.1',
+				targetPort: 8080
+			})
+		).resolves.toMatchObject({
+			hostId: host.id,
+			status: 'active',
+			failureCode: null
+		});
+
+		const persistent = new PersistentSshTunnelRepository(services);
+		const profile = await persistent.createSshTunnelProfile({
+			id: 'profile-1',
+			userId: 'user-1',
+			hostId: host.id,
+			name: 'Persistent dashboard',
+			targetHost: '127.0.0.1',
+			targetPort: 8080,
+			createdAt: now,
+			updatedAt: now
+		});
+		const session = await persistent.createSshTunnelSession({
+			id: 'session-1',
+			userId: 'user-1',
+			profileId: profile.id,
+			hostId: host.id,
+			targetHost: '127.0.0.1',
+			targetPort: 8080,
+			status: 'active',
+			failureCode: null,
+			startedAt: now,
+			lastUsedAt: null,
+			endedAt: null,
+			createdAt: now,
+			updatedAt: new Date('2026-05-14T12:00:05.000Z')
+		});
+		const failed = await persistent.updateSshTunnelSession('user-1', session.id, {
+			status: 'failed',
+			failureCode: 'ssh_auth_failed',
+			endedAt: new Date('2026-05-14T12:01:00.000Z'),
+			updatedAt: new Date('2026-05-14T12:01:00.000Z')
+		});
+
+		expect(profile).toMatchObject({
+			id: 'profile-1',
+			hostId: host.id,
+			name: 'Persistent dashboard'
+		});
+		expect(session).toMatchObject({
+			id: 'session-1',
+			profileId: 'profile-1',
+			hostId: host.id,
+			status: 'active',
+			failureCode: null
+		});
+		expect(session.updatedAt).toEqual(new Date('2026-05-14T12:00:05.000Z'));
+		expect(failed).toMatchObject({
+			status: 'failed',
+			failureCode: 'ssh_auth_failed',
+			endedAt: new Date('2026-05-14T12:01:00.000Z')
+		});
+		expect(failed?.createdAt).toEqual(now);
+		expect(await persistent.getSshTunnelSession('user-2', session.id)).toBeNull();
 	});
 });

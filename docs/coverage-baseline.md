@@ -15,38 +15,39 @@ Baseline from the integrated V7 foundation wave:
 | Functions  |  58.77% |
 | Lines      |  63.05% |
 
-Latest V7 ratchet measurement after the fourth coverage, workflow, and reliability hardening wave:
+Latest V7 ratchet measurement after the fifth coverage, workflow, and reliability hardening wave:
 
 | Metric     | Current |
 | ---------- | ------: |
-| Statements |  74.07% |
-| Branches   |  67.54% |
-| Functions  |  72.55% |
-| Lines      |  76.97% |
+| Statements |  78.76% |
+| Branches   |  72.31% |
+| Functions  |  77.32% |
+| Lines      |  81.75% |
 
 The current global CI gate intentionally ratchets just below that measured floor:
 
 | Metric     | Gate |
 | ---------- | ---: |
-| Statements |  74% |
-| Branches   |  67% |
-| Functions  |  72% |
-| Lines      |  76% |
+| Statements |  78% |
+| Branches   |  72% |
+| Functions  |  77% |
+| Lines      |  81% |
 
 Additional scoped ratchets protect the owned surfaces that already clear higher local bars:
 
 | Surface                                                   | Statements | Branches | Functions | Lines |
 | --------------------------------------------------------- | ---------: | -------: | --------: | ----: |
+| `src/lib/admin.remote.ts`                                 |        91% |      76% |       97% |   91% |
 | `src/lib/server/auth/**`                                  |        91% |      87% |       96% |   91% |
 | `src/lib/server/crypto/**`                                |        86% |      84% |       95% |   91% |
 | `src/lib/server/import/**`                                |        80% |      73% |       90% |   82% |
 | `src/lib/server/protocols/**`                             |        89% |      84% |       90% |   92% |
 | `src/lib/server/rdp/**`                                   |        92% |      80% |       90% |   93% |
 | `src/lib/server/ws/**`                                    |        79% |      77% |       68% |   82% |
-| `src/routes/api/**`                                       |        94% |      81% |       90% |   98% |
+| `src/routes/api/**`                                       |        95% |      81% |       92% |   98% |
 | `src/lib/termix/**`                                       |        86% |      76% |       96% |   89% |
 | `src/lib/server/ssh-live/**`                              |        65% |      63% |       61% |   68% |
-| `src/lib/server/services/**`                              |        69% |      65% |       69% |   75% |
+| `src/lib/server/services/**`                              |        73% |      69% |       71% |   77% |
 | `src/lib/server/services/bulk-job-runner.ts`              |        82% |      71% |       88% |   88% |
 | `src/lib/components/termix/session/file-manager-state.ts` |        87% |      72% |      100% |   91% |
 
@@ -56,8 +57,9 @@ the Microsoft OAuth route helper. It intentionally excludes declaration files,
 test files, test-only folders, fixtures, mocks, generated output, shadcn-svelte
 UI primitives, static assets, migration snapshots, Svelte route markup, and
 `.svelte.ts` UI wrappers. Remote functions remain in scope because they are
-server-owned command/query boundaries, even though several are still at 0% and
-need follow-up tests.
+server-owned command/query boundaries, and the current ratchet now protects the
+admin remote boundary while lower-coverage remote files continue to need
+follow-up tests.
 
 V7 is not complete at this baseline. The current audit treats coverage ratchets
 as repo-owned local evidence, not final V7 completion. `audit:acceptance` keeps
@@ -69,7 +71,7 @@ These are the remaining final target gaps before V7 can be called complete:
 
 - `src/lib/server/**` is still below the final 85% line and 75% branch target,
   with low or uneven coverage in database schema helpers, repository mapping,
-  protocol adapters, websocket routing, and some service resources.
+  websocket routing, and some service resources.
 - Security-critical pure logic is not uniformly at 90% line coverage; auth,
   crypto, host-key trust, ticketing, route auth helpers, policy checks, and
   secret redaction need separate final-target review.
@@ -87,18 +89,19 @@ These are the remaining final target gaps before V7 can be called complete:
   actions against mocked protocol API fixtures, fleet no-target and
   approval-required states, admin views, non-admin admin denial, server-enforced
   protocol API denial, policy-visible disabled states, and local RDP/VNC/Telnet
-  reconnect/close states. Smoke coverage separately exercises fixture-backed
-  real protocol API and workspace boundaries. Remaining browser workflow gaps
-  are browser-level SFTP/FTP/FTPS file actions against real local protocol
-  endpoints without route interception and deeper RDP/VNC/Telnet interaction
-  coverage.
+  reconnect/close states. Smoke coverage now also exercises browser-level
+  SFTP/FTP/FTPS list/search/navigation, mkdir, upload, text read/write,
+  rename, download, and delete against disposable real local protocol
+  endpoints without route interception. Remaining browser workflow gaps are
+  deeper RDP/VNC/Telnet interaction coverage.
 - Reliability/performance budgets now have deterministic boundedness coverage for
   protocol-adapter failure boundaries, adapter upload-size limits, transfer
   completion/cancellation/progress helpers, importer parsing, workspace layout
   normalization, bulk-job fan-out, retry, timeout, and cancellation behavior.
-  Remaining reliability gaps include route-level multipart upload memory limits,
-  browser-level transfer abort behavior, and measurable final workspace/importer
-  performance budgets.
+  Route-level multipart uploads now preflight `Content-Length` and bound
+  missing/dishonest-length streams before `formData()` parsing. Remaining
+  reliability gaps include browser-level transfer abort behavior and measurable
+  final workspace/importer performance budgets.
 
 Real Microsoft, RDP, VNC, SSH, FTP, and FTPS acceptance remains external proof
 only. Local coverage gates must not require those live tenants or targets.

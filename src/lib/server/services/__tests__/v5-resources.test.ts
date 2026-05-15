@@ -207,6 +207,83 @@ describe('V5 resources repository', () => {
 			expect.objectContaining({ id: 'recording-1', status: 'recording' })
 		]);
 	});
+
+	it('keeps host-scoped upserts and resource filters isolated by user and host', async () => {
+		expect.assertions(8);
+
+		const repository = new InMemoryV5ResourcesRepository();
+		await repository.upsertTerminalPreference(terminalPreference({ fontSize: 12, theme: 'light' }));
+		await repository.upsertTerminalPreference(terminalPreference({ fontSize: 18, theme: 'dark' }));
+		await repository.upsertFtpsHostSettings(ftpsHostSettings({ mode: 'explicit' }));
+		await repository.upsertFtpsHostSettings(
+			ftpsHostSettings({
+				mode: 'implicit',
+				rejectUnauthorized: false,
+				certificateHostname: 'ftps.example.test'
+			})
+		);
+		await repository.upsertRdpHostSettings(
+			rdpHostSettings({
+				display: { width: 1280 },
+				clipboard: { text: true },
+				metadata: { first: true }
+			})
+		);
+		await repository.upsertRdpHostSettings(
+			rdpHostSettings({
+				display: { width: 1920 },
+				clipboard: { text: false, files: false },
+				metadata: { second: true }
+			})
+		);
+		await repository.createFileBookmark(fileBookmark({ id: 'ftp-1', protocol: 'ftp' }));
+		await repository.createFileBookmark(fileBookmark({ id: 'sftp-1', protocol: 'sftp' }));
+		await repository.createFileBookmark(
+			fileBookmark({ id: 'other-host', hostId: 'host-2', protocol: 'sftp' })
+		);
+		await repository.createTerminalRecording(
+			terminalRecording({ id: 'active-host-1', hostId: 'host-1', status: 'recording' })
+		);
+		await repository.createTerminalRecording(
+			terminalRecording({ id: 'failed-host-1', hostId: 'host-1', status: 'failed' })
+		);
+		await repository.createTerminalRecording(
+			terminalRecording({ id: 'active-host-2', hostId: 'host-2', status: 'recording' })
+		);
+
+		await expect(repository.getTerminalPreference('user-1', 'host-1')).resolves.toMatchObject({
+			fontSize: 18,
+			theme: 'dark'
+		});
+		await expect(repository.getFtpsHostSettings('user-1', 'host-1')).resolves.toMatchObject({
+			mode: 'implicit',
+			rejectUnauthorized: false,
+			certificateHostname: 'ftps.example.test'
+		});
+		await expect(repository.getRdpHostSettings('user-1', 'host-1')).resolves.toMatchObject({
+			display: { width: 1920 },
+			clipboard: { text: false, files: false },
+			metadata: { second: true }
+		});
+		await expect(repository.listFileBookmarks('user-1', { protocol: 'sftp' })).resolves.toEqual([
+			expect.objectContaining({ id: 'sftp-1' }),
+			expect.objectContaining({ id: 'other-host' })
+		]);
+		await expect(
+			repository.listFileBookmarks('user-1', { hostId: 'host-1', protocol: 'sftp' })
+		).resolves.toEqual([expect.objectContaining({ id: 'sftp-1' })]);
+		await expect(
+			repository.listTerminalRecordings('user-1', { hostId: 'host-1', status: 'recording' })
+		).resolves.toEqual([expect.objectContaining({ id: 'active-host-1' })]);
+		await expect(
+			repository.updateTerminalRecording('user-1', 'active-host-1', {
+				status: 'expired',
+				retentionExpiresAt: new Date('2026-05-15T12:00:00.000Z'),
+				metadata: { cleanup: 'ttl' }
+			})
+		).resolves.toMatchObject({ status: 'expired', metadata: { cleanup: 'ttl' } });
+		await expect(repository.listTerminalRecordings('user-2')).resolves.toEqual([]);
+	});
 });
 
 function queryResult<T>(rows: T[]) {

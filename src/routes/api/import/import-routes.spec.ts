@@ -77,6 +77,51 @@ describe('import API routes', () => {
 		expect(importService.validate).not.toHaveBeenCalled();
 	});
 
+	it('rejects import validation uploads with dishonest small content-length while streaming', async () => {
+		const response = await validatePost(
+			routeEvent(
+				oversizedStreamingImportRequest('/api/import/validate', {
+					contentLength: '1'
+				})
+			)
+		);
+
+		expect(response.status).toBe(413);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'request exceeds the 10 MiB upload limit'
+		});
+		expect(importService.validate).not.toHaveBeenCalled();
+	});
+
+	it('rejects import job uploads with missing content-length while streaming over the limit', async () => {
+		const response = await importPost(
+			routeEvent(oversizedStreamingImportRequest('/api/import/jobs'))
+		);
+
+		expect(response.status).toBe(413);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'request exceeds the 10 MiB upload limit'
+		});
+		expect(importService.import).not.toHaveBeenCalled();
+	});
+
+	it('rejects malformed content-length on import uploads before service access', async () => {
+		const response = await importPost(
+			routeEvent(
+				new Request('https://termix.test/api/import/jobs', {
+					method: 'POST',
+					headers: { 'content-length': '10, 11' }
+				})
+			)
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toMatchObject({
+			issues: ['content-length must be a non-negative integer']
+		});
+		expect(importService.import).not.toHaveBeenCalled();
+	});
+
 	it('rejects import job uploads without files before service access', async () => {
 		const form = new FormData();
 		form.set('sourceSecret', 'import-secret');
@@ -140,6 +185,40 @@ function formRequest(path: string, sourceSecret: string): Request {
 	form.set('file', new File(['[]'], 'termix.json', { type: 'application/json' }));
 	form.set('sourceSecret', sourceSecret);
 	return new Request(`https://termix.test${path}`, { method: 'POST', body: form });
+}
+
+function oversizedStreamingImportRequest(
+	path: string,
+	options: { contentLength?: string } = {}
+): Request {
+	const boundary = 'termix-import-boundary';
+	const fileContents = 'x'.repeat(10 * 1024 * 1024 + 128 * 1024);
+	const body = [
+		`--${boundary}`,
+		'Content-Disposition: form-data; name="file"; filename="termix.json"',
+		'Content-Type: application/json',
+		'',
+		fileContents,
+		`--${boundary}--`,
+		''
+	].join('\r\n');
+	const headers = new Headers({ 'content-type': `multipart/form-data; boundary=${boundary}` });
+	if (options.contentLength) headers.set('content-length', options.contentLength);
+	return new Request(`https://termix.test${path}`, {
+		method: 'POST',
+		body: streamFromText(body),
+		headers,
+		duplex: 'half'
+	} as RequestInit & { duplex: 'half' });
+}
+
+function streamFromText(text: string): ReadableStream<Uint8Array> {
+	return new ReadableStream({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode(text));
+			controller.close();
+		}
+	});
 }
 
 function routeEvent(request: Request, authenticated = true) {

@@ -20,10 +20,16 @@ export default defineConfig({
 				'src/routes/(auth)/auth/microsoft/**/*.ts'
 			],
 			thresholds: {
-				statements: 74,
-				branches: 67,
-				functions: 72,
-				lines: 76,
+				statements: 78,
+				branches: 72,
+				functions: 77,
+				lines: 81,
+				'src/lib/admin.remote.ts': {
+					statements: 91,
+					branches: 76,
+					functions: 97,
+					lines: 91
+				},
 				'src/lib/server/auth/**': {
 					statements: 91,
 					branches: 87,
@@ -61,9 +67,9 @@ export default defineConfig({
 					lines: 82
 				},
 				'src/routes/api/**': {
-					statements: 94,
+					statements: 95,
 					branches: 81,
-					functions: 90,
+					functions: 92,
 					lines: 98
 				},
 				'src/lib/termix/**': {
@@ -79,10 +85,10 @@ export default defineConfig({
 					lines: 68
 				},
 				'src/lib/server/services/**': {
-					statements: 69,
-					branches: 65,
-					functions: 69,
-					lines: 75
+					statements: 73,
+					branches: 69,
+					functions: 71,
+					lines: 77
 				},
 				'src/lib/server/services/bulk-job-runner.ts': {
 					statements: 82,

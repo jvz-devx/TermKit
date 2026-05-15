@@ -407,7 +407,7 @@ const checks = [
 		name: 'V7 full workflow and protocol browser coverage',
 		status: 'pending',
 		evidence:
-			'partial local proof: npm run test:e2e covers auth, inventory, importer, workspace launch states, browser-level SFTP/FTP/FTPS UI actions with mocked protocol API fixtures, RDP/VNC/Telnet launch and reconnect/close states, admin, fleet, and server-enforced policy-blocked API denial; npm run smoke:app-protocols covers fixture-backed real protocol API/workspace boundaries; remaining local gap: browser-level SFTP/FTP/FTPS file actions against real local protocol endpoints without route interception plus deeper RDP/VNC/Telnet interaction coverage'
+			'partial local proof: npm run test:e2e covers auth, inventory, importer, workspace launch states, browser-level SFTP/FTP/FTPS UI actions with mocked protocol API fixtures, RDP/VNC/Telnet launch and reconnect/close states, admin, fleet, and server-enforced policy-blocked API denial; npm run smoke:app-protocols covers browser-level SFTP/FTP/FTPS file actions against disposable real local protocol endpoints without route interception plus fixture-backed protocol boundaries; remaining local gap: deeper RDP/VNC/Telnet interaction coverage'
 	},
 	{
 		name: 'V7 reliability and performance budget foundation',
@@ -419,7 +419,7 @@ const checks = [
 		name: 'V7 final reliability and performance budgets',
 		status: 'pending',
 		evidence:
-			'partial local proof: npm test enforces deterministic boundedness checks for protocol failure/timeout boundaries, adapter upload-size limits, transfer completion/cancellation/progress helpers, importer parsing, workspace layout normalization, bulk-job fan-out, retry, timeout, and cancellation behavior; remaining local gap: route-level multipart upload memory limits, browser-level transfer abort behavior, and measurable final workspace/importer performance budgets'
+			'partial local proof: npm test enforces deterministic boundedness checks for protocol failure/timeout boundaries, adapter upload-size limits, route-level multipart upload preflight/stream limits, transfer completion/cancellation/progress helpers, importer parsing, workspace layout normalization, bulk-job fan-out, retry, timeout, and cancellation behavior; remaining local gap: browser-level transfer abort behavior and measurable final workspace/importer performance budgets'
 	},
 	{
 		name: 'V7 real FTP external proof',

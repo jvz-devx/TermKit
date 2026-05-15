@@ -112,8 +112,8 @@ try {
 	);
 	await smokeSftpWorkspaceUi(auth.page, sshHost.id, app.databaseUrl);
 	pass(
-		'SFTP workspace launch',
-		'created and ended SFTP connection session while listing fixture file'
+		'SFTP browser file workflow',
+		'created and ended SFTP connection session while driving list/search/navigation, mkdir, text read/write, rename, upload, download, and delete'
 	);
 
 	const ftpCredential = await createFtpCredential(api);
@@ -148,7 +148,10 @@ try {
 		'verified list, download, upload, mkdir, text read/write, rename/move, and delete'
 	);
 	await smokeFtpWorkspaceUi(auth.page, ftpHost.id, 'ftp', app.databaseUrl);
-	pass('FTP workspace launch', 'listed fixture file and ended connection session');
+	pass(
+		'FTP browser file workflow',
+		'created and ended FTP connection session while driving list/search/navigation, mkdir, text read/write, rename, upload, download, and delete'
+	);
 	await smokeFtpApi(api, ftpsHost.id, 'ftps');
 	await waitFor(
 		() => fixtures.ftpsState.authTlsCount > 0,
@@ -163,7 +166,10 @@ try {
 		'verified explicit TLS negotiation plus list, download, upload, text, rename/move, and delete'
 	);
 	await smokeFtpWorkspaceUi(auth.page, ftpsHost.id, 'ftps', app.databaseUrl);
-	pass('FTPS workspace launch', 'listed fixture file through explicit FTPS and ended session');
+	pass(
+		'FTPS browser file workflow',
+		'created and ended FTPS connection session while driving list/search/navigation, mkdir, text read/write, rename, upload, download, and delete through explicit FTPS'
+	);
 
 	const telnetHost = await createHost(api, {
 		name: 'Smoke Telnet fixture',
@@ -845,18 +851,13 @@ async function smokeSftpWorkspaceUi(page, hostId, databaseUrl) {
 
 	try {
 		await launchPage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=sftp`);
-		await waitFor(
-			async () => {
-				const bodyText = (await launchPage.locator('body').textContent()) ?? '';
-				return bodyText.includes('smoke.txt');
-			},
-			async () => {
-				const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
-					.replace(/\s+/g, ' ')
-					.trim();
-				return `SFTP workspace did not list the fixture file: ${bodyText}`;
-			}
-		);
+		await exerciseBrowserFileManager(launchPage, {
+			hostId,
+			apiBase: 'sftp',
+			label: 'SFTP',
+			fixtureName: 'smoke.txt',
+			workspaceName: 'browser-sftp'
+		});
 	} finally {
 		await launchPage.close().catch(() => {});
 	}
@@ -949,21 +950,17 @@ async function smokeFtpApi(api, hostId, protocol) {
 async function smokeFtpWorkspaceUi(page, hostId, protocol, databaseUrl) {
 	const launchPage = await page.context().newPage();
 	const fixtureName = `${protocol}-smoke.txt`;
+	const label = protocol.toUpperCase();
 
 	try {
 		await launchPage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=${protocol}`);
-		await waitFor(
-			async () => {
-				const bodyText = (await launchPage.locator('body').textContent()) ?? '';
-				return bodyText.includes(fixtureName);
-			},
-			async () => {
-				const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
-					.replace(/\s+/g, ' ')
-					.trim();
-				return `${protocol.toUpperCase()} workspace did not list the fixture file: ${bodyText}`;
-			}
-		);
+		await exerciseBrowserFileManager(launchPage, {
+			hostId,
+			apiBase: 'ftp',
+			label,
+			fixtureName,
+			workspaceName: `browser-${protocol}`
+		});
 	} finally {
 		await launchPage.close().catch(() => {});
 	}
@@ -982,6 +979,178 @@ async function smokeFtpWorkspaceUi(page, hostId, protocol, databaseUrl) {
 				: `${protocol.toUpperCase()} workspace did not create a connection session row.`;
 		}
 	);
+}
+
+async function exerciseBrowserFileManager(
+	page,
+	{ hostId, apiBase, label, fixtureName, workspaceName }
+) {
+	const manager = page.getByRole('region', { name: `${label} file manager` });
+	const remotePath = manager.getByLabel('Remote path');
+	const uploadName = `${workspaceName}-upload.txt`;
+	const renamedName = `${workspaceName}-renamed.txt`;
+	const workspacePath = `/${workspaceName}`;
+	const renamedPath = `${workspacePath}/${renamedName}`;
+	const uploadedText = `${label} browser upload through production endpoint\n`;
+	const editedText = `${label} browser edit through production endpoint\n`;
+
+	await manager.waitFor({ timeout: timeoutMs });
+	await manager.getByRole('button', { name: fixtureName, exact: true }).waitFor({
+		timeout: timeoutMs
+	});
+	await waitForInputValue(remotePath, '/', `${label} file manager did not open at root.`);
+
+	await manager.getByLabel('New folder name').fill(workspaceName);
+	await manager.getByRole('button', { name: 'Create folder' }).click();
+	await manager.getByRole('button', { name: workspaceName, exact: true }).waitFor({
+		timeout: timeoutMs
+	});
+
+	await manager.getByRole('button', { name: workspaceName, exact: true }).click();
+	await waitForInputValue(
+		remotePath,
+		workspacePath,
+		`${label} file manager did not navigate into ${workspacePath}.`
+	);
+
+	await manager.getByLabel('Upload files').setInputFiles({
+		name: uploadName,
+		mimeType: 'text/plain',
+		buffer: Buffer.from(uploadedText)
+	});
+	await manager.getByRole('button', { name: uploadName, exact: true }).waitFor({
+		timeout: timeoutMs
+	});
+
+	await manager.getByRole('button', { name: uploadName, exact: true }).click();
+	const editor = manager.getByPlaceholder('Open a text file to edit it');
+	await waitForInputValue(
+		editor,
+		uploadedText,
+		`${label} text editor did not read the uploaded file through the app endpoint.`
+	);
+	await editor.fill(editedText);
+	const saveResponse = page.waitForResponse(
+		(response) =>
+			response.request().method() === 'PUT' &&
+			response.url().includes(`/api/${apiBase}/${encodeURIComponent(hostId)}/text`) &&
+			response.status() >= 200 &&
+			response.status() < 300,
+		{ timeout: timeoutMs }
+	);
+	const listAfterSaveResponse = page.waitForResponse(
+		(response) =>
+			response.request().method() === 'GET' &&
+			response.url().includes(`/api/${apiBase}/${encodeURIComponent(hostId)}/list`) &&
+			response.url().includes(`path=${encodeURIComponent(workspacePath)}`) &&
+			response.status() >= 200 &&
+			response.status() < 300,
+		{ timeout: timeoutMs }
+	);
+	await manager.getByRole('button', { name: 'Save text file' }).click();
+	await saveResponse;
+	await listAfterSaveResponse;
+	await waitForInputValue(
+		editor,
+		editedText,
+		`${label} text editor did not retain the saved edit.`
+	);
+
+	await manager.getByRole('button', { name: uploadName, exact: true }).click();
+	const renameInput = manager.getByLabel('Rename or move target path');
+	await waitForLocatorEnabled(
+		renameInput,
+		`${label} rename input did not enable after selecting ${uploadName}.`
+	);
+	await renameInput.fill(renamedPath);
+	const renameButton = manager.getByRole('button', { name: 'Rename or move selected path' });
+	await waitForLocatorEnabled(
+		renameButton,
+		`${label} rename button did not enable after setting ${renamedPath}.`
+	);
+	await renameButton.click();
+	await manager.getByRole('button', { name: renamedName, exact: true }).waitFor({
+		timeout: timeoutMs
+	});
+
+	await manager.getByRole('button', { name: 'Parent directory' }).click();
+	await waitForInputValue(remotePath, '/', `${label} file manager did not navigate back to root.`);
+	await manager.getByLabel('Remote search').fill(renamedName);
+	await manager.getByRole('button', { name: 'Tree search' }).click();
+	await manager.getByText('Search results (1)', { exact: true }).waitFor({ timeout: timeoutMs });
+	await manager.getByRole('button', { name: renamedPath, exact: true }).click();
+	await waitForInputValue(
+		remotePath,
+		workspacePath,
+		`${label} search result did not navigate to ${workspacePath}.`
+	);
+
+	const downloadResponse = page.waitForResponse(
+		(response) =>
+			response.request().method() === 'GET' &&
+			response.url().includes(`/api/${apiBase}/${encodeURIComponent(hostId)}/download`) &&
+			response.url().includes(`path=${encodeURIComponent(renamedPath)}`) &&
+			response.status() >= 200 &&
+			response.status() < 300,
+		{ timeout: timeoutMs }
+	);
+	const downloadButton = manager.getByRole('button', { name: 'Download selected paths' });
+	await waitForLocatorEnabled(
+		downloadButton,
+		`${label} download button did not enable after selecting ${renamedName}.`
+	);
+	await downloadButton.click();
+	const downloaded = await downloadResponse;
+	const downloadedText = await downloaded.text();
+	assert.equal(
+		downloadedText,
+		editedText,
+		`${label} browser download returned the wrong file contents.`
+	);
+
+	const deleteButton = manager.getByRole('button', { name: 'Delete selected paths' });
+	await waitForLocatorEnabled(
+		deleteButton,
+		`${label} delete button did not enable after selecting ${renamedName}.`
+	);
+	await deleteButton.click();
+	await page.getByRole('alertdialog').getByRole('button', { name: 'Delete selected' }).click();
+	await waitForLocatorCount(
+		manager.getByRole('button', { name: renamedName, exact: true }),
+		0,
+		`${label} file manager did not remove ${renamedName}.`
+	);
+
+	await manager.getByRole('button', { name: 'Parent directory' }).click();
+	await waitForInputValue(remotePath, '/', `${label} file manager did not return to root.`);
+	await manager.getByLabel('Remote search').fill('');
+	await manager.getByLabel(`Select ${workspaceName}`).click();
+	await waitForLocatorEnabled(
+		deleteButton,
+		`${label} delete button did not enable after selecting ${workspaceName}.`
+	);
+	await deleteButton.click();
+	await page.getByRole('alertdialog').getByRole('button', { name: 'Delete selected' }).click();
+	await waitForLocatorCount(
+		manager.getByRole('button', { name: workspaceName, exact: true }),
+		0,
+		`${label} file manager did not remove ${workspaceName}.`
+	);
+}
+
+async function waitForInputValue(locator, expected, message) {
+	await waitFor(async () => {
+		const value = await locator.inputValue().catch(() => null);
+		return value === expected;
+	}, message);
+}
+
+async function waitForLocatorCount(locator, expected, message) {
+	await waitFor(async () => (await locator.count()) === expected, message);
+}
+
+async function waitForLocatorEnabled(locator, message) {
+	await waitFor(async () => locator.isEnabled().catch(() => false), message);
 }
 
 async function latestConnectionSession(databaseUrl, hostId, protocol) {

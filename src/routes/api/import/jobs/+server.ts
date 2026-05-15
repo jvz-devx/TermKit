@@ -1,9 +1,9 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { importService } from '$lib/server/import/service';
-import { ServicePayloadTooLargeError, ServiceValidationError } from '$lib/server/services/errors';
 import {
 	IMPORT_UPLOAD_MAX_BYTES,
-	assertContentLength,
+	getRequiredFormFile,
+	readMultipartFormData,
 	requireUser,
 	serviceJson
 } from '../../_helpers';
@@ -29,15 +29,8 @@ export const POST: RequestHandler = async (event) => {
 };
 
 async function readImportUpload(request: Request) {
-	assertContentLength(request, IMPORT_UPLOAD_MAX_BYTES);
-	const form = await request.formData().catch(() => null);
-	const file = form?.get('file');
-	if (!(file instanceof File)) {
-		throw new ServiceValidationError(['file is required']);
-	}
-	if (file.size > IMPORT_UPLOAD_MAX_BYTES) {
-		throw new ServicePayloadTooLargeError('file exceeds the 10 MiB upload limit');
-	}
+	const form = await readMultipartFormData(request, IMPORT_UPLOAD_MAX_BYTES);
+	const file = getRequiredFormFile(form, 'file', IMPORT_UPLOAD_MAX_BYTES);
 	const sourceSecret = form?.get('sourceSecret');
 
 	return {

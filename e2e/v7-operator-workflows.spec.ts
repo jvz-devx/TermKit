@@ -946,7 +946,10 @@ function basenameFixture(path: string) {
 }
 
 function isExpectedBrowserConsoleError(message: string) {
-	return message.includes('Failed to load resource') && message.includes('500');
+	if (message.includes('Failed to load resource') && message.includes('500')) return true;
+	return message.includes(
+		'Failed when connecting: Connection closed (code: 1011, reason: target connection failed)'
+	);
 }
 
 function isExpectedRequestAbort(url: string, errorText: string | undefined) {

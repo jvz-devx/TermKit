@@ -156,6 +156,115 @@ describe('V6ResourcesService', () => {
 		]);
 	});
 
+	it('rejects malformed automation, job, policy, approval, and reason inputs before persistence', async () => {
+		expect.assertions(8);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+
+		await expect(
+			service.createAutomationTemplate('user-1', {
+				name: ' ',
+				kind: 'shell_script' as never,
+				visibility: 'public' as never,
+				variables: 'service' as never
+			})
+		).rejects.toMatchObject({
+			issues: [
+				'variables must be an array',
+				'name is required',
+				'kind must be a supported automation template kind',
+				'visibility must be private or workspace'
+			]
+		});
+		await expect(
+			service.createAutomationTemplate('user-1', {
+				name: 'Duplicated variables',
+				kind: 'ssh_command',
+				variables: [
+					{ name: 'service', kind: 'string', options: [' nginx ', '', 'postgres'] },
+					{ name: ' service ', kind: 'password' as never }
+				]
+			})
+		).rejects.toMatchObject({
+			issues: ['variable service is duplicated', 'variable service kind is invalid']
+		});
+		await expect(
+			service.createBackgroundJob('operator-1', {
+				kind: 'bulk_ssh_command',
+				title: 'Patch',
+				templateVersion: 0,
+				targetHostIds: ['host-1'],
+				concurrencyLimit: 65
+			})
+		).rejects.toMatchObject({
+			issues: [
+				'concurrencyLimit must be an integer between 1 and 64',
+				'templateVersion must be a positive integer'
+			]
+		});
+		await expect(
+			service.recordJobEvent({
+				jobId: ' ',
+				severity: 'trace',
+				code: ' ',
+				message: ''
+			})
+		).rejects.toMatchObject({
+			issues: [
+				'jobId is required',
+				'severity must be debug, info, warning, or error',
+				'code is required',
+				'message is required'
+			]
+		});
+		await expect(
+			service.saveWorkspacePolicy({
+				workspaceId: ' ',
+				capability: 'screen_share' as never,
+				effect: 'prompt' as never,
+				minimumRole: 'admin' as never,
+				maxTargets: 0
+			})
+		).rejects.toMatchObject({
+			issues: [
+				'workspaceId is required',
+				'capability must be a supported workspace policy capability',
+				'effect must be allow, deny, approval_required, or reason_required',
+				'minimumRole must be viewer, member, operator, maintainer, or owner',
+				'maxTargets must be an integer between 1 and 10000'
+			]
+		});
+		await expect(
+			service.requestApproval('operator-1', { capability: 'screen_share' as never })
+		).rejects.toMatchObject({
+			issues: ['capability must be a supported workspace policy capability']
+		});
+		await expect(
+			service.recordOperationReason('operator-1', {
+				capability: 'screen_share' as never,
+				reason: ' '
+			})
+		).rejects.toMatchObject({
+			issues: ['capability must be a supported workspace policy capability', 'reason is required']
+		});
+		expect({
+			templates: repository.automationTemplates.size,
+			jobs: repository.backgroundJobs.size,
+			events: repository.jobEvents.size,
+			policies: repository.workspacePolicies.size,
+			approvals: repository.approvalRequests.size,
+			reasons: repository.operationReasons.size
+		}).toEqual({
+			templates: 0,
+			jobs: 0,
+			events: 0,
+			policies: 0,
+			approvals: 0,
+			reasons: 0
+		});
+	});
+
 	it('redacts secret-looking job metadata before persistence', async () => {
 		const repository = new InMemoryV6ResourcesRepository();
 		const service = new V6ResourcesService(repository);

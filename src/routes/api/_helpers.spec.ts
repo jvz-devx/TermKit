@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ServicePayloadTooLargeError, ServiceValidationError } from '$lib/server/services/errors';
 import {
 	assertContentLength,
+	multipartUploadBodyLimit,
 	readJsonObject,
 	readRequiredFormFile,
 	requireParam,
@@ -44,33 +45,55 @@ describe('API request helpers', () => {
 	});
 
 	it('rejects oversized requests before parsing multipart bodies', async () => {
-		expect.assertions(1);
+		expect.assertions(2);
 		const request = new Request('https://termix.test/upload', {
 			method: 'POST',
-			headers: { 'content-length': '1024' }
+			headers: { 'content-length': String(multipartUploadBodyLimit(100) + 1) }
 		});
+		const formData = vi.spyOn(request, 'formData');
 
 		await expect(readRequiredFormFile(request, 'file', 100)).rejects.toBeInstanceOf(
 			ServicePayloadTooLargeError
 		);
+		expect(formData).not.toHaveBeenCalled();
 	});
 
 	it('rejects malformed content-length values before parsing multipart bodies', () => {
-		expect.assertions(1);
+		expect.assertions(2);
 		const request = new Request('https://termix.test/upload', {
 			method: 'POST',
 			headers: { 'content-length': '10, 11' }
 		});
+		const formData = vi.spyOn(request, 'formData');
 
 		expect(() => assertContentLength(request, 100)).toThrow(ServiceValidationError);
+		expect(formData).not.toHaveBeenCalled();
 	});
 
-	it('allows missing content-length so streaming and parsed file limits can enforce the cap', () => {
-		const request = new Request('https://termix.test/upload', {
-			method: 'POST'
+	it('bounds missing content-length requests while multipart data is read', async () => {
+		expect.assertions(1);
+		const request = multipartRequest({
+			body: multipartBody('file', 'upload.txt', '0123456789abcdef'),
+			boundary: 'termix-test-boundary'
 		});
 
-		expect(() => assertContentLength(request, 100)).not.toThrow();
+		await expect(
+			readRequiredFormFile(request, 'file', 100, { maxBodyBytes: 16 })
+		).rejects.toBeInstanceOf(ServicePayloadTooLargeError);
+	});
+
+	it('accepts multipart files without content-length when the bounded body is within limits', async () => {
+		const form = new FormData();
+		form.set('file', new File(['ok'], 'example.txt'));
+		const request = new Request('https://termix.test/upload', {
+			method: 'POST',
+			body: form
+		});
+
+		const file = await readRequiredFormFile(request, 'file', 4);
+
+		expect(file.name).toBe('example.txt');
+		expect(file.size).toBe(2);
 	});
 
 	it('serializes upload limit failures as 413 responses', async () => {
@@ -131,4 +154,38 @@ describe('API request helpers', () => {
 			)
 		).rejects.toBeInstanceOf(ServiceValidationError);
 	});
+
+	it('adds a bounded multipart envelope allowance to route file limits', () => {
+		expect(multipartUploadBodyLimit(1024)).toBe(1024 + 64 * 1024);
+	});
 });
+
+function multipartRequest(input: { body: string; boundary: string }): Request {
+	return new Request('https://termix.test/upload', {
+		method: 'POST',
+		body: streamFromText(input.body),
+		headers: { 'content-type': `multipart/form-data; boundary=${input.boundary}` },
+		duplex: 'half'
+	} as RequestInit & { duplex: 'half' });
+}
+
+function multipartBody(field: string, filename: string, contents: string): string {
+	return [
+		'--termix-test-boundary',
+		`Content-Disposition: form-data; name="${field}"; filename="${filename}"`,
+		'Content-Type: application/octet-stream',
+		'',
+		contents,
+		'--termix-test-boundary--',
+		''
+	].join('\r\n');
+}
+
+function streamFromText(text: string): ReadableStream<Uint8Array> {
+	return new ReadableStream({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode(text));
+			controller.close();
+		}
+	});
+}
