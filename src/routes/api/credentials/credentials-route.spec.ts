@@ -84,6 +84,103 @@ describe('credentials API routes', () => {
 		expect(credentialService.get).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		[
+			'list',
+			() => GET(routeEvent({ method: 'GET', authenticated: false })),
+			() => credentialService.list
+		],
+		[
+			'create',
+			() =>
+				POST(
+					routeEvent({
+						method: 'POST',
+						body: { name: 'deploy', kind: 'password', secret: 'secret' },
+						authenticated: false
+					})
+				),
+			() => credentialService.create
+		],
+		[
+			'update',
+			() =>
+				PATCH(
+					routeEvent({
+						method: 'PATCH',
+						params: { id: 'cred-1' },
+						body: { name: 'ops' },
+						authenticated: false
+					})
+				),
+			() => credentialService.update
+		],
+		[
+			'delete',
+			() =>
+				DELETE(
+					routeEvent({
+						method: 'DELETE',
+						params: { id: 'cred-1' },
+						authenticated: false
+					})
+				),
+			() => credentialService.delete
+		]
+	])(
+		'rejects unauthenticated credential %s requests before service access',
+		async (_name, call, service) => {
+			const response = await call();
+
+			expect(response.status).toBe(401);
+			expect(service()).not.toHaveBeenCalled();
+		}
+	);
+
+	it('serializes credential service validation failures with issues', async () => {
+		vi.mocked(credentialService.create).mockRejectedValueOnce(
+			Object.assign(new Error('name is required; secret is required'), {
+				status: 400,
+				issues: ['name is required', 'secret is required']
+			}) as never
+		);
+
+		const response = await POST(routeEvent({ method: 'POST', body: {} }));
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'name is required; secret is required',
+			issues: ['name is required', 'secret is required']
+		});
+	});
+
+	it('serializes policy-blocked credential mutations', async () => {
+		vi.mocked(credentialService.update).mockRejectedValueOnce(
+			Object.assign(new Error('Credential changes are disabled by workspace policy.'), {
+				status: 403,
+				code: 'policy_action_disabled',
+				category: 'authorization',
+				details: { action: 'credentials', state: 'blocked' }
+			}) as never
+		);
+
+		const response = await PATCH(
+			routeEvent({
+				method: 'PATCH',
+				params: { id: 'cred-1' },
+				body: { name: 'ops' }
+			})
+		);
+
+		expect(response.status).toBe(403);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'Credential changes are disabled by workspace policy.',
+			code: 'policy_action_disabled',
+			category: 'authorization',
+			details: { action: 'credentials', state: 'blocked' }
+		});
+	});
+
 	it('deletes a credential for the signed-in owner', async () => {
 		vi.mocked(credentialService.delete).mockResolvedValueOnce(undefined as never);
 

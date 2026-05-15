@@ -46,6 +46,44 @@ describe('session tickets API route', () => {
 		expect(response.status).toBe(401);
 		expect(sessionTicketService.create).not.toHaveBeenCalled();
 	});
+
+	it('serializes session ticket validation errors from the service boundary', async () => {
+		vi.mocked(sessionTicketService.create).mockRejectedValueOnce(
+			Object.assign(new Error('protocol must match the selected host'), {
+				status: 400,
+				issues: ['protocol must match the selected host']
+			}) as never
+		);
+
+		const response = await POST(routeEvent({ hostId: 'host-1', protocol: 'rdp' }));
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'protocol must match the selected host',
+			issues: ['protocol must match the selected host']
+		});
+	});
+
+	it('serializes policy-blocked session launch states', async () => {
+		vi.mocked(sessionTicketService.create).mockRejectedValueOnce(
+			Object.assign(new Error('Launch sessions requires the operator role.'), {
+				status: 403,
+				code: 'policy_role_denied',
+				category: 'authorization',
+				details: { action: 'launch', state: 'blocked', requiredRole: 'operator' }
+			}) as never
+		);
+
+		const response = await POST(routeEvent({ hostId: 'host-1', protocol: 'ssh' }));
+
+		expect(response.status).toBe(403);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'Launch sessions requires the operator role.',
+			code: 'policy_role_denied',
+			category: 'authorization',
+			details: { action: 'launch', state: 'blocked', requiredRole: 'operator' }
+		});
+	});
 });
 
 function routeEvent(body: Record<string, unknown>, authenticated = true) {

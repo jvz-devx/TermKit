@@ -267,17 +267,21 @@ export function parseWebSocketRoute(
 	const tunnelMatch = SSH_TUNNEL_PATH.exec(url.pathname);
 
 	if (liveMatch) {
+		const ticket = decodeRouteSegment(liveMatch[1]);
+		if (!ticket) return null;
 		return {
 			protocol: 'ssh',
-			ticket: decodeURIComponent(liveMatch[1]),
+			ticket,
 			live: true
 		};
 	}
 
 	if (tunnelMatch) {
+		const sessionId = decodeRouteSegment(tunnelMatch[1]);
+		if (!sessionId) return null;
 		return {
 			tunnel: true,
-			sessionId: decodeURIComponent(tunnelMatch[1])
+			sessionId
 		};
 	}
 
@@ -287,10 +291,21 @@ export function parseWebSocketRoute(
 		return null;
 	}
 
+	const ticket = decodeRouteSegment(match[2]);
+	if (!ticket) return null;
+
 	return {
 		protocol: match[1] as Protocol,
-		ticket: decodeURIComponent(match[2])
+		ticket
 	};
+}
+
+function decodeRouteSegment(value: string): string | null {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return null;
+	}
 }
 
 type OriginPolicy = {

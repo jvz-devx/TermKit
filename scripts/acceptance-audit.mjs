@@ -407,7 +407,7 @@ const checks = [
 		name: 'V7 full workflow and protocol browser coverage',
 		status: 'pending',
 		evidence:
-			'partial local proof: npm run test:e2e covers auth, inventory, importer, workspace launch states, admin, fleet, and server-enforced policy-blocked API denial; npm run smoke:app-protocols covers fixture-backed SSH, SFTP, FTP/FTPS API workflows, FTP/FTPS workspace listing, Telnet, VNC banner/auth staging, and mock RDP gateway boundary workflows; remaining local gap: browser-level SFTP/FTP/FTPS file actions plus deeper RDP/VNC/Telnet interaction coverage'
+			'partial local proof: npm run test:e2e covers auth, inventory, importer, workspace launch states, browser-level SFTP/FTP/FTPS UI actions with mocked protocol API fixtures, RDP/VNC/Telnet launch and reconnect/close states, admin, fleet, and server-enforced policy-blocked API denial; npm run smoke:app-protocols covers fixture-backed real protocol API/workspace boundaries; remaining local gap: browser-level SFTP/FTP/FTPS file actions against real local protocol endpoints without route interception plus deeper RDP/VNC/Telnet interaction coverage'
 	},
 	{
 		name: 'V7 reliability and performance budget foundation',
@@ -419,7 +419,7 @@ const checks = [
 		name: 'V7 final reliability and performance budgets',
 		status: 'pending',
 		evidence:
-			'remaining local gap: convert the documented tunnel-limit, transfer-cancellation, protocol-timeout, background-job retry, importer parsing, and workspace rendering budgets into enforced tests or measurable smoke gates'
+			'partial local proof: npm test enforces deterministic boundedness checks for protocol failure/timeout boundaries, adapter upload-size limits, transfer completion/cancellation/progress helpers, importer parsing, workspace layout normalization, bulk-job fan-out, retry, timeout, and cancellation behavior; remaining local gap: route-level multipart upload memory limits, browser-level transfer abort behavior, and measurable final workspace/importer performance budgets'
 	},
 	{
 		name: 'V7 real FTP external proof',

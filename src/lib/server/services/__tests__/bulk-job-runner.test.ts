@@ -300,6 +300,75 @@ describe('BulkJobRunner', () => {
 		expect(attempts.get('host-2')).toBe(2);
 	});
 
+	it('keeps retry fan-out bounded to retryable failed hosts only', async () => {
+		expect.assertions(8);
+
+		const hostIds = Array.from({ length: 32 }, (_, index) => `host-${index + 1}`);
+		const retryableHostIds = hostIds.filter((_, index) => index % 4 === 0);
+		const nonRetryableHostIds = hostIds.filter((_, index) => index % 4 === 1);
+		const successfulHostIds = hostIds.filter((_, index) => index % 4 >= 2);
+		const attempts = new Map<string, number>();
+		let executorCalls = 0;
+		let active = 0;
+		let maxActive = 0;
+		const runner = new BulkJobRunner({
+			repository: new InMemoryBulkJobRepository(),
+			hosts: new StaticHostResolver(hostIds.map((id) => host(id, 'ssh'))),
+			executors: {
+				async runSshCommand(context) {
+					executorCalls += 1;
+					active += 1;
+					maxActive = Math.max(maxActive, active);
+					const hostIndex = hostIds.indexOf(context.host.hostId);
+					const attempt = (attempts.get(context.host.hostId) ?? 0) + 1;
+					attempts.set(context.host.hostId, attempt);
+					await Promise.resolve();
+					active -= 1;
+
+					if (hostIndex % 4 === 0 && attempt === 1) {
+						throw {
+							code: 'connection_failed',
+							message: 'retryable transient failure',
+							retryable: true
+						};
+					}
+					if (hostIndex % 4 === 1) {
+						throw {
+							code: 'auth_failed',
+							message: 'permanent auth failure',
+							retryable: false
+						};
+					}
+					return { stdout: `ok ${context.host.hostId} attempt ${attempt}` };
+				}
+			}
+		});
+		const created = await runner.createJob({
+			id: 'job-retry-budget',
+			userId: 'user-1',
+			kind: 'ssh_command',
+			targets: hostIds.map((hostId) => ({ hostId })),
+			reviewedHostIds: hostIds,
+			concurrencyLimit: 6,
+			command: { command: 'true' },
+			retry: { maxAttempts: 2, retryableCodes: ['connection_failed'] }
+		});
+
+		const firstRun = await runner.run('user-1', created.id);
+		const secondRun = await runner.retryFailedHosts('user-1', created.id);
+
+		expect(firstRun.status).toBe('partial_failed');
+		expect(secondRun.status).toBe('partial_failed');
+		expect(retryableHostIds.every((hostId) => attempts.get(hostId) === 2)).toBe(true);
+		expect(nonRetryableHostIds.every((hostId) => attempts.get(hostId) === 1)).toBe(true);
+		expect(successfulHostIds.every((hostId) => attempts.get(hostId) === 1)).toBe(true);
+		expect(executorCalls).toBe(hostIds.length + retryableHostIds.length);
+		expect(maxActive).toBeLessThanOrEqual(6);
+		expect(secondRun.hosts.filter((item) => item.status === 'failed')).toHaveLength(
+			nonRetryableHostIds.length
+		);
+	});
+
 	it('marks timed-out hosts retryable and preserves retry reporting', async () => {
 		expect.assertions(7);
 

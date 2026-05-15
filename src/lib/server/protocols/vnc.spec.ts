@@ -1,11 +1,40 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServiceValidationError } from '$lib/server/services/errors';
 import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
 import { CredentialService } from '$lib/server/services/credentials';
 import { InMemoryTermixServicesRepository } from '$lib/server/services/repository';
 import type { CredentialRecord } from '$lib/server/services/types';
 import type { SessionTicketTargetSnapshot } from '$lib/server/services/session-tickets';
-import { resolveVncLaunchCredentials } from './vnc';
+import type { ConsumedTicket } from './types';
+import { createVncAdapter, resolveVncLaunchCredentials } from './vnc';
+
+const tcpMocks = vi.hoisted(() => ({
+	connectTcpTarget: vi.fn(),
+	proxyTcpBytes: vi.fn()
+}));
+
+vi.mock('./tcp', () => ({
+	connectTcpTarget: tcpMocks.connectTcpTarget,
+	proxyTcpBytes: tcpMocks.proxyTcpBytes
+}));
+
+beforeEach(() => {
+	tcpMocks.connectTcpTarget.mockReset();
+	tcpMocks.proxyTcpBytes.mockReset();
+});
+
+describe('VNC protocol adapter', () => {
+	it('sets up an authenticated websocket-to-TCP proxy for the ticket target', () => {
+		const socket = { readyState: 1 };
+		const target = { remoteAddress: 'desktop.example.test' };
+		tcpMocks.connectTcpTarget.mockReturnValue(target);
+
+		createVncAdapter().handle(socket as never, vncTicket());
+
+		expect(tcpMocks.connectTcpTarget).toHaveBeenCalledWith('desktop.example.test', 5901);
+		expect(tcpMocks.proxyTcpBytes).toHaveBeenCalledWith(socket, target);
+	});
+});
 
 describe('VNC launch credentials', () => {
 	it('returns host username without a password when no credential is bound', async () => {
@@ -122,6 +151,19 @@ async function createEncryptedCredential(input: {
 
 	if (!credential) throw new ServiceValidationError(['test credential was not stored']);
 	return { repository, crypto, credential };
+}
+
+function vncTicket(): ConsumedTicket {
+	return {
+		ticketId: 'ticket-1',
+		userId: 'user-1',
+		hostId: 'host-1',
+		protocol: 'vnc',
+		target: {
+			host: 'desktop.example.test',
+			port: 5901
+		}
+	};
 }
 
 function testTargetSnapshot(

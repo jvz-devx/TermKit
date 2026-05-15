@@ -1,8 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import { ServicePayloadTooLargeError, ServiceValidationError } from '$lib/server/services/errors';
-import { assertContentLength, readRequiredFormFile, serviceJson } from './_helpers';
+import {
+	assertContentLength,
+	readJsonObject,
+	readRequiredFormFile,
+	requireParam,
+	requireUser,
+	serviceJson
+} from './_helpers';
 
 describe('API request helpers', () => {
+	it('returns the signed-in user id and rejects missing route auth', () => {
+		expect(
+			requireUser({ locals: { user: { id: 'user-1' } } } as Parameters<typeof requireUser>[0])
+		).toBe('user-1');
+		let error: unknown;
+		try {
+			requireUser({ locals: {} } as Parameters<typeof requireUser>[0]);
+		} catch (caught) {
+			error = caught;
+		}
+		expect(error).toMatchObject({
+			status: 401,
+			message: 'Unauthenticated'
+		});
+	});
+
+	it('requires path params before route handlers reach services', () => {
+		expect(requireParam('host-1', 'hostId')).toBe('host-1');
+		expect(() => requireParam(undefined, 'hostId')).toThrow('Missing route parameter: hostId');
+	});
+
+	it('normalizes malformed JSON bodies to empty input objects', async () => {
+		await expect(
+			readJsonObject(
+				new Request('https://termix.test/api/hosts', {
+					method: 'POST',
+					body: 'not-json',
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+		).resolves.toEqual({});
+	});
+
 	it('rejects oversized requests before parsing multipart bodies', async () => {
 		expect.assertions(1);
 		const request = new Request('https://termix.test/upload', {
@@ -42,6 +82,27 @@ describe('API request helpers', () => {
 
 		expect(response.status).toBe(413);
 		expect(body.error).toContain('50 MiB');
+	});
+
+	it('serializes policy-blocked API states with stable machine-readable fields', async () => {
+		const response = serviceJson(
+			Object.assign(new Error('Launch sessions is disabled by workspace policy.'), {
+				status: 403,
+				code: 'policy_action_disabled',
+				category: 'authorization',
+				details: { action: 'launch', state: 'blocked' },
+				issues: ['Launch sessions is disabled by workspace policy.']
+			})
+		);
+
+		expect(response.status).toBe(403);
+		await expect(response.json()).resolves.toEqual({
+			error: 'Launch sessions is disabled by workspace policy.',
+			issues: ['Launch sessions is disabled by workspace policy.'],
+			code: 'policy_action_disabled',
+			category: 'authorization',
+			details: { action: 'launch', state: 'blocked' }
+		});
 	});
 
 	it('rejects files larger than the route limit', async () => {

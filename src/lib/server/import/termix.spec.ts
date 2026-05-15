@@ -1,5 +1,4 @@
 import { createCipheriv, hkdfSync } from 'node:crypto';
-import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import { mapTermixRecords } from './termix';
 
@@ -322,7 +321,11 @@ describe('mapTermixRecords', () => {
 		]);
 	});
 
-	it('deduplicates reusable credential aliases and keeps dense export parsing inside a coarse budget', () => {
+	it('deduplicates reusable credential aliases and keeps dense export parsing bounded', () => {
+		const rawAccess = {
+			gets: 0,
+			ownKeys: 0
+		};
 		const records = Array.from({ length: 240 }, (_, index) => ({
 			id: `ssh-${index}`,
 			label: ` SSH ${index} `,
@@ -334,15 +337,16 @@ describe('mapTermixRecords', () => {
 			credentialName: `Shared credential ${index % 8}`,
 			password: `secret-${index % 8}`,
 			tags: [' linux ', '', ` shard-${index % 3} `],
-			raw: {
+			raw: createCountingRaw(rawAccess, {
 				source_user_id: index % 5,
-				source_user_email: `owner-${index % 5}@example.test`
-			}
+				source_user_email: `owner-${index % 5}@example.test`,
+				...Object.fromEntries(
+					Array.from({ length: 1_000 }, (_, rawIndex) => [`unused_${rawIndex}`, rawIndex])
+				)
+			})
 		}));
 
-		const startedAt = performance.now();
 		const result = mapTermixRecords(records);
-		const elapsedMs = performance.now() - startedAt;
 
 		expect(result.summary).toEqual({
 			createdHosts: 240,
@@ -371,7 +375,8 @@ describe('mapTermixRecords', () => {
 			'shared-6:password',
 			'shared-7:password'
 		]);
-		expect(elapsedMs).toBeLessThan(250);
+		expect(rawAccess.gets).toBeLessThanOrEqual(records.length * 55);
+		expect(rawAccess.ownKeys).toBe(0);
 	});
 });
 
@@ -397,4 +402,20 @@ function encryptTermixField(input: {
 		salt: salt.toString('hex'),
 		recordId: input.recordId
 	};
+}
+
+function createCountingRaw(
+	access: { gets: number; ownKeys: number },
+	values: Record<string, unknown>
+): Record<string, unknown> {
+	return new Proxy(values, {
+		get(target, property, receiver) {
+			if (typeof property === 'string') access.gets += 1;
+			return Reflect.get(target, property, receiver);
+		},
+		ownKeys(target) {
+			access.ownKeys += 1;
+			return Reflect.ownKeys(target);
+		}
+	});
 }

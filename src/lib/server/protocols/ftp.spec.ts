@@ -317,6 +317,48 @@ describe('FTP file operations', () => {
 		expect(client.uploadedData).toEqual(Buffer.from('saved'));
 	});
 
+	it('rejects oversized uploads before opening an FTP connection', async () => {
+		let clientCreated = false;
+
+		await expect(
+			writeFtpFile(
+				testTarget(),
+				'/tmp/large.bin',
+				Buffer.from('too-large'),
+				() => {
+					clientCreated = true;
+					return new FakeFtpClient();
+				},
+				4
+			)
+		).rejects.toThrow(ServicePayloadTooLargeError);
+		expect(clientCreated).toBe(false);
+	});
+
+	it('passes implicit FTPS settings directly to the FTP client access call', async () => {
+		const client = new FakeFtpClient();
+
+		await listFtpDirectory(
+			testTarget({
+				protocol: 'ftps',
+				secure: 'implicit',
+				secureMode: 'implicit',
+				secureOptions: { servername: 'implicit.example.test', rejectUnauthorized: true }
+			}),
+			'/srv',
+			() => client
+		);
+
+		expect(client.accessOptions).toMatchObject({
+			secure: 'implicit',
+			secureOptions: {
+				servername: 'implicit.example.test',
+				rejectUnauthorized: true
+			}
+		});
+		expect(client.closed).toBe(true);
+	});
+
 	it('streams downloads server-side while closing the FTP client after completion', async () => {
 		const client = new FakeFtpClient();
 		client.downloadData = Buffer.from('streamed');

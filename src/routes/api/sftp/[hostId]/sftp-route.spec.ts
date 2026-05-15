@@ -270,6 +270,28 @@ describe('SFTP API routes', () => {
 		});
 		expect(deleteSftpPath).toHaveBeenCalledWith(target, '/srv/file.txt');
 	});
+
+	it('serializes policy-blocked SFTP routes before file operations run', async () => {
+		vi.mocked(resolveSftpTarget).mockRejectedValueOnce(
+			Object.assign(new Error('Transfer files is disabled by workspace policy.'), {
+				status: 403,
+				code: 'policy_action_disabled',
+				category: 'authorization',
+				details: { action: 'transfer', state: 'blocked', protocol: 'sftp' }
+			}) as never
+		);
+
+		const response = await LIST(routeEvent({ path: '/srv' }));
+
+		expect(response.status).toBe(403);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'Transfer files is disabled by workspace policy.',
+			code: 'policy_action_disabled',
+			category: 'authorization',
+			details: { action: 'transfer', state: 'blocked', protocol: 'sftp' }
+		});
+		expect(listSftpDirectory).not.toHaveBeenCalled();
+	});
 });
 
 function routeEvent(

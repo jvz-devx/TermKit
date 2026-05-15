@@ -103,8 +103,26 @@ describe('RDP Gateway bootstrap', () => {
 		).toThrow('GATEWAY_URL must not include credentials or fragments');
 	});
 
+	it('rejects public Gateway URLs with credentials or fragments', () => {
+		expect(() =>
+			loadRdpGatewayConfig({
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'https://user:pass@rdp.example.test/gateway',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			})
+		).toThrow('GATEWAY_PUBLIC_URL must not include credentials or fragments');
+
+		expect(() =>
+			loadRdpGatewayConfig({
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'https://rdp.example.test/gateway#token',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			})
+		).toThrow('GATEWAY_PUBLIC_URL must not include credentials or fragments');
+	});
+
 	it('provisions a Devolutions Gateway app token and RDP association token', async () => {
-		expect.assertions(10);
+		expect.assertions(11);
 		const calls: Array<{ url: string; init?: RequestInit }> = [];
 		const bootstrapper = new RdpGatewayBootstrapper(
 			loadRdpGatewayConfig({
@@ -161,6 +179,38 @@ describe('RDP Gateway bootstrap', () => {
 			destination: 'tcp://windows.example.test:3389',
 			lifetime: 60
 		});
+		expect(JSON.stringify(calls.map((call) => call.init?.body))).not.toContain('secret');
+	});
+
+	it('brackets IPv6 destinations and trims saved RDP domain metadata', async () => {
+		const bootstrapper = new RdpGatewayBootstrapper(
+			loadRdpGatewayConfig({
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'http://localhost:3000/gateway',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			}),
+			async () => textResponse('token')
+		);
+
+		await expect(
+			bootstrapper.bootstrap(
+				testTicket({
+					target: {
+						host: '2001:db8::10',
+						port: 3390,
+						username: 'ipv6-user'
+					},
+					metadata: { domain: '  DEV  ' }
+				})
+			)
+		).resolves.toMatchObject({
+			destination: 'tcp://[2001:db8::10]:3390',
+			identity: {
+				username: 'ipv6-user',
+				domain: 'DEV'
+			},
+			credentialHint: null
+		});
 	});
 
 	it('surfaces Gateway provisioning failures without claiming success', async () => {
@@ -181,9 +231,76 @@ describe('RDP Gateway bootstrap', () => {
 			'Devolutions Gateway app-token failed (502 Bad Gateway): gateway unavailable'
 		);
 	});
+
+	it('surfaces association-token provisioning failures after app-token staging', async () => {
+		expect.assertions(3);
+		const calls: string[] = [];
+		const bootstrapper = new RdpGatewayBootstrapper(
+			loadRdpGatewayConfig({
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'http://localhost:3000/gateway',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			}),
+			async (url) => {
+				calls.push(String(url));
+				return calls.length === 1
+					? textResponse('app-token')
+					: textResponse('invalid association', false, 403, 'Forbidden');
+			}
+		);
+
+		const bootstrap = bootstrapper.bootstrap(testTicket());
+
+		await expect(bootstrap).rejects.toBeInstanceOf(RdpGatewayProvisioningError);
+		await expect(bootstrap).rejects.toThrow(
+			'Devolutions Gateway session-token failed (403 Forbidden): invalid association'
+		);
+		expect(calls).toEqual([
+			'http://gateway:7171/jet/webapp/app-token',
+			'http://gateway:7171/jet/webapp/session-token'
+		]);
+	});
+
+	it('rejects non-RDP tickets and non-password credentials before provisioning', async () => {
+		expect.assertions(4);
+		let called = false;
+		const bootstrapper = new RdpGatewayBootstrapper(
+			loadRdpGatewayConfig({
+				GATEWAY_URL: 'http://gateway:7171',
+				GATEWAY_PUBLIC_URL: 'http://localhost:3000/gateway',
+				GATEWAY_PROVISIONER_KEY: 'shared-key'
+			}),
+			async () => {
+				called = true;
+				return textResponse('token');
+			}
+		);
+
+		await expect(bootstrapper.bootstrap(testTicket({ protocol: 'ssh' as never }))).rejects.toThrow(
+			'RDP Gateway bootstrap requires an RDP ticket'
+		);
+		expect(called).toBe(false);
+		await expect(
+			bootstrapper.bootstrap(
+				testTicket({
+					target: {
+						host: 'windows.example.test',
+						port: 3389,
+						username: 'key-user',
+						credential: {
+							kind: 'ssh_key',
+							username: 'key-user',
+							privateKey: 'private-key'
+						}
+					}
+				})
+			)
+		).rejects.toThrow('RDP launch requires a password credential');
+		expect(called).toBe(false);
+	});
 });
 
-function testTicket(): ConsumedTicket {
+function testTicket(patch: Partial<ConsumedTicket> = {}): ConsumedTicket {
 	return {
 		ticketId: 'ticket-1',
 		userId: 'user-1',
@@ -199,7 +316,8 @@ function testTicket(): ConsumedTicket {
 				password: 'secret'
 			}
 		},
-		metadata: { domain: 'ACME' }
+		metadata: { domain: 'ACME' },
+		...patch
 	};
 }
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SFTPWrapper } from 'ssh2';
-import { ServiceValidationError } from '$lib/server/services/errors';
+import { ServicePayloadTooLargeError, ServiceValidationError } from '$lib/server/services/errors';
 import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
 import { CredentialService } from '$lib/server/services/credentials';
 import { InMemoryTermixServicesRepository } from '$lib/server/services/repository';
@@ -13,6 +13,7 @@ import {
 	renameSftpPath,
 	resolveSftpTarget,
 	validateSftpPath,
+	writeSftpFile,
 	writeSftpTextFile,
 	type SftpTarget
 } from './sftp';
@@ -213,6 +214,14 @@ describe('SFTP file operations', () => {
 		expect(sshMocks.connectTrustedSsh).toHaveBeenCalledTimes(4);
 	});
 
+	it('rejects oversized uploads before opening SSH or SFTP connections', async () => {
+		await expect(
+			writeSftpFile(testTarget(), '/srv/large.bin', Buffer.from('too-large'), 4)
+		).rejects.toThrow(ServicePayloadTooLargeError);
+
+		expect(sshMocks.connectTrustedSsh).not.toHaveBeenCalled();
+	});
+
 	it('chooses unlink or rmdir after stat and closes on operation failures', async () => {
 		const sftp = new FakeSftp({
 			stats: new Map([
@@ -244,6 +253,17 @@ describe('SFTP file operations', () => {
 
 		await expect(listSftpDirectory(testTarget(), '/srv')).rejects.toThrow('subsystem disabled');
 		expect(connection.ended).toBe(true);
+	});
+
+	it('propagates SSH host-key trust failures before opening the SFTP subsystem', async () => {
+		const error = Object.assign(new Error('changed host key'), { name: 'SshHostKeyTrustError' });
+		sshMocks.connectTrustedSsh.mockRejectedValue(error);
+
+		await expect(listSftpDirectory(testTarget(), '/srv')).rejects.toMatchObject({
+			name: 'SshHostKeyTrustError',
+			message: 'changed host key'
+		});
+		expect(sshMocks.connectTrustedSsh).toHaveBeenCalledWith(testTarget());
 	});
 });
 

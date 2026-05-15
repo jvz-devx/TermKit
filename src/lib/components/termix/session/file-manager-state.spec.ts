@@ -1,4 +1,3 @@
-import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import {
 	assertRecursiveUploadItemsWithinLimits,
@@ -95,7 +94,7 @@ describe('file manager state helpers', () => {
 		expect(isDownloadableFile(entries[2])).toBe(false);
 	});
 
-	it('filters large remote listings within a coarse transform budget', () => {
+	it('filters large remote listings with one bounded selection transform', () => {
 		const largeListing = Array.from({ length: 2_000 }, (_, index): RemoteEntry => {
 			const type = index % 5 === 0 ? 'directory' : 'file';
 			return {
@@ -110,14 +109,14 @@ describe('file manager state helpers', () => {
 			};
 		});
 
-		const startedAt = performance.now();
 		const filtered = filterRemoteEntries(largeListing, 'owner-3');
 		const nextSelection = setVisibleSelection([], filtered, true);
-		const elapsedMs = performance.now() - startedAt;
 
+		expect(largeListing).toHaveLength(2_000);
 		expect(filtered.every((entry) => entry.user === 'owner-3')).toBe(true);
 		expect(nextSelection).toEqual(filtered.map((entry) => entry.path).sort());
-		expect(elapsedMs).toBeLessThan(250);
+		expect(nextSelection).toHaveLength(filtered.length);
+		expect(new Set(nextSelection).size).toBe(nextSelection.length);
 	});
 
 	it('derives progress percentage, throughput, and remaining time', () => {

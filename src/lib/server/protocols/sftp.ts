@@ -1,6 +1,10 @@
 import posixPath from 'node:path/posix';
 import { type Client, type FileEntryWithStats, type SFTPWrapper, type Stats } from 'ssh2';
-import { ServiceNotFoundError, ServiceValidationError } from '$lib/server/services/errors';
+import {
+	ServiceNotFoundError,
+	ServicePayloadTooLargeError,
+	ServiceValidationError
+} from '$lib/server/services/errors';
 import { AesGcmCredentialCrypto } from '$lib/server/services/crypto';
 import {
 	credentialPassphraseContext,
@@ -30,6 +34,8 @@ export type SftpTarget = TicketTarget & {
 	userId: string;
 	hostId: string;
 };
+
+export const maxSftpUploadBytes = 50 * 1024 * 1024;
 
 export function validateSftpPath(value: unknown, field = 'path'): string {
 	const path = typeof value === 'string' ? value.trim() : '';
@@ -100,8 +106,17 @@ export async function readSftpFile(target: SftpTarget, path: string): Promise<Bu
 	return withSftp(target, (sftp) => readFile(sftp, remotePath));
 }
 
-export async function writeSftpFile(target: SftpTarget, path: string, data: Buffer): Promise<void> {
+export async function writeSftpFile(
+	target: SftpTarget,
+	path: string,
+	data: Buffer,
+	maxBytes = maxSftpUploadBytes
+): Promise<void> {
 	const remotePath = validateSftpPath(path);
+	if (data.byteLength > maxBytes) {
+		throw new ServicePayloadTooLargeError('SFTP upload exceeds the 50 MiB limit');
+	}
+
 	return withSftp(target, (sftp) => writeFile(sftp, remotePath, data));
 }
 

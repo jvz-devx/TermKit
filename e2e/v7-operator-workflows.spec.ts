@@ -1,4 +1,12 @@
-import { expect, test, type APIResponse, type BrowserContext, type Page } from '@playwright/test';
+import {
+	expect,
+	test,
+	type APIResponse,
+	type BrowserContext,
+	type Page,
+	type Request,
+	type Route
+} from '@playwright/test';
 
 const adminUsername = 'admin';
 const adminPassword = 'Correct-Horse-Battery-Staple-42!';
@@ -274,18 +282,55 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		await expect(page.getByRole('region', { name: 'SFTP file manager' })).toBeVisible();
 		await expect(page.getByLabel('Remote path')).toBeVisible();
 		await expectWorkspacePane(page, byName(v7RdpName).id, 'rdp', [v7RdpName, 'RDP launch failed']);
+		await page.getByRole('button', { name: 'Close session' }).click();
+		await expect(page.getByText('Disconnected. Reconnect to create a new session.')).toBeVisible();
+		await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+		await expect(page.getByText('RDP launch failed', { exact: false }).first()).toBeVisible();
 		await expectWorkspacePane(page, byName(v7VncName).id, 'vnc', [
 			v7VncName,
 			'VNC session',
 			'VNC not connected'
 		]);
+		await page.getByRole('button', { name: 'Close session' }).click();
+		await expect(page.getByText('VNC disconnected', { exact: true })).toBeVisible();
+		await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+		await expect(page.getByText('VNC not connected', { exact: true })).toBeVisible();
 		await expectWorkspacePane(page, byName(v7TelnetName).id, 'telnet', [
 			v7TelnetName,
 			'TELNET session',
 			'Telnet terminal',
 			'target connection failed'
 		]);
+		await page.getByRole('button', { name: 'Close session' }).click();
+		await expect(page.getByText('Telnet disconnected', { exact: true })).toBeVisible();
+		await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+		await expect(page.getByText('Telnet terminal', { exact: true })).toBeVisible();
 		await expect(page.getByText('state_unsafe_mutation')).toHaveCount(0);
+	});
+
+	test('drives browser file-manager actions for SFTP, FTP, and FTPS without external targets', async ({
+		context,
+		page
+	}) => {
+		await ensureAdminSession(page, context);
+		await seedCoreHosts(page);
+		const hosts = await listHosts(page);
+		const sshHost = hosts.find((host) => host.name === v7SshName);
+		const ftpHost = hosts.find((host) => host.name === v7FtpName);
+		const ftpsHost = hosts.find((host) => host.name === v7FtpsName);
+		expect(sshHost, `seeded host ${v7SshName}`).toBeTruthy();
+		expect(ftpHost, `seeded host ${v7FtpName}`).toBeTruthy();
+		expect(ftpsHost, `seeded host ${v7FtpsName}`).toBeTruthy();
+
+		for (const target of [
+			{ hostId: sshHost!.id, tab: 'sftp', apiBase: 'sftp', label: 'SFTP' },
+			{ hostId: ftpHost!.id, tab: 'ftp', apiBase: 'ftp', label: 'FTP' },
+			{ hostId: ftpsHost!.id, tab: 'ftps', apiBase: 'ftp', label: 'FTPS' }
+		] as const) {
+			const fixture = await installFileManagerFixture(page, target.apiBase);
+			await exerciseFileManager(page, target.hostId, target.tab, target.label, fixture);
+			await fixture.dispose();
+		}
 	});
 
 	test('surfaces FTP and FTPS file-manager launch states from the workspace', async ({
@@ -598,6 +643,306 @@ async function expectWorkspacePane(
 	for (const text of expectedTexts) {
 		await expect(page.getByText(text, { exact: false }).first()).toBeVisible();
 	}
+}
+
+async function exerciseFileManager(
+	page: Page,
+	hostId: string,
+	tab: 'sftp' | 'ftp' | 'ftps',
+	label: 'SFTP' | 'FTP' | 'FTPS',
+	fixture: FileManagerFixture
+) {
+	await page.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=${tab}`);
+	await expect(page).toHaveURL(new RegExp(`/sessions\\?host=${hostId}.*tab=${tab}`));
+	const manager = page.getByRole('region', { name: `${label} file manager` });
+	await expect(manager).toBeVisible();
+	await expect(manager.getByRole('button', { name: 'readme.txt' })).toBeVisible();
+	await expect(manager.getByRole('button', { name: 'logs' })).toBeVisible();
+	expect(fixture.callsFor('list').some((call) => call.path === '/')).toBe(true);
+
+	await manager.getByLabel('Remote search').fill('nested');
+	await manager.getByRole('button', { name: 'Tree search' }).click();
+	await expect(manager.getByText('Search results (1)', { exact: true })).toBeVisible();
+	await expect(manager.getByRole('button', { name: '/logs/nested.log' })).toBeVisible();
+	expect(fixture.callsFor('list').some((call) => call.path === '/logs')).toBe(true);
+	await manager.getByRole('button', { name: 'Clear search' }).click();
+
+	await manager.getByLabel('New folder name').fill('reports');
+	await manager.getByRole('button', { name: 'Create folder' }).click();
+	await expect(manager.getByRole('button', { name: 'reports' })).toBeVisible();
+	expect(fixture.callsFor('mkdir').some((call) => call.path === '/reports')).toBe(true);
+
+	await manager.getByLabel('Select readme.txt').click();
+	await manager.getByRole('button', { name: 'Open selected text file' }).click();
+	await expect(manager.getByText('/readme.txt', { exact: true })).toBeVisible();
+	const editor = manager.getByPlaceholder('Open a text file to edit it');
+	await expect(editor).toHaveValue('Fixture readme for browser workflow coverage.');
+	await editor.fill(`${label} saved text`);
+	await manager.getByRole('button', { name: 'Save text file' }).click();
+	expect(
+		fixture
+			.callsFor('text')
+			.some((call) => call.method === 'PUT' && call.text === `${label} saved text`)
+	).toBe(true);
+
+	await manager.getByLabel('Select readme.txt').click();
+	await manager.getByLabel('Rename or move target path').fill('/readme-renamed.txt');
+	await manager.getByRole('button', { name: 'Rename or move selected path' }).click();
+	await expect(manager.getByRole('button', { name: 'readme-renamed.txt' })).toBeVisible();
+	expect(
+		fixture
+			.callsFor('rename')
+			.some((call) => call.from === '/readme.txt' && call.to === '/readme-renamed.txt')
+	).toBe(true);
+
+	await manager.getByLabel('Upload files').setInputFiles({
+		name: 'upload.txt',
+		mimeType: 'text/plain',
+		buffer: Buffer.from(`${label} uploaded payload`)
+	});
+	await expect(manager.getByRole('button', { name: 'upload.txt' })).toBeVisible();
+	expect(fixture.callsFor('upload').some((call) => call.path === '/upload.txt')).toBe(true);
+
+	await manager.getByLabel('Select upload.txt').click();
+	await manager.getByRole('button', { name: 'Download selected paths' }).click();
+	await expect(manager.getByText('Downloading 1 file', { exact: false })).toBeVisible();
+	expect(fixture.callsFor('download').some((call) => call.path === '/upload.txt')).toBe(true);
+
+	await manager.getByLabel('Select stale.tmp').click();
+	await manager.getByRole('button', { name: 'Delete selected paths' }).click();
+	await page.getByRole('alertdialog').getByRole('button', { name: 'Delete selected' }).click();
+	await expect(manager.getByRole('button', { name: 'stale.tmp' })).toHaveCount(0);
+	expect(fixture.callsFor('delete').some((call) => call.path === '/stale.tmp')).toBe(true);
+}
+
+type FileManagerApiBase = 'sftp' | 'ftp';
+type FileManagerRouteName = 'delete' | 'download' | 'list' | 'mkdir' | 'rename' | 'text' | 'upload';
+type FileManagerCall = {
+	route: FileManagerRouteName;
+	method: string;
+	path?: string;
+	from?: string;
+	to?: string;
+	text?: string;
+};
+type FileManagerEntry = {
+	name: string;
+	path: string;
+	type: 'directory' | 'file' | 'symlink' | 'other';
+	size: number;
+	mtime: string | null;
+	mode?: number;
+	link?: string;
+};
+type FileManagerFixture = {
+	callsFor: (route: FileManagerRouteName) => FileManagerCall[];
+	dispose: () => Promise<void>;
+};
+
+async function installFileManagerFixture(
+	page: Page,
+	apiBase: FileManagerApiBase
+): Promise<FileManagerFixture> {
+	const routePattern = new RegExp(
+		`/api/${apiBase}/[^/]+/(list|mkdir|rename|delete|text|upload|download)(?:\\?|$)`
+	);
+	const calls: FileManagerCall[] = [];
+	const entries = new Map<string, FileManagerEntry[]>([
+		[
+			'/',
+			[
+				fileEntry('readme.txt', '/readme.txt', 48),
+				fileEntry('stale.tmp', '/stale.tmp', 5),
+				directoryEntry('logs', '/logs')
+			]
+		],
+		['/logs', [fileEntry('nested.log', '/logs/nested.log', 12)]]
+	]);
+	const textFiles = new Map<string, string>([
+		['/readme.txt', 'Fixture readme for browser workflow coverage.']
+	]);
+
+	await page.route(routePattern, async (route) => {
+		const request = route.request();
+		const url = new URL(request.url());
+		const routeName = url.pathname.split('/').at(-1) as FileManagerRouteName;
+		const method = request.method();
+		const queryPath = normalizeFixturePath(url.searchParams.get('path') ?? '/');
+		const body = await requestJson(request);
+		const call: FileManagerCall = { route: routeName, method, path: queryPath };
+		calls.push(call);
+
+		if (routeName === 'list') {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ path: queryPath, entries: entries.get(queryPath) ?? [] })
+			});
+			return;
+		}
+
+		if (routeName === 'mkdir') {
+			const path = normalizeFixturePath(stringBodyValue(body, 'path'));
+			call.path = path;
+			addEntry(entries, directoryEntry(basenameFixture(path), path));
+			await jsonOk(route, { path });
+			return;
+		}
+
+		if (routeName === 'rename') {
+			const from = normalizeFixturePath(stringBodyValue(body, 'from'));
+			const to = normalizeFixturePath(stringBodyValue(body, 'to'));
+			call.from = from;
+			call.to = to;
+			renameEntry(entries, textFiles, from, to);
+			await jsonOk(route, { from, to });
+			return;
+		}
+
+		if (routeName === 'delete') {
+			removeEntry(entries, queryPath);
+			textFiles.delete(queryPath);
+			await jsonOk(route, { path: queryPath });
+			return;
+		}
+
+		if (routeName === 'text' && method === 'GET') {
+			await jsonOk(route, {
+				path: queryPath,
+				text: textFiles.get(queryPath) ?? ''
+			});
+			return;
+		}
+
+		if (routeName === 'text' && method === 'PUT') {
+			const path = normalizeFixturePath(stringBodyValue(body, 'path'));
+			const text = stringBodyValue(body, 'text');
+			call.path = path;
+			call.text = text;
+			textFiles.set(path, text);
+			await jsonOk(route, { path, size: Buffer.byteLength(text, 'utf8') });
+			return;
+		}
+
+		if (routeName === 'upload') {
+			const name = basenameFixture(queryPath);
+			addEntry(entries, fileEntry(name, queryPath, request.postDataBuffer()?.byteLength ?? 1));
+			textFiles.set(queryPath, 'Uploaded through browser fixture.');
+			await jsonOk(route, { path: queryPath, size: request.postDataBuffer()?.byteLength ?? 1 });
+			return;
+		}
+
+		if (routeName === 'download') {
+			await route.fulfill({
+				status: 200,
+				contentType: 'text/plain',
+				headers: {
+					'content-disposition': `attachment; filename="${basenameFixture(queryPath)}"`
+				},
+				body: textFiles.get(queryPath) ?? 'downloaded fixture content'
+			});
+			return;
+		}
+
+		await route.continue();
+	});
+
+	return {
+		callsFor: (route) => calls.filter((call) => call.route === route),
+		dispose: () => page.unroute(routePattern)
+	};
+}
+
+async function requestJson(request: Request) {
+	try {
+		return (await request.postDataJSON()) as Record<string, unknown>;
+	} catch {
+		return {};
+	}
+}
+
+async function jsonOk(route: Route, body: unknown) {
+	await route.fulfill({
+		status: 200,
+		contentType: 'application/json',
+		body: JSON.stringify(body)
+	});
+}
+
+function directoryEntry(name: string, path: string): FileManagerEntry {
+	return {
+		name,
+		path,
+		type: 'directory',
+		size: 0,
+		mtime: '2026-05-15T10:00:00.000Z',
+		mode: 0o755
+	};
+}
+
+function fileEntry(name: string, path: string, size: number): FileManagerEntry {
+	return {
+		name,
+		path,
+		type: 'file',
+		size,
+		mtime: '2026-05-15T10:00:00.000Z',
+		mode: 0o644
+	};
+}
+
+function addEntry(entries: Map<string, FileManagerEntry[]>, entry: FileManagerEntry) {
+	const directory = dirnameFixture(entry.path);
+	const current = entries.get(directory) ?? [];
+	entries.set(directory, [...current.filter((candidate) => candidate.path !== entry.path), entry]);
+	if (entry.type === 'directory' && !entries.has(entry.path)) entries.set(entry.path, []);
+}
+
+function renameEntry(
+	entries: Map<string, FileManagerEntry[]>,
+	textFiles: Map<string, string>,
+	from: string,
+	to: string
+) {
+	const fromDirectory = dirnameFixture(from);
+	const source = entries.get(fromDirectory)?.find((entry) => entry.path === from);
+	if (!source) return;
+	removeEntry(entries, from);
+	addEntry(entries, { ...source, name: basenameFixture(to), path: to });
+	const text = textFiles.get(from);
+	if (typeof text === 'string') {
+		textFiles.delete(from);
+		textFiles.set(to, text);
+	}
+}
+
+function removeEntry(entries: Map<string, FileManagerEntry[]>, path: string) {
+	const directory = dirnameFixture(path);
+	entries.set(
+		directory,
+		(entries.get(directory) ?? []).filter((entry) => entry.path !== path)
+	);
+	entries.delete(path);
+}
+
+function stringBodyValue(body: Record<string, unknown>, key: string) {
+	const value = body[key];
+	return typeof value === 'string' ? value : '';
+}
+
+function normalizeFixturePath(value: string) {
+	const path = value.trim().startsWith('/') ? value.trim() : `/${value.trim()}`;
+	return path.replace(/\/+/g, '/') || '/';
+}
+
+function dirnameFixture(path: string) {
+	const parts = normalizeFixturePath(path).split('/').filter(Boolean);
+	parts.pop();
+	return parts.length ? `/${parts.join('/')}` : '/';
+}
+
+function basenameFixture(path: string) {
+	return normalizeFixturePath(path).split('/').filter(Boolean).pop() ?? '/';
 }
 
 function isExpectedBrowserConsoleError(message: string) {

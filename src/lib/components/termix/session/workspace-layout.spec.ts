@@ -94,4 +94,52 @@ describe('session workspace layout metadata', () => {
 		expect(changed.panes[1]).toMatchObject({ id: 'two', kind: 'ftp' });
 		expect(changed.updatedAt).toEqual(expect.any(String));
 	});
+
+	it('keeps dense workspace normalization bounded to renderable panes', () => {
+		const propertyReads = new Map<string, number>();
+		const panes = Array.from({ length: 500 }, (_, index) => countedPane(index, propertyReads));
+
+		const layout = normalizeSessionLayout(
+			{
+				layout: 'quad',
+				panes
+			},
+			'single',
+			'ssh',
+			'fallback-host'
+		);
+
+		expect(layout.panes).toEqual([
+			{ id: 'pane-0', kind: 'ssh', hostId: 'host-0' },
+			{ id: 'pane-1', kind: 'sftp', hostId: 'host-1' },
+			{ id: 'pane-2', kind: 'rdp', hostId: 'host-2' },
+			{ id: 'pane-3', kind: 'vnc', hostId: 'host-3' }
+		]);
+		expect(propertyReads.size).toBe(4);
+		expect(
+			[...propertyReads.values()].reduce((total, count) => total + count, 0)
+		).toBeLessThanOrEqual(32);
+	});
 });
+
+function countedPane(index: number, propertyReads: Map<string, number>) {
+	const increment = () => {
+		const key = `pane-${index}`;
+		propertyReads.set(key, (propertyReads.get(key) ?? 0) + 1);
+	};
+
+	return {
+		get id() {
+			increment();
+			return `pane-${index}`;
+		},
+		get kind() {
+			increment();
+			return ['ssh', 'sftp', 'rdp', 'vnc'][index % 4];
+		},
+		get hostId() {
+			increment();
+			return `host-${index}`;
+		}
+	};
+}

@@ -15,21 +15,21 @@ Baseline from the integrated V7 foundation wave:
 | Functions  |  58.77% |
 | Lines      |  63.05% |
 
-Latest V7 ratchet measurement after the third coverage, workflow, and reliability hardening wave:
+Latest V7 ratchet measurement after the fourth coverage, workflow, and reliability hardening wave:
 
 | Metric     | Current |
 | ---------- | ------: |
-| Statements |  73.46% |
-| Branches   |  66.87% |
-| Functions  |  72.26% |
-| Lines      |  76.41% |
+| Statements |  74.07% |
+| Branches   |  67.54% |
+| Functions  |  72.55% |
+| Lines      |  76.97% |
 
 The current global CI gate intentionally ratchets just below that measured floor:
 
 | Metric     | Gate |
 | ---------- | ---: |
-| Statements |  73% |
-| Branches   |  66% |
+| Statements |  74% |
+| Branches   |  67% |
 | Functions  |  72% |
 | Lines      |  76% |
 
@@ -40,10 +40,13 @@ Additional scoped ratchets protect the owned surfaces that already clear higher 
 | `src/lib/server/auth/**`                                  |        91% |      87% |       96% |   91% |
 | `src/lib/server/crypto/**`                                |        86% |      84% |       95% |   91% |
 | `src/lib/server/import/**`                                |        80% |      73% |       90% |   82% |
-| `src/lib/server/protocols/**`                             |        89% |      83% |       89% |   91% |
-| `src/routes/api/**`                                       |        90% |      72% |       86% |   94% |
+| `src/lib/server/protocols/**`                             |        89% |      84% |       90% |   92% |
+| `src/lib/server/rdp/**`                                   |        92% |      80% |       90% |   93% |
+| `src/lib/server/ws/**`                                    |        79% |      77% |       68% |   82% |
+| `src/routes/api/**`                                       |        94% |      81% |       90% |   98% |
 | `src/lib/termix/**`                                       |        86% |      76% |       96% |   89% |
 | `src/lib/server/ssh-live/**`                              |        65% |      63% |       61% |   68% |
+| `src/lib/server/services/**`                              |        69% |      65% |       69% |   75% |
 | `src/lib/server/services/bulk-job-runner.ts`              |        82% |      71% |       88% |   88% |
 | `src/lib/components/termix/session/file-manager-state.ts` |        87% |      72% |      100% |   91% |
 
@@ -59,10 +62,8 @@ need follow-up tests.
 V7 is not complete at this baseline. The current audit treats coverage ratchets
 as repo-owned local evidence, not final V7 completion. `audit:acceptance` keeps
 separate pending rows for final coverage target achievement, full browser/protocol
-workflow coverage, and final reliability/performance budgets. Browser/protocol
-workflow coverage has stronger local evidence through deterministic Playwright
-plus smoke workflows, but it is not complete browser-level proof for all file and
-remote-desktop workflows. The remaining final target gaps from `spec.md` are:
+workflow coverage, and final reliability/performance budgets until the measured
+coverage and end-to-end proof reach the `spec.md` target surfaces.
 
 These are the remaining final target gaps before V7 can be called complete:
 
@@ -82,20 +83,22 @@ These are the remaining final target gaps before V7 can be called complete:
   but the scripts themselves are not yet first-class coverage include targets.
 - Deterministic browser coverage now covers protected-route auth, credential and
   host CRUD, importer validation/import, session filtering, workspace launch
-  shells for SSH/SFTP/RDP/VNC/Telnet/FTP/FTPS, FTP/FTPS file-manager shell
-  states, fleet no-target and approval-required states, admin views, non-admin
-  admin denial, server-enforced protocol API denial, and policy-visible disabled
-  states. Smoke coverage now exercises successful fixture-backed SSH, SFTP,
-  FTP/FTPS API workflows, FTP/FTPS workspace listing, Telnet, VNC banner/auth
-  staging, and mock RDP gateway boundary workflows without real external targets.
-  Remaining browser workflow gaps are browser-level SFTP/FTP/FTPS file actions
-  and deeper RDP/VNC/Telnet interaction coverage.
-- Remaining reliability/performance gaps include broader protocol-adapter
-  timeout/failure injection, browser-level transfer abort behavior, importer
-  parsing budgets, and workspace rendering budgets. Current local tests cover
-  bulk-job timeout/retry/cancellation/concurrency behavior, large fan-out
-  planning, file-manager transfer completion/cancellation progress, and large
-  file-list transforms.
+  shells for SSH/SFTP/RDP/VNC/Telnet/FTP/FTPS, browser-level SFTP/FTP/FTPS UI
+  actions against mocked protocol API fixtures, fleet no-target and
+  approval-required states, admin views, non-admin admin denial, server-enforced
+  protocol API denial, policy-visible disabled states, and local RDP/VNC/Telnet
+  reconnect/close states. Smoke coverage separately exercises fixture-backed
+  real protocol API and workspace boundaries. Remaining browser workflow gaps
+  are browser-level SFTP/FTP/FTPS file actions against real local protocol
+  endpoints without route interception and deeper RDP/VNC/Telnet interaction
+  coverage.
+- Reliability/performance budgets now have deterministic boundedness coverage for
+  protocol-adapter failure boundaries, adapter upload-size limits, transfer
+  completion/cancellation/progress helpers, importer parsing, workspace layout
+  normalization, bulk-job fan-out, retry, timeout, and cancellation behavior.
+  Remaining reliability gaps include route-level multipart upload memory limits,
+  browser-level transfer abort behavior, and measurable final workspace/importer
+  performance budgets.
 
 Real Microsoft, RDP, VNC, SSH, FTP, and FTPS acceptance remains external proof
 only. Local coverage gates must not require those live tenants or targets.

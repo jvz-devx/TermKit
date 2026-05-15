@@ -124,6 +124,14 @@ describe('websocket upgrade routing', () => {
 		});
 	});
 
+	it('rejects malformed percent-encoded route tickets and session ids', () => {
+		expect.assertions(3);
+
+		expect(parseWebSocketRoute({ url: '/ws/ssh/%E0%A4%A' })).toBeNull();
+		expect(parseWebSocketRoute({ url: '/ws/ssh/live/%E0%A4%A' })).toBeNull();
+		expect(parseWebSocketRoute({ url: '/ws/tunnel/%E0%A4%A' })).toBeNull();
+	});
+
 	it('does not expose an RDP websocket route', () => {
 		expect.assertions(1);
 
@@ -1003,6 +1011,32 @@ describe('websocket upgrade routing', () => {
 		expect(adapterCalled).toBe(false);
 	});
 
+	it('rejects malformed websocket route encodings before auth and tickets', async () => {
+		expect.assertions(3);
+
+		const authenticateSession = vi.fn(testSessionAuthenticator());
+		let consumeCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession,
+			tickets: {
+				async consume() {
+					consumeCalled = true;
+					return testConsumedTicket();
+				}
+			}
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/%E0%A4%A');
+
+		expect(response).toContain('404 Unknown websocket route');
+		expect(authenticateSession).not.toHaveBeenCalled();
+		expect(consumeCalled).toBe(false);
+	});
+
 	it('accepts websocket upgrades from an allowed origin', async () => {
 		expect.assertions(1);
 
@@ -1066,6 +1100,39 @@ describe('websocket upgrade routing', () => {
 		expect(response).toContain('401 Invalid or expired session ticket');
 		expect(consumedForUserId).toBe('user-2');
 		expect(adapterCalled).toBe(false);
+	});
+
+	it('rejects unavailable protocol adapters before consuming tickets', async () => {
+		expect.assertions(3);
+
+		let consumeCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						throw new Error('unused adapter');
+					}
+				}
+			],
+			tickets: {
+				async consume() {
+					consumeCalled = true;
+					return testConsumedTicket({ protocol: 'vnc' as never });
+				}
+			}
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/vnc/ticket-1');
+
+		expect(response).toContain('501 Protocol adapter unavailable');
+		expect(consumeCalled).toBe(false);
+		expect(tunnelMocks.proxyTcpTunnelWebSocket).not.toHaveBeenCalled();
 	});
 
 	it('consumes matching tickets and hands the socket to the protocol adapter', async () => {

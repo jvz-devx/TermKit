@@ -169,6 +169,40 @@ describe('FTP API routes', () => {
 		expect(listFtpDirectory).toHaveBeenCalledWith(target, '/');
 	});
 
+	it('serializes FTPS TLS failures from the recorded action wrapper', async () => {
+		vi.mocked(runRecordedFtpAction).mockRejectedValueOnce(
+			Object.assign(new Error('FTPS certificate validation failed'), {
+				status: 502,
+				code: 'ftp_tls_certificate_invalid',
+				category: 'tls',
+				details: {
+					action: 'list',
+					path: '/',
+					protocol: 'ftps',
+					ftpsMode: 'explicit',
+					nodeCode: 'DEPTH_ZERO_SELF_SIGNED_CERT'
+				}
+			}) as never
+		);
+
+		const response = await LIST(routeEvent());
+
+		expect(response.status).toBe(502);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'FTPS certificate validation failed',
+			code: 'ftp_tls_certificate_invalid',
+			category: 'tls',
+			details: {
+				action: 'list',
+				path: '/',
+				protocol: 'ftps',
+				ftpsMode: 'explicit',
+				nodeCode: 'DEPTH_ZERO_SELF_SIGNED_CERT'
+			}
+		});
+		expect(listFtpDirectory).not.toHaveBeenCalled();
+	});
+
 	it('rejects invalid download paths before opening a recorded stream', async () => {
 		const response = await DOWNLOAD(routeEvent({ path: 'relative.txt' }));
 

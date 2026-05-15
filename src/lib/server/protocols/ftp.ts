@@ -253,9 +253,14 @@ export async function writeFtpFile(
 	target: FtpTarget,
 	path: string,
 	data: Buffer,
-	clientFactory: FtpClientFactory = createFtpClient
+	clientFactory: FtpClientFactory = createFtpClient,
+	maxBytes = maxFtpUploadBytes
 ): Promise<void> {
 	const remotePath = validateFtpPath(path);
+	if (data.byteLength > maxBytes) {
+		throw new ServicePayloadTooLargeError('FTP upload exceeds the 50 MiB limit');
+	}
+
 	return withFtp(target, clientFactory, async (client) => {
 		await client.uploadFrom(Readable.from([data]), remotePath);
 	});

@@ -59,6 +59,28 @@ describe('connection session lifecycle API route', () => {
 			issues: ['connectionSessionId is invalid or event is unsupported']
 		});
 	});
+
+	it('records failed lifecycle events with sanitized error codes', async () => {
+		vi.mocked(connectionSessionService.failForUser).mockResolvedValueOnce({
+			id: 'session-1'
+		} as never);
+
+		const response = await POST(
+			routeEvent({
+				connectionSessionId: 'session-1',
+				event: 'failed',
+				errorCode: ' SSH Tunnel: Proxy Failed! '
+			})
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({ ok: true });
+		expect(connectionSessionService.failForUser).toHaveBeenCalledWith(
+			'user-1',
+			'session-1',
+			'ssh_tunnel:_proxy_failed_'
+		);
+	});
 });
 
 function routeEvent(body: Record<string, unknown>, authenticated = true) {

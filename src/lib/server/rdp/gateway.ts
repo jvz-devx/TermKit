@@ -80,6 +80,7 @@ export class RdpGatewayBootstrapper {
 			throw new RdpGatewayConfigurationError('RDP Gateway bootstrap requires an RDP ticket');
 		}
 
+		const credentialHint = toRdpCredentialHint(ticket);
 		const sessionId = randomUUID();
 		const destination = toTcpTarget(ticket.target.host, ticket.target.port);
 		const appToken = await this.signAppToken(ticket.userId);
@@ -89,7 +90,6 @@ export class RdpGatewayBootstrapper {
 			sessionId
 		});
 		const expiresAt = new Date(Date.now() + this.config.sessionLifetimeSeconds * 1000);
-		const credentialHint = toRdpCredentialHint(ticket);
 
 		return {
 			provider: 'devolutions-gateway',

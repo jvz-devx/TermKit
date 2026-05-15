@@ -613,6 +613,279 @@ describe('DrizzleTermixServicesRepository', () => {
 		);
 	});
 
+	it('revokes workspace-scoped visibility after membership deletion without removing owner data', async () => {
+		expect.assertions(11);
+
+		const repository = new InMemoryTermixServicesRepository();
+		await repository.createWorkspace(workspaceRecord({ id: 'workspace-1', name: 'Operations' }));
+		await repository.createWorkspaceMembership(
+			workspaceMembership({
+				id: 'owner-1',
+				workspaceId: 'workspace-1',
+				userId: 'owner-1',
+				role: 'owner'
+			})
+		);
+		await repository.createWorkspaceMembership(
+			workspaceMembership({
+				id: 'member-1',
+				workspaceId: 'workspace-1',
+				userId: 'member-1',
+				role: 'member'
+			})
+		);
+		await repository.createHost(
+			hostRecord({ id: 'member-private-host', userId: 'member-1', workspaceId: null })
+		);
+		await repository.createHost(
+			hostRecord({ id: 'shared-host', userId: 'owner-1', workspaceId: 'workspace-1' })
+		);
+		await repository.createCredential(
+			credentialRecord({
+				id: 'shared-credential',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1'
+			})
+		);
+		await repository.createConnectionSession(
+			connectionSession({
+				id: 'member-private-session',
+				userId: 'member-1',
+				workspaceId: null,
+				hostId: 'member-private-host'
+			})
+		);
+		await repository.createConnectionSession(
+			connectionSession({
+				id: 'shared-session',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				hostId: 'shared-host'
+			})
+		);
+		await repository.createSshTunnelProfile(
+			sshTunnelProfile({
+				id: 'shared-profile',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				sshHostId: 'shared-host'
+			})
+		);
+		await repository.createSshTunnelSession(
+			sshTunnelSession({
+				id: 'shared-tunnel-session',
+				profileId: 'shared-profile',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				sshHostId: 'shared-host'
+			})
+		);
+
+		await expect(repository.getWorkspace('member-1', 'workspace-1')).resolves.toMatchObject({
+			id: 'workspace-1'
+		});
+		await expect(repository.getHost('member-1', 'shared-host')).resolves.toMatchObject({
+			id: 'shared-host'
+		});
+		await expect(repository.listConnectionHistory('member-1')).resolves.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: 'shared-session' }),
+				expect.objectContaining({ id: 'member-private-session' })
+			])
+		);
+		await expect(repository.deleteWorkspaceMembership('workspace-1', 'member-1')).resolves.toBe(
+			true
+		);
+
+		await expect(repository.getWorkspace('member-1', 'workspace-1')).resolves.toBeNull();
+		await expect(repository.getHost('member-1', 'shared-host')).resolves.toBeNull();
+		await expect(repository.getCredential('member-1', 'shared-credential')).resolves.toBeNull();
+		await expect(repository.listConnectionHistory('member-1')).resolves.toEqual([
+			expect.objectContaining({ id: 'member-private-session' })
+		]);
+		await expect(repository.listSshTunnelProfiles('member-1')).resolves.toEqual([]);
+		await expect(repository.listSshTunnelSessions('member-1')).resolves.toEqual([]);
+		await expect(repository.getHost('owner-1', 'shared-host')).resolves.toMatchObject({
+			id: 'shared-host',
+			workspaceId: 'workspace-1'
+		});
+	});
+
+	it('filters null-scoped connection history and falls back to error codes for failed rows', async () => {
+		expect.assertions(5);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const startedAt = new Date('2026-05-14T10:00:00.000Z');
+		const endedAt = new Date('2026-05-14T10:00:04.000Z');
+		await repository.createWorkspace(workspaceRecord({ id: 'workspace-1' }));
+		await repository.createWorkspaceMembership(
+			workspaceMembership({ id: 'membership-1', workspaceId: 'workspace-1', userId: 'user-1' })
+		);
+		await repository.createHost(hostRecord({ id: 'host-1', userId: 'user-1' }));
+		await repository.createConnectionSession(
+			connectionSession({
+				id: 'failed-with-code',
+				userId: 'user-1',
+				hostId: null,
+				status: 'failed',
+				startedAt,
+				endedAt,
+				errorCode: 'proxy_unavailable',
+				errorMessage: null,
+				errorDetails: { retryable: true }
+			})
+		);
+		await repository.createConnectionSession(
+			connectionSession({
+				id: 'active-with-host',
+				userId: 'user-1',
+				hostId: 'host-1',
+				status: 'active',
+				startedAt: new Date('2026-05-14T10:01:00.000Z')
+			})
+		);
+		await repository.createConnectionSession(
+			connectionSession({
+				id: 'workspace-row',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				hostId: null,
+				status: 'ended',
+				startedAt: new Date('2026-05-14T10:02:00.000Z')
+			})
+		);
+
+		await expect(
+			repository.listConnectionHistory('user-1', { workspaceId: null, hostId: null })
+		).resolves.toEqual([
+			expect.objectContaining({
+				id: 'failed-with-code',
+				workspaceName: null,
+				hostName: null,
+				durationMs: 4000,
+				errorReason: 'proxy_unavailable',
+				errorDetails: { retryable: true }
+			})
+		]);
+		await expect(
+			repository.listConnectionHistory('user-1', { status: 'failed', hostId: null })
+		).resolves.toEqual([expect.objectContaining({ id: 'failed-with-code' })]);
+		await expect(
+			repository.listConnectionHistory('user-1', { status: 'active', workspaceId: null })
+		).resolves.toEqual([expect.objectContaining({ id: 'active-with-host', durationMs: null })]);
+		await expect(
+			repository.listConnectionHistory('user-1', { userId: 'owner-1', workspaceId: 'workspace-1' })
+		).resolves.toEqual([expect.objectContaining({ id: 'workspace-row' })]);
+		await expect(
+			repository.listConnectionHistory('user-1', { userId: 'owner-1', workspaceId: null })
+		).resolves.toEqual([]);
+	});
+
+	it('keeps workspace layout updates scoped to the owning user and preserves updated panes', async () => {
+		expect.assertions(8);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const updatedAt = new Date('2026-05-14T10:03:00.000Z');
+		await repository.createWorkspaceLayout({
+			id: 'layout-1',
+			userId: 'user-1',
+			workspaceId: 'workspace-1',
+			layoutKind: 'tabs',
+			panes: [{ hostId: 'host-1', protocol: 'ssh' }],
+			createdAt: new Date('2026-05-14T10:00:00.000Z'),
+			updatedAt: new Date('2026-05-14T10:00:00.000Z')
+		});
+		await repository.createWorkspaceLayout({
+			id: 'layout-2',
+			userId: 'user-2',
+			workspaceId: 'workspace-1',
+			layoutKind: 'tabs',
+			panes: [{ hostId: 'host-2', protocol: 'rdp' }],
+			createdAt: new Date('2026-05-14T10:00:00.000Z'),
+			updatedAt: new Date('2026-05-14T10:00:00.000Z')
+		});
+
+		await expect(
+			repository.updateWorkspaceLayout('user-2', 'layout-1', { layoutKind: 'grid' })
+		).resolves.toBeNull();
+		await expect(
+			repository.updateWorkspaceLayout('user-1', 'layout-1', {
+				workspaceId: null,
+				layoutKind: 'split',
+				panes: [
+					{ hostId: 'host-1', protocol: 'ssh', sessionId: 'session-1' },
+					{ hostId: 'host-3', protocol: 'vnc', pinned: true }
+				],
+				updatedAt
+			})
+		).resolves.toMatchObject({
+			id: 'layout-1',
+			userId: 'user-1',
+			workspaceId: null,
+			layoutKind: 'split',
+			panes: [
+				{ hostId: 'host-1', protocol: 'ssh', sessionId: 'session-1' },
+				{ hostId: 'host-3', protocol: 'vnc', pinned: true }
+			],
+			updatedAt
+		});
+		await expect(repository.listWorkspaceLayouts('user-1', { workspaceId: null })).resolves.toEqual(
+			[expect.objectContaining({ id: 'layout-1', layoutKind: 'split' })]
+		);
+		await expect(
+			repository.listWorkspaceLayouts('user-1', { workspaceId: 'workspace-1' })
+		).resolves.toEqual([]);
+		await expect(
+			repository.listWorkspaceLayouts('user-2', { workspaceId: 'workspace-1' })
+		).resolves.toEqual([expect.objectContaining({ id: 'layout-2' })]);
+		await expect(repository.deleteWorkspaceLayout('user-2', 'layout-1')).resolves.toBe(false);
+		await expect(repository.deleteWorkspaceLayout('user-1', 'layout-1')).resolves.toBe(true);
+		await expect(repository.getWorkspaceLayout('user-1', 'layout-1')).resolves.toBeNull();
+	});
+
+	it('cleans up SSH live sessions and attach tickets when deleting a host', async () => {
+		expect.assertions(9);
+
+		const repository = new InMemoryTermixServicesRepository();
+		await repository.createHost(hostRecord({ id: 'host-1', userId: 'owner-1' }));
+		await repository.createHost(hostRecord({ id: 'host-2', userId: 'owner-1' }));
+		await repository.createSshLiveSession(
+			sshLiveSession({ id: 'host-1-session', hostId: 'host-1' })
+		);
+		await repository.createSshLiveSession(
+			sshLiveSession({ id: 'host-2-session', hostId: 'host-2' })
+		);
+		await repository.createSshAttachTicket(
+			sshAttachTicket({
+				id: 'host-1-ticket',
+				sshLiveSessionId: 'host-1-session',
+				ticketHash: 'host-1-ticket-hash'
+			})
+		);
+		await repository.createSshAttachTicket(
+			sshAttachTicket({
+				id: 'host-2-ticket',
+				sshLiveSessionId: 'host-2-session',
+				ticketHash: 'host-2-ticket-hash'
+			})
+		);
+
+		await expect(repository.countOpenSshLiveSessions('owner-1')).resolves.toBe(2);
+		await expect(repository.findReusableSshLiveSession('owner-1', 'host-1')).resolves.toMatchObject(
+			{ id: 'host-1-session' }
+		);
+		await expect(repository.deleteHost('owner-1', 'missing-host')).resolves.toBe(false);
+		await expect(repository.deleteHost('owner-1', 'host-1')).resolves.toBe(true);
+		await expect(repository.getSshLiveSession('owner-1', 'host-1-session')).resolves.toBeNull();
+		await expect(repository.getSshAttachTicketByHash('host-1-ticket-hash')).resolves.toBeNull();
+		await expect(repository.countOpenSshLiveSessions('owner-1')).resolves.toBe(1);
+		await expect(repository.findReusableSshLiveSession('owner-1', 'host-1')).resolves.toBeNull();
+		await expect(repository.getSshAttachTicketByHash('host-2-ticket-hash')).resolves.toMatchObject({
+			id: 'host-2-ticket',
+			sshLiveSessionId: 'host-2-session'
+		});
+	});
+
 	it('mirrors set-null and cascade delete semantics for in-memory host references', async () => {
 		expect.assertions(13);
 
