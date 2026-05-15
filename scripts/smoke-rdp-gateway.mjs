@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { once } from 'node:events';
 import { createServer as createHttpServer } from 'node:http';
+import { connect as connectSocket } from 'node:net';
 import { createServer as createViteServer } from 'vite';
 
 const defaultTimeoutMs = 10_000;
@@ -204,6 +205,8 @@ async function smokeRealGatewayBootstrap({ RdpGatewayBootstrapper, loadRdpGatewa
 		};
 	}
 
+	await assertTcpTargetReachable(target.host, target.port);
+
 	const bootstrap = await bootstrapper.bootstrap({
 		ticketId: 'smoke-real-ticket',
 		userId: process.env.TERMIXKIT_SMOKE_RDP_USER_ID?.trim() || 'termix-rdp-smoke',
@@ -402,6 +405,31 @@ function timeoutFetch(timeoutMs) {
 			clearTimeout(timer);
 		}
 	};
+}
+
+function assertTcpTargetReachable(host, port) {
+	const timeoutMs = Math.min(readTimeoutMs(), 3000);
+	return new Promise((resolve, reject) => {
+		const socket = connectSocket({ host, port });
+		let settled = false;
+		const finish = (error) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			socket.destroy();
+			if (error) {
+				reject(new Error(`RDP target is not reachable at ${host}:${port}: ${errorMessage(error)}`));
+				return;
+			}
+			resolve();
+		};
+		const timer = setTimeout(
+			() => finish(new Error(`connection timed out after ${timeoutMs}ms`)),
+			timeoutMs
+		);
+		socket.once('connect', () => finish());
+		socket.once('error', finish);
+	});
 }
 
 async function withTimeout(promise, name, timeoutMs) {

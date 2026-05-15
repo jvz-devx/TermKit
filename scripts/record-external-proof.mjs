@@ -35,7 +35,7 @@ const configs = {
 		proofCommand: 'TERMIXKIT_SMOKE_VNC_HOST=<redacted> npm run smoke:protocols'
 	},
 	realRdp: {
-		label: 'real RDP through Devolutions Gateway',
+		label: 'reachable RDP target bootstrap through Devolutions Gateway',
 		command: ['npm', ['run', 'smoke:rdp-gateway']],
 		requiredEnv: [
 			'GATEWAY_URL',
@@ -310,7 +310,7 @@ function forbiddenSecretPattern(value) {
 			'secret, token, or cookie label'
 		],
 		[
-			/\b[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|PASSPHRASE)[A-Z0-9_]*\s*=/i,
+			/\b[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|PASSPHRASE|KEY)[A-Z0-9_]*\s*=/i,
 			'env-style secret label'
 		],
 		[/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, 'JWT-like value']

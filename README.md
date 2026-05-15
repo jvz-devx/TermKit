@@ -448,8 +448,8 @@ nix develop -c npm run acceptance:record-real-vnc
 ```
 
 On a local Nix dev shell with SSH on localhost, TigerVNC, Docker, the pinned
-Gateway image, and a loopback RDP target, refresh all V1 external proof entries
-sequentially with:
+Gateway image, and either a loopback RDP target or a disposable local XRDP image,
+refresh all V1 external proof entries sequentially with:
 
 ```sh
 nix develop -c npm run acceptance:refresh-local-v1-proofs
@@ -459,7 +459,13 @@ Override the defaults with `TERMIXKIT_LOCAL_PROOF_SSH_HOST`,
 `TERMIXKIT_LOCAL_PROOF_SSH_USERNAME`, `TERMIXKIT_LOCAL_PROOF_SSH_PRIVATE_KEY_PATH`,
 `TERMIXKIT_LOCAL_PROOF_VNC_DISPLAY`, `TERMIXKIT_LOCAL_PROOF_VNC_PORT`,
 `TERMIXKIT_LOCAL_PROOF_RDP_HOST`, `TERMIXKIT_LOCAL_PROOF_RDP_PORT`,
-`TERMIXKIT_LOCAL_PROOF_GATEWAY_PORT`, and `TERMIXKIT_LOCAL_PROOF_GATEWAY_IMAGE`.
+`TERMIXKIT_LOCAL_PROOF_RDP_USERNAME`, `TERMIXKIT_LOCAL_PROOF_RDP_PASSWORD`,
+`TERMIXKIT_LOCAL_PROOF_RDP_CONTAINER_IMAGE`, `TERMIXKIT_LOCAL_PROOF_GATEWAY_PORT`,
+and `TERMIXKIT_LOCAL_PROOF_GATEWAY_IMAGE`. If
+`TERMIXKIT_LOCAL_PROOF_RDP_CONTAINER_IMAGE` is set, or if a local
+`guacd-rs-xrdp-test:latest` image is already available, the refresh script starts
+that disposable RDP target on the selected local RDP port before recording the RDP
+Gateway bootstrap proof.
 
 The Nix dev shell includes TigerVNC for reproducible local VNC proof runs. Start a temporary no-auth server in one shell, then run the smoke in another:
 
@@ -474,7 +480,7 @@ Smoke-test the production app boundary with disposable SSH/SFTP, Telnet, VNC, an
 nix develop -c npm run smoke:app-protocols
 ```
 
-Smoke-test RDP Gateway bootstrapping. Without real Gateway env vars this runs a mocked Devolutions Gateway bootstrap; with `GATEWAY_URL`, `GATEWAY_PUBLIC_URL`, `GATEWAY_PROVISIONER_KEY`, and `TERMIXKIT_SMOKE_RDP_HOST` it provisions against a real Gateway target. Optional real-target inputs are `TERMIXKIT_SMOKE_RDP_PORT`, `TERMIXKIT_SMOKE_RDP_USERNAME`, `TERMIXKIT_SMOKE_RDP_PASSWORD`, `TERMIXKIT_SMOKE_RDP_DOMAIN`, `TERMIXKIT_SMOKE_RDP_USER_ID`, `TERMIXKIT_SMOKE_RDP_HOST_ID`, and `TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS`:
+Smoke-test RDP Gateway bootstrapping. Without real Gateway env vars this runs a mocked Devolutions Gateway bootstrap; with `GATEWAY_URL`, `GATEWAY_PUBLIC_URL`, `GATEWAY_PROVISIONER_KEY`, and `TERMIXKIT_SMOKE_RDP_HOST` it first verifies that the RDP target TCP endpoint is reachable, then provisions against a real Gateway target. Optional real-target inputs are `TERMIXKIT_SMOKE_RDP_PORT`, `TERMIXKIT_SMOKE_RDP_USERNAME`, `TERMIXKIT_SMOKE_RDP_PASSWORD`, `TERMIXKIT_SMOKE_RDP_DOMAIN`, `TERMIXKIT_SMOKE_RDP_USER_ID`, `TERMIXKIT_SMOKE_RDP_HOST_ID`, and `TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS`:
 
 ```sh
 nix develop -c npm run smoke:rdp-gateway

@@ -94,6 +94,7 @@
 
 	let editingSessionId = $state<string | null>(null);
 	let draftTitle = $state('');
+	let visibleSessions = $derived(sessions.filter(canAttach));
 
 	function beginRename(session: LiveSshSessionSummary) {
 		editingSessionId = session.id;
@@ -133,7 +134,7 @@
 			role="tablist"
 			aria-label="Persistent SSH tabs"
 		>
-			{#each sessions as session (session.id)}
+			{#each visibleSessions as session (session.id)}
 				{@const active = activeSessionId === session.id}
 				{@const attachable = canAttach(session)}
 				<div

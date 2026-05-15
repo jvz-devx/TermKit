@@ -11,13 +11,22 @@ const sshPrivateKeyPath =
 	`${process.env.HOME}/.ssh/id_ed25519`;
 const vncPort = parsePort('TERMIXKIT_LOCAL_PROOF_VNC_PORT', 5977);
 const vncDisplay = process.env.TERMIXKIT_LOCAL_PROOF_VNC_DISPLAY?.trim() || ':77';
+const rdpContainerImage =
+	process.env.TERMIXKIT_LOCAL_PROOF_RDP_CONTAINER_IMAGE?.trim() ||
+	(localDockerImageExists('guacd-rs-xrdp-test:latest') ? 'guacd-rs-xrdp-test:latest' : '');
 const rdpHost = process.env.TERMIXKIT_LOCAL_PROOF_RDP_HOST?.trim() || '127.0.0.1';
-const rdpPort = parsePort('TERMIXKIT_LOCAL_PROOF_RDP_PORT', 3389);
+const rdpPort = parsePort('TERMIXKIT_LOCAL_PROOF_RDP_PORT', rdpContainerImage ? 3390 : 3389);
+const rdpUsername =
+	process.env.TERMIXKIT_LOCAL_PROOF_RDP_USERNAME?.trim() ||
+	(rdpContainerImage ? 'testuser' : sshUsername);
+const rdpPassword =
+	process.env.TERMIXKIT_LOCAL_PROOF_RDP_PASSWORD ?? (rdpContainerImage ? 'testpass' : '');
 const gatewayPort = parsePort('TERMIXKIT_LOCAL_PROOF_GATEWAY_PORT', 7171);
 const gatewayImage =
 	process.env.TERMIXKIT_LOCAL_PROOF_GATEWAY_IMAGE?.trim() ||
 	'devolutions/devolutions-gateway:2026.1.1';
 const gatewayName = `termixkit-proof-gateway-${process.pid}`;
+const rdpContainerName = `termixkit-proof-rdp-${process.pid}`;
 
 const cleanup = [];
 process.on('exit', runCleanup);
@@ -42,7 +51,6 @@ async function main() {
 		throw new Error(`SSH private key does not exist: ${sshPrivateKeyPath}`);
 	}
 	await ensurePortOpen(sshHost, 22, 'local SSH target');
-	await ensurePortOpen(rdpHost, rdpPort, 'local RDP target');
 
 	const fingerprint = sshFingerprint(sshHost);
 	ensureFreshProofFile();
@@ -62,17 +70,21 @@ async function main() {
 		});
 	});
 
-	await withGateway(async () => {
-		run('nix', ['develop', '-c', 'npm', 'run', 'acceptance:record-real-rdp'], {
-			GATEWAY_URL: `http://127.0.0.1:${gatewayPort}`,
-			GATEWAY_PUBLIC_URL: 'http://127.0.0.1:3000/gateway',
-			GATEWAY_PROVISIONER_SUBJECT: 'TermixKit',
-			GATEWAY_PROVISIONER_KEY: 'termixkit-local-proof-key',
-			TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
-			TERMIXKIT_SMOKE_RDP_HOST: rdpHost,
-			TERMIXKIT_SMOKE_RDP_PORT: String(rdpPort),
-			TERMIXKIT_SMOKE_RDP_USERNAME: sshUsername,
-			TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS: '30000'
+	await withRdpTarget(async () => {
+		await ensurePortOpen(rdpHost, rdpPort, 'local RDP target');
+		await withGateway(async () => {
+			run('nix', ['develop', '-c', 'npm', 'run', 'acceptance:record-real-rdp'], {
+				GATEWAY_URL: `http://127.0.0.1:${gatewayPort}`,
+				GATEWAY_PUBLIC_URL: 'http://127.0.0.1:3000/gateway',
+				GATEWAY_PROVISIONER_SUBJECT: 'TermixKit',
+				GATEWAY_PROVISIONER_KEY: 'termixkit-local-proof-key',
+				TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
+				TERMIXKIT_SMOKE_RDP_HOST: rdpHost,
+				TERMIXKIT_SMOKE_RDP_PORT: String(rdpPort),
+				TERMIXKIT_SMOKE_RDP_USERNAME: rdpUsername,
+				TERMIXKIT_SMOKE_RDP_PASSWORD: rdpPassword,
+				TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS: '30000'
+			});
 		});
 	});
 
@@ -96,6 +108,28 @@ async function withVncServer(callback) {
 	await waitForPort('127.0.0.1', vncPort, 'Xvnc');
 	await callback();
 	processHandle.kill('SIGTERM');
+}
+
+async function withRdpTarget(callback) {
+	if (!rdpContainerImage) {
+		await callback();
+		return;
+	}
+
+	run('docker', [
+		'run',
+		'--rm',
+		'-d',
+		'--name',
+		rdpContainerName,
+		'-p',
+		`127.0.0.1:${rdpPort}:3389`,
+		rdpContainerImage
+	]);
+	cleanup.push(() => spawnSync('docker', ['rm', '-f', rdpContainerName], { stdio: 'ignore' }));
+	await waitForPort('127.0.0.1', rdpPort, 'disposable RDP target');
+	await callback();
+	spawnSync('docker', ['rm', '-f', rdpContainerName], { stdio: 'ignore' });
 }
 
 async function withGateway(callback) {
@@ -295,6 +329,14 @@ function canConnect(host, port) {
 function ensureCommand(command) {
 	const result = spawnSync('sh', ['-c', `command -v ${quote(command)}`], { encoding: 'utf8' });
 	if (result.status !== 0) throw new Error(`${command} is required; run this inside nix develop.`);
+}
+
+function localDockerImageExists(image) {
+	const result = spawnSync('docker', ['image', 'inspect', image], {
+		encoding: 'utf8',
+		stdio: 'ignore'
+	});
+	return result.status === 0;
 }
 
 function runCleanup() {

@@ -134,7 +134,8 @@
 	let hosts = $derived(hostsQuery.current ?? []);
 	let liveSshSessions = $derived.by(() =>
 		(liveSshSessionsQuery.current ?? []).filter(
-			(session) => !dismissedLiveSshSessionIds.includes(session.id)
+			(session) =>
+				canAttachLiveSshSession(session) && !dismissedLiveSshSessionIds.includes(session.id)
 		)
 	);
 	let appSettings = $derived(settingsQuery.current ?? defaultSessionSettings);
@@ -725,14 +726,6 @@
 		);
 	}
 
-	function failedLiveSshSessionsForHost(hostId: string) {
-		return liveSshSessionsForHost(hostId).filter((session) => session.status === 'failed');
-	}
-
-	function endedLiveSshSessionsForHost(hostId: string) {
-		return liveSshSessionsForHost(hostId).filter((session) => session.status === 'ended');
-	}
-
 	function liveSshErrorForHost(hostId: string) {
 		if (!liveSshError) return null;
 		return !liveSshError.hostId || liveSshError.hostId === hostId ? liveSshError : null;
@@ -752,15 +745,6 @@
 
 	function isHostKeyTrustFailure(error: LiveSshErrorState) {
 		return error.message.toLowerCase().includes('host key');
-	}
-
-	function liveSshSessionFailureDetail(session: LiveSshSessionSummary) {
-		const copy = failureCopy({
-			protocol: 'ssh',
-			code: session.errorCode,
-			message: session.errorMessage
-		});
-		return `${failureDetail(copy)}${copy.diagnostic ? ` Diagnostic: ${copy.diagnostic}` : ''}`;
 	}
 
 	function markSessionPaused(hostId: string, protocol: string) {
@@ -1044,8 +1028,6 @@
 						<SessionPaneFallback kind={pane.kind} host={paneHost} />
 					{:else if pane.kind === 'ssh'}
 						{@const paneLiveSshError = liveSshErrorForHost(paneHost.id)}
-						{@const failedSshSessions = failedLiveSshSessionsForHost(paneHost.id)}
-						{@const endedSshSessions = endedLiveSshSessionsForHost(paneHost.id)}
 						{@const attachableSshSessions = attachableLiveSshSessionsForHost(paneHost.id)}
 						{@const hostKeyLaunchBlocked = isSshHostKeyLaunchBlocked(paneHost)}
 						{@const paneLiveSshAttach = liveSshAttachByPaneId[pane.id] ?? null}
@@ -1104,33 +1086,6 @@
 									title="Loading SSH tabs"
 									detail="Fetching live session state."
 								/>
-							{:else if failedSshSessions.length > 0}
-								<StatePanel
-									state="error"
-									title="SSH tab failed"
-									detail={liveSshSessionFailureDetail(failedSshSessions[0])}
-								>
-									<Button
-										size="sm"
-										onclick={() => createPersistentSshTab({ host: paneHost, paneId: pane.id })}
-										disabled={liveSshBusy}
-									>
-										<RotateCcw class="size-4" />
-										Retry SSH
-									</Button>
-									<Button
-										size="sm"
-										variant="outline"
-										onclick={() => closePersistentSshTab(failedSshSessions[0])}
-										disabled={liveSshBusy}
-									>
-										Dismiss failed tab
-									</Button>
-									<Button href={resolve('/history' as '/')} size="sm" variant="outline">
-										<History class="size-4" />
-										History
-									</Button>
-								</StatePanel>
 							{:else if attachableSshSessions.length > 0}
 								<StatePanel
 									state="ready"
@@ -1151,28 +1106,6 @@
 										disabled={liveSshBusy || hostKeyLaunchBlocked}
 									>
 										New SSH tab
-									</Button>
-								</StatePanel>
-							{:else if endedSshSessions.length > 0}
-								<StatePanel
-									state="disconnected"
-									title="SSH tab ended"
-									detail="The previous SSH tab closed cleanly. Start a new tab or dismiss the ended tab."
-								>
-									<Button
-										size="sm"
-										onclick={() => createPersistentSshTab({ host: paneHost, paneId: pane.id })}
-										disabled={liveSshBusy || hostKeyLaunchBlocked}
-									>
-										New SSH tab
-									</Button>
-									<Button
-										size="sm"
-										variant="outline"
-										onclick={() => closePersistentSshTab(endedSshSessions[0])}
-										disabled={liveSshBusy}
-									>
-										Dismiss ended tab
 									</Button>
 								</StatePanel>
 							{:else if browser && hostKeyLaunchBlocked}

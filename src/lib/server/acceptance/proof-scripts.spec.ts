@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -127,6 +128,24 @@ describe('acceptance proof scripts', () => {
 		expect(proof.proofs.realFtps.evidenceId).toBe('ftps-proof-ticket-456');
 	});
 
+	it('rejects real RDP smoke when the target TCP endpoint is unreachable', async () => {
+		expect.hasAssertions();
+		const closedPort = await allocateClosedTcpPort();
+		const result = runNodeScript(['scripts/smoke-rdp-gateway.mjs'], {
+			GATEWAY_URL: 'http://127.0.0.1:1',
+			GATEWAY_PUBLIC_URL: 'http://127.0.0.1:3000/gateway',
+			GATEWAY_PROVISIONER_KEY: 'dummy-proof-key',
+			TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
+			TERMIXKIT_SMOKE_RDP_HOST: '127.0.0.1',
+			TERMIXKIT_SMOKE_RDP_PORT: String(closedPort),
+			TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS: '1000'
+		});
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain('RDP target is not reachable');
+		expect(result.stderr).toContain(`127.0.0.1:${closedPort}`);
+	}, 15_000);
+
 	it('rejects placeholder real FTP proof notes', () => {
 		expect.hasAssertions();
 		const directory = tempDirectory();
@@ -164,11 +183,21 @@ describe('acceptance proof scripts', () => {
 			TERMIXKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
 			TERMIXKIT_REAL_FTP_PROOF_NOTES: `${notes}; TERMIXKIT_REAL_FTP_PASSWORD=hunter2`
 		});
+		const keyLabelResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMIXKIT_REAL_FTP_HOST: 'ftp.example.test',
+			TERMIXKIT_REAL_FTP_PORT: '21',
+			TERMIXKIT_REAL_FTP_USERNAME: 'ftp-operator',
+			TERMIXKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
+			TERMIXKIT_REAL_FTP_PROOF_NOTES: `${notes}; GATEWAY_PROVISIONER_KEY=hunter2`
+		});
 
 		expect(missingTargetResult.status).toBe(1);
 		expect(missingTargetResult.stderr).toContain('TERMIXKIT_REAL_FTP_HOST');
 		expect(secretLabelResult.status).toBe(1);
 		expect(secretLabelResult.stderr).toContain('env-style secret label');
+		expect(keyLabelResult.status).toBe(1);
+		expect(keyLabelResult.stderr).toContain('env-style secret label');
 	});
 
 	it('rejects Microsoft interactive proof notes with password labels', () => {
@@ -369,6 +398,14 @@ describe('acceptance proof scripts', () => {
 					'allowed-domain user received a session; blocked-domain user was denied; admin-email user became admin; local login password: hunter2'
 			}
 		});
+		const keyProofPath = writeAcceptanceProofFile(directory, {
+			...validAcceptanceProofs(),
+			realRdp: {
+				...validAcceptanceProofs().realRdp,
+				output:
+					'[pass] real Devolutions Gateway RDP bootstrap - provisioned tcp://127.0.0.1:3389\nGATEWAY_PROVISIONER_KEY=hunter2'
+			}
+		});
 		const incompleteFtpsProofPath = writeAcceptanceProofFile(directory, {
 			...validAcceptanceProofs(),
 			realFtps: {
@@ -387,6 +424,9 @@ describe('acceptance proof scripts', () => {
 		const passwordResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: passwordProofPath
 		});
+		const keyResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
+			TERMIXKIT_ACCEPTANCE_PROOF_FILE: keyProofPath
+		});
 		const incompleteFtpsResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
 			TERMIXKIT_ACCEPTANCE_PROOF_FILE: incompleteFtpsProofPath
 		});
@@ -397,6 +437,10 @@ describe('acceptance proof scripts', () => {
 		expect(secretResult.stdout).toContain('[blocked] V2 real Microsoft Entra discovery');
 		expect(passwordResult.status).toBe(2);
 		expect(passwordResult.stdout).toContain('[blocked] V2 Microsoft interactive login acceptance');
+		expect(keyResult.status).toBe(2);
+		expect(keyResult.stdout).toContain(
+			'[blocked] V1 reachable RDP target bootstrap through Devolutions Gateway'
+		);
 		expect(incompleteFtpsResult.status).toBe(2);
 		expect(incompleteFtpsResult.stdout).toContain('[blocked] V7 real FTPS external proof');
 	});
@@ -492,6 +536,25 @@ function tempDirectory() {
 	const directory = mkdtempSync(join(tmpdir(), 'termixkit-proof-scripts-'));
 	cleanupPaths.push(directory);
 	return directory;
+}
+
+function allocateClosedTcpPort() {
+	const server = createServer();
+	return new Promise<number>((resolve, reject) => {
+		server.once('error', reject);
+		server.listen(0, '127.0.0.1', () => {
+			const address = server.address();
+			if (!address || typeof address === 'string') {
+				server.close(() => reject(new Error('Could not allocate a TCP port')));
+				return;
+			}
+			const port = address.port;
+			server.close((error) => {
+				if (error) reject(error);
+				else resolve(port);
+			});
+		});
+	});
 }
 
 function writeProofFile(directory: string) {

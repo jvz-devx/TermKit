@@ -190,10 +190,10 @@ const checks = [
 			'run nix develop -c npm run acceptance:record-real-vnc after exporting real VNC env; records proofs.realVnc only when npm run smoke:protocols passes'
 	},
 	{
-		name: 'V1 real RDP through Devolutions Gateway',
+		name: 'V1 reachable RDP target bootstrap through Devolutions Gateway',
 		status: externalStatus('realRdp'),
 		evidence:
-			'run nix develop -c npm run acceptance:record-real-rdp after exporting real Gateway/RDP env; records proofs.realRdp only when npm run smoke:rdp-gateway passes'
+			'run nix develop -c npm run acceptance:record-real-rdp after exporting real Gateway/RDP env; records proofs.realRdp only when npm run smoke:rdp-gateway reaches the target TCP endpoint and Gateway provisioning passes'
 	},
 	{
 		name: 'V1 checks, tests, and production build',
@@ -551,7 +551,7 @@ function forbiddenSecretPattern(value) {
 			'secret, token, or cookie label'
 		],
 		[
-			/\b[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|PASSPHRASE)[A-Z0-9_]*\s*=/i,
+			/\b[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|PASSPHRASE|KEY)[A-Z0-9_]*\s*=/i,
 			'env-style secret label'
 		],
 		[/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, 'JWT-like value']
