@@ -95,8 +95,6 @@
 				rfbClient = rfb;
 				rfb.viewOnly = viewOnly;
 				rfb.focusOnClick = true;
-				rfb.clipViewport = true;
-				rfb.dragViewport = true;
 				refreshViewportSizing();
 				rfb.showDotCursor = true;
 

@@ -357,9 +357,7 @@
 	}
 </script>
 
-<div
-	class="flex h-full min-h-[480px] min-w-0 flex-col overflow-hidden rounded-md border bg-zinc-950"
->
+<div class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border bg-zinc-950">
 	<div
 		class="flex h-10 shrink-0 items-center justify-between border-b border-zinc-800 px-3 text-xs text-zinc-400"
 	>
@@ -439,7 +437,10 @@
 			</div>
 		{/if}
 
-		<div bind:this={terminalElement} class="h-full w-full min-w-0 p-2"></div>
+		<div
+			bind:this={terminalElement}
+			class={`absolute right-0 bottom-12 left-0 min-w-0 p-2 ${searchOpen ? 'top-[4.75rem]' : 'top-0'}`}
+		></div>
 		{#if connectionState !== 'connected'}
 			<StatePanel
 				state={connectionState === 'error'
@@ -449,7 +450,7 @@
 						: 'loading'}
 				title={connectionState === 'idle' ? 'Session ticket required' : 'Terminal not connected'}
 				{detail}
-				class="absolute right-3 bottom-3 left-3 bg-background"
+				class="absolute right-3 bottom-16 left-3 bg-background"
 			/>
 		{/if}
 		<div
