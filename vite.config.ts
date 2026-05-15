@@ -20,15 +20,15 @@ export default defineConfig({
 				'src/routes/(auth)/auth/microsoft/**/*.ts'
 			],
 			thresholds: {
-				statements: 70,
-				branches: 65,
-				functions: 70,
-				lines: 73,
+				statements: 73,
+				branches: 66,
+				functions: 72,
+				lines: 76,
 				'src/lib/server/auth/**': {
-					statements: 85,
-					branches: 85,
-					functions: 85,
-					lines: 85
+					statements: 91,
+					branches: 87,
+					functions: 96,
+					lines: 91
 				},
 				'src/lib/server/crypto/**': {
 					statements: 86,
@@ -41,6 +41,18 @@ export default defineConfig({
 					branches: 73,
 					functions: 90,
 					lines: 82
+				},
+				'src/lib/server/protocols/**': {
+					statements: 89,
+					branches: 83,
+					functions: 89,
+					lines: 91
+				},
+				'src/routes/api/**': {
+					statements: 90,
+					branches: 72,
+					functions: 86,
+					lines: 94
 				},
 				'src/lib/termix/**': {
 					statements: 86,

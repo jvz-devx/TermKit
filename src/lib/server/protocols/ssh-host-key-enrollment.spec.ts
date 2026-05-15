@@ -94,6 +94,56 @@ describe('SSH host key enrollment summaries', () => {
 		expect(store.get(identity)).toMatchObject({ fingerprint: 'sha256:abc123' });
 		expect(client.end).toHaveBeenCalledTimes(1);
 	});
+
+	it('rejects with the host-key trust error when enrollment verification fails', async () => {
+		expect.assertions(3);
+
+		const store = {
+			get: () => null,
+			set: () => {
+				throw new Error('read-only');
+			}
+		};
+		const client = new FakeEnrollmentClient((config) => {
+			const verifier = config.hostVerifier as (fingerprint: string) => boolean;
+			expect(verifier('def456')).toBe(false);
+			client.emit('error', new Error('handshake failed'));
+		});
+
+		await expect(
+			enrollSshHostKey('user-1', 'host-1', {
+				store,
+				createClient: () => client as never
+			})
+		).rejects.toMatchObject({
+			name: 'SshHostKeyTrustError',
+			message: expect.stringContaining('SSH host key trust store could not be written')
+		});
+		expect(client.end).toHaveBeenCalledTimes(1);
+	});
+
+	it.each(['close', 'end'] as const)(
+		'rejects when the enrollment connection emits %s before pinning a key',
+		async (event) => {
+			expect.assertions(3);
+
+			const store = new InMemorySshHostKeyTrustStore();
+			const client = new FakeEnrollmentClient(() => {
+				client.emit(event);
+			});
+
+			await expect(
+				enrollSshHostKey('user-1', 'host-1', {
+					store,
+					createClient: () => client as never
+				})
+			).rejects.toMatchObject({
+				issues: ['SSH host key enrollment did not complete']
+			});
+			expect(store.get(identity)).toBeNull();
+			expect(client.end).not.toHaveBeenCalled();
+		}
+	);
 });
 
 function target() {

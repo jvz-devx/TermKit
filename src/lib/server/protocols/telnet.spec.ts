@@ -45,6 +45,18 @@ describe('telnet negotiation', () => {
 		expect([...second.response]).toEqual([IAC, WILL, NAWS, IAC, SB, NAWS, 0, 100, 0, 30, IAC, SE]);
 	});
 
+	it('buffers partial option commands until the option byte arrives', () => {
+		const state = createTelnetNegotiationState({ cols: 90, rows: 25 });
+
+		const first = processTelnetTargetData(Buffer.from([IAC, DO]), state);
+		const second = processTelnetTargetData(Buffer.from([NAWS, 65]), state);
+
+		expect(first.data).toEqual(Buffer.alloc(0));
+		expect(first.response).toEqual(Buffer.alloc(0));
+		expect(second.data).toEqual(Buffer.from([65]));
+		expect([...second.response]).toEqual([IAC, WILL, NAWS, IAC, SB, NAWS, 0, 90, 0, 25, IAC, SE]);
+	});
+
 	it('rejects unsupported options and removes subnegotiation bytes from terminal data', () => {
 		const state = createTelnetNegotiationState();
 		const result = processTelnetTargetData(
@@ -54,6 +66,29 @@ describe('telnet negotiation', () => {
 
 		expect(result.data).toEqual(Buffer.from([72, 105]));
 		expect([...result.response]).toEqual([IAC, WONT, 1, IAC, DONT, 3]);
+	});
+
+	it('buffers subnegotiation frames across chunks and drops them from terminal data', () => {
+		const state = createTelnetNegotiationState();
+
+		const first = processTelnetTargetData(Buffer.from([72, IAC, SB, 24, 1, 2]), state);
+		const second = processTelnetTargetData(Buffer.from([3, IAC, SE, 105]), state);
+
+		expect(first.data).toEqual(Buffer.from([72]));
+		expect(first.response).toEqual(Buffer.alloc(0));
+		expect(second.data).toEqual(Buffer.from([105]));
+		expect(second.response).toEqual(Buffer.alloc(0));
+	});
+
+	it('ignores DONT and WONT for unsupported options without leaking control bytes', () => {
+		const state = createTelnetNegotiationState();
+		const result = processTelnetTargetData(
+			Buffer.from([65, IAC, DONT, 1, IAC, WONT, 3, 66]),
+			state
+		);
+
+		expect(result.data).toEqual(Buffer.from([65, 66]));
+		expect(result.response).toEqual(Buffer.alloc(0));
 	});
 
 	it('disables NAWS on DONT and does not write resize frames while disabled', () => {

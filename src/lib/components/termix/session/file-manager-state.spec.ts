@@ -140,6 +140,42 @@ describe('file manager state helpers', () => {
 		expect(formatThroughput(updated.throughputBytesPerSecond)).toBe('500 B/s');
 	});
 
+	it('finishes transfer progress at totals while cancellation preserves partial progress', () => {
+		const running = updateTransferProgress(
+			createTransferProgress({
+				kind: 'download',
+				label: 'Download',
+				totalBytes: 4000,
+				totalItems: 4,
+				now: 1_000
+			}),
+			{
+				completedBytes: 1000,
+				completedItems: 1,
+				currentName: 'artifact-1.tar',
+				now: 2_000
+			}
+		);
+		const cancelled = updateTransferProgress(running, { status: 'cancelled', now: 2_500 });
+		const completed = updateTransferProgress(running, { status: 'complete', now: 3_000 });
+
+		expect(cancelled).toMatchObject({
+			status: 'cancelled',
+			completedBytes: 1000,
+			completedItems: 1,
+			currentName: 'artifact-1.tar'
+		});
+		expect(transferPercent(cancelled)).toBe(25);
+		expect(cancelled.remainingMs).toBeGreaterThan(0);
+		expect(completed).toMatchObject({
+			status: 'complete',
+			completedBytes: 4000,
+			completedItems: 4
+		});
+		expect(transferPercent(completed)).toBe(100);
+		expect(completed.remainingMs).toBe(0);
+	});
+
 	it('formats compact size and duration labels', () => {
 		expect(formatSize(0)).toBe('0 B');
 		expect(formatSize(1536)).toBe('1.5 KB');

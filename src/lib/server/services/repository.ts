@@ -1044,7 +1044,7 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 		const host = await this.getHost(userId, id);
 		if (!host) return null;
 
-		const updated = { ...host, ...patch, id, userId };
+		const updated = { ...host, ...patch, id, userId: host.userId };
 		this.hosts.set(id, updated);
 		return updated;
 	}
@@ -1123,7 +1123,7 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 		const credential = await this.getCredential(userId, id);
 		if (!credential) return null;
 
-		const updated = { ...credential, ...patch, id, userId };
+		const updated = { ...credential, ...patch, id, userId: credential.userId };
 		this.credentials.set(id, updated);
 		return updated;
 	}
@@ -1250,7 +1250,14 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	async deleteSshTunnelProfile(userId: string, id: string): Promise<boolean> {
 		const profile = await this.getSshTunnelProfile(userId, id);
 		if (!profile) return false;
-		return this.sshTunnelProfiles.delete(id);
+		const deleted = this.sshTunnelProfiles.delete(id);
+		if (!deleted) return false;
+		for (const session of this.sshTunnelSessions.values()) {
+			if (session.profileId === id) {
+				this.sshTunnelSessions.set(session.id, { ...session, profileId: null });
+			}
+		}
+		return true;
 	}
 
 	async listSshTunnelSessions(

@@ -92,6 +92,57 @@ describe('SSH protocol adapter', () => {
 
 		expect(socket.close).toHaveBeenCalledWith(1011, 'ssh host key not trusted');
 	});
+
+	it('closes with a generic connection failure when SSH connect rejects without trust context', async () => {
+		expect.assertions(1);
+
+		const socket = new FakeWebSocket();
+		sshConnectMocks.connectTrustedSsh.mockRejectedValue(new Error('ECONNREFUSED'));
+
+		await createSshAdapter().handle(socket as never, ticket());
+
+		expect(socket.close).toHaveBeenCalledWith(1011, 'ssh connection failed');
+	});
+
+	it('closes and ends the connection when shell creation fails', async () => {
+		expect.assertions(2);
+
+		const connection = new FakeSshConnection();
+		const socket = new FakeWebSocket();
+		sshConnectMocks.connectTrustedSsh.mockResolvedValue(connection);
+
+		await createSshAdapter().handle(socket as never, ticket());
+		connection.resolveShell(new Error('pty denied'));
+
+		expect(socket.close).toHaveBeenCalledWith(1011, 'ssh shell failed');
+		expect(connection.end).toHaveBeenCalledTimes(1);
+	});
+
+	it('closes the websocket when the established SSH connection errors', async () => {
+		expect.assertions(1);
+
+		const connection = new FakeSshConnection();
+		const socket = new FakeWebSocket();
+		sshConnectMocks.connectTrustedSsh.mockResolvedValue(connection);
+
+		await createSshAdapter().handle(socket as never, ticket());
+		connection.emit('error', new Error('socket reset'));
+
+		expect(socket.close).toHaveBeenCalledWith(1011, 'ssh connection failed');
+	});
+
+	it('ends the SSH connection on websocket errors', async () => {
+		expect.assertions(1);
+
+		const connection = new FakeSshConnection();
+		const socket = new FakeWebSocket();
+		sshConnectMocks.connectTrustedSsh.mockResolvedValue(connection);
+
+		await createSshAdapter().handle(socket as never, ticket());
+		socket.emit('error', new Error('browser socket reset'));
+
+		expect(connection.end).toHaveBeenCalledTimes(1);
+	});
 });
 
 function ticket(): ConsumedTicket {

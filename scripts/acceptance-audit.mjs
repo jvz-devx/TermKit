@@ -407,7 +407,7 @@ const checks = [
 		name: 'V7 full workflow and protocol browser coverage',
 		status: 'pending',
 		evidence:
-			'remaining local gap: broaden deterministic browser and smoke coverage from shell/launch-state checks to successful fixture-backed protocol interactions for SSH live tabs, SFTP, FTP/FTPS, RDP, VNC, and Telnet plus server-enforced policy-blocked execution paths'
+			'partial local proof: npm run test:e2e covers auth, inventory, importer, workspace launch states, admin, fleet, and server-enforced policy-blocked API denial; npm run smoke:app-protocols covers fixture-backed SSH, SFTP, FTP/FTPS API workflows, FTP/FTPS workspace listing, Telnet, VNC banner/auth staging, and mock RDP gateway boundary workflows; remaining local gap: browser-level SFTP/FTP/FTPS file actions plus deeper RDP/VNC/Telnet interaction coverage'
 	},
 	{
 		name: 'V7 reliability and performance budget foundation',

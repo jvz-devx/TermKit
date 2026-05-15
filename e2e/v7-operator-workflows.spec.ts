@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type APIResponse, type BrowserContext, type Page } from '@playwright/test';
 
 const adminUsername = 'admin';
 const adminPassword = 'Correct-Horse-Battery-Staple-42!';
@@ -385,6 +385,12 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		page
 	}) => {
 		await ensureAdminSession(page, context);
+		await seedCoreHosts(page);
+		const adminHosts = await listHosts(page);
+		const adminSshHost = adminHosts.find((host) => host.name === v7SshName);
+		const adminFtpHost = adminHosts.find((host) => host.name === v7FtpName);
+		expect(adminSshHost, `seeded host ${v7SshName}`).toBeTruthy();
+		expect(adminFtpHost, `seeded host ${v7FtpName}`).toBeTruthy();
 		await ensureLocalUser(page, {
 			username: v7DeniedUsername,
 			password: v7DeniedPassword,
@@ -407,6 +413,19 @@ test.describe.serial('V7 operator workflow hardening', () => {
 
 			const serverResponse = await deniedPage.request.get('/admin');
 			expect(serverResponse.status()).toBe(403);
+
+			const ticketResponse = await deniedPage.request.post('/api/session-tickets', {
+				data: { hostId: adminSshHost!.id, protocol: 'ssh', ttlMs: 60_000 }
+			});
+			expect(ticketResponse.status()).toBe(400);
+			await expectJsonIssues(ticketResponse, [
+				'hostId must reference an existing host owned by the user'
+			]);
+
+			const ftpResponse = await deniedPage.request.get(
+				`/api/ftp/${encodeURIComponent(adminFtpHost!.id)}/list?path=/`
+			);
+			expect(ftpResponse.status()).toBe(404);
 		} finally {
 			await deniedContext.close();
 		}
@@ -451,6 +470,11 @@ async function expectAuthenticatedHostsApi(page: Page, context: BrowserContext) 
 	expect(response.status()).toBe(200);
 	const body = (await response.json()) as { hosts?: unknown };
 	expect(Array.isArray(body.hosts)).toBe(true);
+}
+
+async function expectJsonIssues(response: APIResponse, issues: string[]) {
+	const body = (await response.json()) as { issues?: unknown };
+	expect(body.issues).toEqual(issues);
 }
 
 async function seedCredential(

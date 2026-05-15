@@ -330,6 +330,289 @@ describe('DrizzleTermixServicesRepository', () => {
 		);
 	});
 
+	it('preserves shared workspace record ownership when members update hosts and credentials', async () => {
+		expect.assertions(4);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const updatedAt = new Date('2026-05-14T10:02:00.000Z');
+		await repository.createWorkspace(workspaceRecord({ id: 'workspace-1' }));
+		await repository.createWorkspaceMembership(
+			workspaceMembership({ id: 'member-1', workspaceId: 'workspace-1', userId: 'member-1' })
+		);
+		await repository.createHost(
+			hostRecord({
+				id: 'shared-host',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				name: 'Shared host'
+			})
+		);
+		await repository.createCredential(
+			credentialRecord({
+				id: 'shared-credential',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				name: 'Shared credential'
+			})
+		);
+
+		await expect(
+			repository.updateHost('member-1', 'shared-host', { name: 'Renamed host', updatedAt })
+		).resolves.toMatchObject({
+			id: 'shared-host',
+			userId: 'owner-1',
+			name: 'Renamed host',
+			updatedAt
+		});
+		await expect(repository.getHost('member-1', 'shared-host')).resolves.toMatchObject({
+			id: 'shared-host',
+			userId: 'owner-1',
+			name: 'Renamed host'
+		});
+		await expect(
+			repository.updateCredential('member-1', 'shared-credential', {
+				name: 'Renamed credential',
+				updatedAt
+			})
+		).resolves.toMatchObject({
+			id: 'shared-credential',
+			userId: 'owner-1',
+			name: 'Renamed credential',
+			updatedAt
+		});
+		await expect(repository.getCredential('member-1', 'shared-credential')).resolves.toMatchObject({
+			id: 'shared-credential',
+			userId: 'owner-1',
+			name: 'Renamed credential'
+		});
+	});
+
+	it('handles in-memory ticket and attach-ticket consumption idempotently', async () => {
+		expect.assertions(8);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const firstConsumedAt = new Date('2026-05-14T10:01:00.000Z');
+		const secondConsumedAt = new Date('2026-05-14T10:02:00.000Z');
+		await repository.createTicket(sessionTicket({ id: 'ticket-1', ticketHash: 'ticket-hash-1' }));
+		await repository.createTicket(
+			sessionTicket({
+				id: 'ticket-2',
+				ticketHash: 'already-used-ticket-hash',
+				usedAt: firstConsumedAt
+			})
+		);
+		await repository.createSshAttachTicket(
+			sshAttachTicket({ id: 'attach-ticket-1', ticketHash: 'attach-ticket-hash-1' })
+		);
+		await repository.createSshAttachTicket(
+			sshAttachTicket({
+				id: 'attach-ticket-2',
+				ticketHash: 'already-used-attach-ticket-hash',
+				consumedAt: firstConsumedAt
+			})
+		);
+
+		await expect(
+			repository.consumeTicket('missing-ticket-hash', firstConsumedAt)
+		).resolves.toBeNull();
+		await expect(repository.consumeTicket('ticket-hash-1', firstConsumedAt)).resolves.toMatchObject(
+			{
+				id: 'ticket-1',
+				usedAt: firstConsumedAt
+			}
+		);
+		await expect(repository.consumeTicket('ticket-hash-1', secondConsumedAt)).resolves.toBeNull();
+		await expect(
+			repository.consumeTicket('already-used-ticket-hash', secondConsumedAt)
+		).resolves.toBeNull();
+		await expect(
+			repository.consumeSshAttachTicket('missing-attach-ticket-hash', firstConsumedAt)
+		).resolves.toBeNull();
+		await expect(
+			repository.consumeSshAttachTicket('attach-ticket-hash-1', firstConsumedAt)
+		).resolves.toMatchObject({
+			id: 'attach-ticket-1',
+			consumedAt: firstConsumedAt
+		});
+		await expect(
+			repository.consumeSshAttachTicket('attach-ticket-hash-1', secondConsumedAt)
+		).resolves.toBeNull();
+		await expect(
+			repository.consumeSshAttachTicket('already-used-attach-ticket-hash', secondConsumedAt)
+		).resolves.toBeNull();
+	});
+
+	it('filters in-memory tunnel profiles and sessions by workspace, owner, status, host, and profile', async () => {
+		expect.assertions(8);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const now = new Date('2026-05-14T10:00:00.000Z');
+		await repository.createWorkspace(workspaceRecord({ id: 'workspace-1' }));
+		await repository.createWorkspaceMembership(
+			workspaceMembership({ id: 'member-1', workspaceId: 'workspace-1', userId: 'member-1' })
+		);
+		await repository.createSshTunnelProfile(
+			sshTunnelProfile({
+				id: 'private-profile',
+				userId: 'owner-1',
+				workspaceId: null,
+				sshHostId: 'private-host'
+			})
+		);
+		await repository.createSshTunnelProfile(
+			sshTunnelProfile({
+				id: 'shared-profile',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				sshHostId: 'shared-host'
+			})
+		);
+		await repository.createSshTunnelSession(
+			sshTunnelSession({
+				id: 'private-session',
+				profileId: 'private-profile',
+				userId: 'owner-1',
+				workspaceId: null,
+				sshHostId: 'private-host',
+				status: 'active',
+				startedAt: now
+			})
+		);
+		await repository.createSshTunnelSession(
+			sshTunnelSession({
+				id: 'shared-session',
+				profileId: 'shared-profile',
+				userId: 'owner-1',
+				workspaceId: 'workspace-1',
+				sshHostId: 'shared-host',
+				status: 'idle',
+				startedAt: new Date('2026-05-14T10:01:00.000Z')
+			})
+		);
+		await repository.createSshTunnelSession(
+			sshTunnelSession({
+				id: 'detached-profile-session',
+				profileId: null,
+				userId: 'member-1',
+				workspaceId: 'workspace-1',
+				sshHostId: null,
+				status: 'expired',
+				startedAt: new Date('2026-05-14T10:02:00.000Z')
+			})
+		);
+
+		await expect(repository.listSshTunnelProfiles('member-1')).resolves.toEqual([
+			expect.objectContaining({ id: 'shared-profile' })
+		]);
+		await expect(
+			repository.listSshTunnelProfiles('member-1', { userId: 'owner-1', sshHostId: 'shared-host' })
+		).resolves.toEqual([expect.objectContaining({ id: 'shared-profile' })]);
+		await expect(
+			repository.listSshTunnelProfiles('member-1', { workspaceId: null })
+		).resolves.toEqual([]);
+		await expect(repository.listSshTunnelSessions('member-1')).resolves.toEqual([
+			expect.objectContaining({ id: 'detached-profile-session' }),
+			expect.objectContaining({ id: 'shared-session' })
+		]);
+		await expect(
+			repository.listSshTunnelSessions('member-1', { status: 'idle', userId: 'owner-1' })
+		).resolves.toEqual([expect.objectContaining({ id: 'shared-session' })]);
+		await expect(
+			repository.listSshTunnelSessions('member-1', { profileId: null, sshHostId: null })
+		).resolves.toEqual([expect.objectContaining({ id: 'detached-profile-session' })]);
+		await expect(
+			repository.listSshTunnelSessions('member-1', { workspaceId: null })
+		).resolves.toEqual([]);
+		await expect(
+			repository.getSshTunnelSession('outsider-1', 'shared-session')
+		).resolves.toBeNull();
+	});
+
+	it('sets in-memory tunnel session profile references to null when deleting a tunnel profile', async () => {
+		expect.assertions(3);
+
+		const repository = new InMemoryTermixServicesRepository();
+		await repository.createSshTunnelProfile(sshTunnelProfile({ id: 'profile-1' }));
+		await repository.createSshTunnelSession(
+			sshTunnelSession({ id: 'session-1', profileId: 'profile-1' })
+		);
+
+		await expect(repository.deleteSshTunnelProfile('owner-1', 'profile-1')).resolves.toBe(true);
+		await expect(repository.getSshTunnelProfile('owner-1', 'profile-1')).resolves.toBeNull();
+		await expect(repository.getSshTunnelSession('owner-1', 'session-1')).resolves.toMatchObject({
+			id: 'session-1',
+			profileId: null,
+			sshHostId: 'host-1'
+		});
+	});
+
+	it('guards in-memory SSH live session reuse, stale marking, and detached expiry transitions', async () => {
+		expect.assertions(10);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const now = new Date('2026-05-14T10:00:00.000Z');
+		const expiredAt = new Date('2026-05-14T09:59:00.000Z');
+		const future = new Date('2026-05-14T10:05:00.000Z');
+		await repository.createSshLiveSession(
+			sshLiveSession({ id: 'attached-session', status: 'attached', createdAt: expiredAt })
+		);
+		await repository.createSshLiveSession(
+			sshLiveSession({
+				id: 'detached-session',
+				status: 'detached',
+				expiresAt: expiredAt,
+				createdAt: expiredAt
+			})
+		);
+		await repository.createSshLiveSession(
+			sshLiveSession({
+				id: 'future-starting-session',
+				status: 'starting',
+				expiresAt: future,
+				createdAt: future
+			})
+		);
+		await repository.createSshLiveSession(
+			sshLiveSession({ id: 'failed-session', status: 'failed', createdAt: expiredAt })
+		);
+
+		await expect(repository.countOpenSshLiveSessions('owner-1')).resolves.toBe(3);
+		await expect(repository.findReusableSshLiveSession('owner-1', 'host-1')).resolves.toMatchObject(
+			{ id: 'attached-session' }
+		);
+		await expect(
+			repository.updateSshLiveSession('owner-1', 'failed-session', {
+				status: 'attached',
+				updatedAt: now
+			})
+		).resolves.toBeNull();
+		await expect(repository.markExpiredDetachedSshLiveSessions(now)).resolves.toEqual([
+			expect.objectContaining({ id: 'detached-session', status: 'ended' })
+		]);
+		await expect(
+			repository.getSshLiveSession('owner-1', 'detached-session')
+		).resolves.toMatchObject({
+			status: 'ended',
+			endedAt: now,
+			updatedAt: now
+		});
+		await expect(repository.markStaleSshLiveSessions(now)).resolves.toBe(1);
+		await expect(
+			repository.getSshLiveSession('owner-1', 'attached-session')
+		).resolves.toMatchObject({
+			status: 'stale',
+			endedAt: now,
+			updatedAt: now
+		});
+		await expect(
+			repository.getSshLiveSession('owner-1', 'future-starting-session')
+		).resolves.toMatchObject({ status: 'starting', endedAt: null });
+		await expect(repository.countOpenSshLiveSessions('owner-1')).resolves.toBe(1);
+		await expect(repository.findReusableSshLiveSession('owner-1', 'host-1')).resolves.toMatchObject(
+			{ id: 'future-starting-session' }
+		);
+	});
+
 	it('mirrors set-null and cascade delete semantics for in-memory host references', async () => {
 		expect.assertions(13);
 

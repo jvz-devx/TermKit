@@ -302,8 +302,17 @@ export function updateTransferProgress(
 	> & { now?: number }
 ): TransferProgress {
 	const now = update.now ?? Date.now();
-	const completedBytes = Math.max(0, update.completedBytes ?? progress.completedBytes);
+	const status = update.status ?? progress.status;
 	const totalBytes = Math.max(0, update.totalBytes ?? progress.totalBytes);
+	const totalItems = Math.max(0, update.totalItems ?? progress.totalItems);
+	let completedBytes = Math.max(0, update.completedBytes ?? progress.completedBytes);
+	let completedItems = Math.max(0, update.completedItems ?? progress.completedItems);
+
+	if (status === 'complete') {
+		if (update.completedBytes === undefined && totalBytes > 0) completedBytes = totalBytes;
+		if (update.completedItems === undefined && totalItems > 0) completedItems = totalItems;
+	}
+
 	const elapsedSeconds = Math.max((now - progress.startedAt) / 1000, 0);
 	const throughputBytesPerSecond = elapsedSeconds > 0 ? completedBytes / elapsedSeconds : 0;
 	const remainingBytes = totalBytes > completedBytes ? totalBytes - completedBytes : 0;
@@ -318,9 +327,9 @@ export function updateTransferProgress(
 		updatedAt: now,
 		totalBytes,
 		completedBytes,
-		completedItems: Math.max(0, update.completedItems ?? progress.completedItems),
-		totalItems: Math.max(0, update.totalItems ?? progress.totalItems),
-		status: update.status ?? progress.status,
+		completedItems,
+		totalItems,
+		status,
 		throughputBytesPerSecond,
 		remainingMs
 	};

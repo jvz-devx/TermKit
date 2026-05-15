@@ -4,9 +4,14 @@ import {
 	authenticateUser,
 	createSessionForUser,
 	createFirstRunAdmin,
+	clearSessionCookie,
+	getSessionFromEvent,
 	getSessionFromToken,
 	hashSessionToken,
+	loginWithPassword,
+	logout,
 	revokeSessionToken,
+	sessionCookieName,
 	shouldUseSecureSessionCookie
 } from './session';
 
@@ -293,5 +298,167 @@ describe('local session flow', () => {
 			authenticateUser({ username: 'admin', password: 'wrong-password' })
 		).resolves.toBeNull();
 		expect(db.insert).not.toHaveBeenCalled();
+	});
+
+	it('does not verify passwords or create sessions for missing and disabled users', async () => {
+		const authenticateLimit = vi.fn(async () => []);
+		const authenticateWhere = vi.fn(() => ({ limit: authenticateLimit }));
+		const authenticateFrom = vi.fn(() => ({ where: authenticateWhere }));
+		const sessionUserLimit = vi.fn(async () => []);
+		const sessionUserWhere = vi.fn(() => ({ limit: sessionUserLimit }));
+		const sessionUserFrom = vi.fn(() => ({ where: sessionUserWhere }));
+		db.select.mockReturnValueOnce({ from: authenticateFrom }).mockReturnValueOnce({
+			from: sessionUserFrom
+		});
+
+		await expect(
+			authenticateUser({ username: 'missing', password: 'irrelevant' })
+		).resolves.toBeNull();
+		await expect(
+			createSessionForUser(
+				'disabled-user',
+				authRequestEvent('https://termix.test/login') as Parameters<typeof createSessionForUser>[1]
+			)
+		).rejects.toThrow('User is disabled or does not exist');
+		expect(password.verifyPassword).not.toHaveBeenCalled();
+		expect(db.insert).not.toHaveBeenCalled();
+	});
+
+	it('creates session metadata from forwarded addresses and no user agent', async () => {
+		const now = new Date('2026-01-01T00:00:00.000Z');
+		const session = {
+			id: 'session-forwarded',
+			userId: 'user-1',
+			tokenHash: 'stored-token-hash',
+			expiresAt: new Date('2026-02-01T00:00:00.000Z'),
+			createdAt: now,
+			lastSeenAt: now,
+			userAgent: null,
+			ipAddress: '203.0.113.7'
+		};
+		const sessionUserLimit = vi.fn(async () => [{ id: 'user-1' }]);
+		const sessionUserWhere = vi.fn(() => ({ limit: sessionUserLimit }));
+		const sessionUserFrom = vi.fn(() => ({ where: sessionUserWhere }));
+		db.select.mockReturnValue({ from: sessionUserFrom });
+		const insertReturning = vi.fn(async () => [session]);
+		const insertValues = vi.fn(() => ({ returning: insertReturning }));
+		db.insert.mockReturnValue({ values: insertValues });
+
+		const created = await createSessionForUser(
+			'user-1',
+			authRequestEvent('https://termix.test/login', {
+				'x-forwarded-for': '203.0.113.7, 198.51.100.2'
+			}) as Parameters<typeof createSessionForUser>[1]
+		);
+
+		expect(created.session).toBe(session);
+		expect(insertValues).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userAgent: null,
+				ipAddress: '203.0.113.7'
+			})
+		);
+	});
+
+	it('returns null for events without a session cookie', async () => {
+		const event = {
+			cookies: { get: vi.fn(() => undefined) }
+		};
+
+		await expect(
+			getSessionFromEvent(event as unknown as Parameters<typeof getSessionFromEvent>[0])
+		).resolves.toBeNull();
+		expect(event.cookies.get).toHaveBeenCalledWith(sessionCookieName);
+		expect(db.select).not.toHaveBeenCalled();
+	});
+
+	it('logs in with a password, sets the cookie, and logs out by revoking the cookie token', async () => {
+		const now = new Date('2026-01-01T00:00:00.000Z');
+		const user = {
+			id: 'user-1',
+			username: 'admin',
+			passwordHash: 'hashed:correct-password',
+			isAdmin: true,
+			disabledAt: null,
+			createdAt: now,
+			updatedAt: now
+		};
+		const session = {
+			id: 'session-1',
+			userId: user.id,
+			tokenHash: 'stored-token-hash',
+			expiresAt: new Date('2026-02-01T00:00:00.000Z'),
+			createdAt: now,
+			lastSeenAt: now,
+			userAgent: 'vitest',
+			ipAddress: '127.0.0.1'
+		};
+		const authenticateLimit = vi.fn(async () => [user]);
+		const authenticateWhere = vi.fn(() => ({ limit: authenticateLimit }));
+		const authenticateFrom = vi.fn(() => ({ where: authenticateWhere }));
+		const sessionUserLimit = vi.fn(async () => [{ id: user.id }]);
+		const sessionUserWhere = vi.fn(() => ({ limit: sessionUserLimit }));
+		const sessionUserFrom = vi.fn(() => ({ where: sessionUserWhere }));
+		db.select.mockReturnValueOnce({ from: authenticateFrom }).mockReturnValueOnce({
+			from: sessionUserFrom
+		});
+		const insertReturning = vi.fn(async () => [session]);
+		const insertValues = vi.fn(() => ({ returning: insertReturning }));
+		db.insert.mockReturnValue({ values: insertValues });
+		const deleteWhere = vi.fn(async () => undefined);
+		db.delete.mockReturnValue({ where: deleteWhere });
+		password.verifyPassword.mockResolvedValue(true);
+		const cookieStore = new Map<string, string>();
+		const cookies = {
+			get: vi.fn((name: string) => cookieStore.get(name)),
+			set: vi.fn((name: string, value: string) => cookieStore.set(name, value)),
+			delete: vi.fn((name: string) => cookieStore.delete(name))
+		};
+		const event = {
+			...authRequestEvent('https://termix.test/login', { 'user-agent': 'vitest' }),
+			cookies
+		};
+
+		const result = await loginWithPassword(
+			event as unknown as Parameters<typeof loginWithPassword>[0],
+			{
+				username: 'admin',
+				password: 'correct-password'
+			}
+		);
+		expect(result.user).toMatchObject({ id: user.id, username: 'admin' });
+		expect(cookies.set).toHaveBeenCalledWith(
+			sessionCookieName,
+			expect.any(String),
+			expect.objectContaining({ httpOnly: true, secure: true, sameSite: 'lax' })
+		);
+
+		await logout(event as unknown as Parameters<typeof logout>[0]);
+		expect(cookies.get).toHaveBeenCalledWith(sessionCookieName);
+		expect(deleteWhere).toHaveBeenCalledOnce();
+		expect(cookies.delete).toHaveBeenCalledWith(
+			sessionCookieName,
+			expect.objectContaining({ maxAge: 0, secure: true })
+		);
+	});
+
+	it('clears the cookie even when logout has no current token', async () => {
+		const cookies = {
+			get: vi.fn(() => undefined),
+			delete: vi.fn()
+		};
+		const event = {
+			...authRequestEvent('http://localhost:5173/logout'),
+			cookies
+		};
+
+		await logout(event as unknown as Parameters<typeof logout>[0]);
+		clearSessionCookie(cookies as never, false);
+
+		expect(db.delete).not.toHaveBeenCalled();
+		expect(cookies.delete).toHaveBeenCalledWith(
+			sessionCookieName,
+			expect.objectContaining({ maxAge: 0, secure: false })
+		);
 	});
 });

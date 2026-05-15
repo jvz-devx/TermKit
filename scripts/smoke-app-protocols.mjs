@@ -3,12 +3,13 @@ import { once } from 'node:events';
 import { constants as fsConstants, existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createServer as createHttpServer } from 'node:http';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import posixPath from 'node:path/posix';
 import { dirname, join, resolve } from 'node:path';
 import { createServer } from 'node:net';
+import { TLSSocket, createSecureContext, createServer as createTlsServer } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { chromium } from 'playwright';
@@ -114,6 +115,55 @@ try {
 		'SFTP workspace launch',
 		'created and ended SFTP connection session while listing fixture file'
 	);
+
+	const ftpCredential = await createFtpCredential(api);
+	const ftpHost = await createHost(api, {
+		name: 'Smoke FTP fixture',
+		protocol: 'ftp',
+		hostname: '127.0.0.1',
+		port: fixtures.ftpPort,
+		username: 'ftp-smoke',
+		credentialId: ftpCredential.id,
+		tags: ['smoke', 'files']
+	});
+	const ftpsHost = await createHost(api, {
+		name: 'Smoke FTPS fixture',
+		protocol: 'ftps',
+		hostname: '127.0.0.1',
+		port: fixtures.ftpsPort,
+		username: 'ftp-smoke',
+		credentialId: ftpCredential.id,
+		tags: ['smoke', 'files', 'tls'],
+		metadata: {
+			ftps: {
+				mode: 'explicit',
+				rejectUnauthorized: false,
+				certificateHostname: '127.0.0.1'
+			}
+		}
+	});
+	await smokeFtpApi(api, ftpHost.id, 'ftp');
+	pass(
+		'FTP API file workflow',
+		'verified list, download, upload, mkdir, text read/write, rename/move, and delete'
+	);
+	await smokeFtpWorkspaceUi(auth.page, ftpHost.id, 'ftp', app.databaseUrl);
+	pass('FTP workspace launch', 'listed fixture file and ended connection session');
+	await smokeFtpApi(api, ftpsHost.id, 'ftps');
+	await waitFor(
+		() => fixtures.ftpsState.authTlsCount > 0,
+		'FTPS fixture did not negotiate AUTH TLS.'
+	);
+	await waitFor(
+		() => fixtures.ftpsState.protectedTransferCount > 0,
+		'FTPS fixture did not receive a protected data transfer.'
+	);
+	pass(
+		'FTPS API file workflow',
+		'verified explicit TLS negotiation plus list, download, upload, text, rename/move, and delete'
+	);
+	await smokeFtpWorkspaceUi(auth.page, ftpsHost.id, 'ftps', app.databaseUrl);
+	pass('FTPS workspace launch', 'listed fixture file through explicit FTPS and ended session');
 
 	const telnetHost = await createHost(api, {
 		name: 'Smoke Telnet fixture',
@@ -478,6 +528,16 @@ async function createVncCredential(api) {
 	return credential;
 }
 
+async function createFtpCredential(api) {
+	const { credential } = await api.post('/api/credentials', {
+		name: 'Smoke FTP password',
+		kind: 'password',
+		username: 'ftp-smoke',
+		secret: 'ftp-smoke-password'
+	});
+	return credential;
+}
+
 async function createHost(api, input) {
 	const { host } = await api.post('/api/hosts', input);
 	return host;
@@ -805,11 +865,11 @@ async function smokeSftpWorkspaceUi(page, hostId, databaseUrl) {
 
 	await waitFor(
 		async () => {
-			const session = await latestConnectionSession(databaseUrl, hostId);
+			const session = await latestConnectionSession(databaseUrl, hostId, 'ssh');
 			return session?.status === 'ended' && session.ended_at;
 		},
 		async () => {
-			const session = await latestConnectionSession(databaseUrl, hostId);
+			const session = await latestConnectionSession(databaseUrl, hostId, 'ssh');
 			return session
 				? `SFTP workspace session was not ended: ${JSON.stringify(session)}`
 				: 'SFTP workspace did not create a connection session row.';
@@ -817,13 +877,120 @@ async function smokeSftpWorkspaceUi(page, hostId, databaseUrl) {
 	);
 }
 
-async function latestConnectionSession(databaseUrl, hostId) {
+async function smokeFtpApi(api, hostId, protocol) {
+	const prefix = `/api/ftp/${encodeURIComponent(hostId)}`;
+	const fixtureName = `${protocol}-smoke.txt`;
+	const fixtureText = `hello-from-${protocol}\n`;
+	const list = await api.get(`${prefix}/list?path=/`);
+	const names = list.entries.map((entry) => entry.name);
+	if (!names.includes(fixtureName)) {
+		throw new Error(
+			`${protocol.toUpperCase()} list did not include ${fixtureName}; saw ${names.join(', ') || '<empty>'}.`
+		);
+	}
+
+	const downloaded = await api.download(`${prefix}/download?path=/${fixtureName}`);
+	if (downloaded.toString('utf8') !== fixtureText) {
+		throw new Error(`${protocol.toUpperCase()} download mismatch: ${downloaded.toString('utf8')}`);
+	}
+
+	await api.upload(
+		`${prefix}/upload?path=/uploaded.txt`,
+		'uploaded.txt',
+		Buffer.from(`uploaded-through-${protocol}\n`)
+	);
+	const uploaded = await api.download(`${prefix}/download?path=/uploaded.txt`);
+	if (uploaded.toString('utf8') !== `uploaded-through-${protocol}\n`) {
+		throw new Error(
+			`${protocol.toUpperCase()} uploaded file mismatch: ${uploaded.toString('utf8')}`
+		);
+	}
+
+	await api.post(`${prefix}/mkdir`, { path: '/workspace' });
+	await api.put(`${prefix}/text`, {
+		path: '/workspace/note.txt',
+		text: `edited-through-${protocol}-text-api\n`
+	});
+	const textFile = await api.get(`${prefix}/text?path=/workspace/note.txt`);
+	if (textFile.text !== `edited-through-${protocol}-text-api\n`) {
+		throw new Error(`${protocol.toUpperCase()} text read mismatch: ${textFile.text}`);
+	}
+
+	await api.post(`${prefix}/rename`, {
+		from: '/workspace/note.txt',
+		to: '/workspace/renamed.txt'
+	});
+	await api.post(`${prefix}/move`, {
+		from: '/uploaded.txt',
+		to: '/workspace/uploaded-moved.txt'
+	});
+	const workspaceList = await api.get(`${prefix}/list?path=/workspace`);
+	const workspaceNames = workspaceList.entries.map((entry) => entry.name);
+	for (const expectedName of ['renamed.txt', 'uploaded-moved.txt']) {
+		if (!workspaceNames.includes(expectedName)) {
+			throw new Error(
+				`${protocol.toUpperCase()} workspace list did not include ${expectedName}; saw ${workspaceNames.join(', ') || '<empty>'}.`
+			);
+		}
+	}
+
+	await api.delete(`${prefix}/delete?path=/workspace/renamed.txt`);
+	await api.delete(`${prefix}/delete?path=/workspace/uploaded-moved.txt`);
+	await api.delete(`${prefix}/delete?path=/workspace`);
+	const finalList = await api.get(`${prefix}/list?path=/`);
+	const finalNames = finalList.entries.map((entry) => entry.name);
+	if (finalNames.includes('workspace') || finalNames.includes('uploaded.txt')) {
+		throw new Error(
+			`${protocol.toUpperCase()} delete workflow left stale entries: ${finalNames.join(', ')}`
+		);
+	}
+}
+
+async function smokeFtpWorkspaceUi(page, hostId, protocol, databaseUrl) {
+	const launchPage = await page.context().newPage();
+	const fixtureName = `${protocol}-smoke.txt`;
+
+	try {
+		await launchPage.goto(`/sessions?host=${encodeURIComponent(hostId)}&tab=${protocol}`);
+		await waitFor(
+			async () => {
+				const bodyText = (await launchPage.locator('body').textContent()) ?? '';
+				return bodyText.includes(fixtureName);
+			},
+			async () => {
+				const bodyText = ((await launchPage.locator('body').textContent()) ?? '')
+					.replace(/\s+/g, ' ')
+					.trim();
+				return `${protocol.toUpperCase()} workspace did not list the fixture file: ${bodyText}`;
+			}
+		);
+	} finally {
+		await launchPage.close().catch(() => {});
+	}
+
+	if (!databaseUrl) return;
+
+	await waitFor(
+		async () => {
+			const session = await latestConnectionSession(databaseUrl, hostId, protocol);
+			return session?.status === 'ended' && session.ended_at;
+		},
+		async () => {
+			const session = await latestConnectionSession(databaseUrl, hostId, protocol);
+			return session
+				? `${protocol.toUpperCase()} workspace session was not ended: ${JSON.stringify(session)}`
+				: `${protocol.toUpperCase()} workspace did not create a connection session row.`;
+		}
+	);
+}
+
+async function latestConnectionSession(databaseUrl, hostId, protocol) {
 	const sql = postgres(databaseUrl, { max: 1 });
 	try {
 		const [session] = await sql`
 			select id, status, ended_at
 			from connection_sessions
-			where host_id = ${hostId} and protocol = 'ssh'
+			where host_id = ${hostId} and protocol = ${protocol}
 			order by started_at desc
 			limit 1
 		`;
@@ -1024,21 +1191,42 @@ function waitForSocketCondition(socket, label, onMessage) {
 
 async function startProtocolFixtures() {
 	const sshServer = createSshFixtureServer();
+	const ftp = createFtpFixtureServer({
+		label: 'ftp',
+		files: new Map([['/ftp-smoke.txt', Buffer.from('hello-from-ftp\n')]])
+	});
+	const ftpsIdentity = await createTemporaryTlsIdentity();
+	const ftps = createFtpFixtureServer({
+		label: 'ftps',
+		files: new Map([['/ftps-smoke.txt', Buffer.from('hello-from-ftps\n')]]),
+		tls: ftpsIdentity
+	});
 	const telnet = createTelnetFixtureServer();
 	const vnc = createVncFixtureServer();
 
-	await Promise.all([listen(sshServer), listen(telnet.server), listen(vnc.server)]);
+	await Promise.all([
+		listen(sshServer),
+		listen(ftp.server),
+		listen(ftps.server),
+		listen(telnet.server),
+		listen(vnc.server)
+	]);
 
 	return {
 		sshPort: sshServer.address().port,
+		ftpPort: ftp.server.address().port,
+		ftpsPort: ftps.server.address().port,
+		ftpsState: ftps.state,
 		telnetPort: telnet.server.address().port,
 		vncPort: vnc.server.address().port,
 		telnetState: telnet.state,
 		vncState: vnc.state,
-		summary: `ssh:${sshServer.address().port} telnet:${telnet.server.address().port} vnc:${vnc.server.address().port}`,
+		summary: `ssh:${sshServer.address().port} ftp:${ftp.server.address().port} ftps:${ftps.server.address().port} telnet:${telnet.server.address().port} vnc:${vnc.server.address().port}`,
 		close: async () => {
 			await Promise.all([
 				closeServer(sshServer),
+				closeServer(ftp.server),
+				closeServer(ftps.server),
 				closeServer(telnet.server),
 				closeServer(vnc.server)
 			]);
@@ -1094,6 +1282,383 @@ function createSshFixtureServer() {
 		clients.clear();
 	};
 	return server;
+}
+
+async function createTemporaryTlsIdentity() {
+	const keyPath = join(tempDir, 'ftps-key.pem');
+	const certPath = join(tempDir, 'ftps-cert.pem');
+	await execFile('openssl', [
+		'req',
+		'-x509',
+		'-newkey',
+		'rsa:2048',
+		'-keyout',
+		keyPath,
+		'-out',
+		certPath,
+		'-nodes',
+		'-days',
+		'1',
+		'-subj',
+		'/CN=127.0.0.1',
+		'-addext',
+		'subjectAltName=IP:127.0.0.1'
+	]);
+	const [key, cert] = await Promise.all([readFile(keyPath), readFile(certPath)]);
+	return { key, cert };
+}
+
+function createFtpFixtureServer({ label, files, tls = null }) {
+	const directories = new Set(['/']);
+	const sockets = new Set();
+	const dataServers = new Set();
+	const filesystem = { files, directories };
+	const state = {
+		authTlsCount: 0,
+		protectedTransferCount: 0
+	};
+	const server = createServer((socket) => {
+		sockets.add(socket);
+		socket.once('close', () => sockets.delete(socket));
+		installFtpControlSession(socket, filesystem, { label, tls, state, dataServers, sockets });
+	});
+
+	server.closeAllClients = () => {
+		for (const socket of sockets) socket.destroy();
+		sockets.clear();
+		for (const dataServer of dataServers) dataServer.close();
+		dataServers.clear();
+	};
+
+	return { server, state };
+}
+
+function installFtpControlSession(initialSocket, filesystem, fixture) {
+	let socket = initialSocket;
+	let buffer = '';
+	let currentDirectory = '/';
+	let pendingRename = null;
+	let pendingData = null;
+	let protectedData = false;
+	let currentUser = null;
+
+	const onData = (chunk) => {
+		buffer += chunk.toString('utf8');
+		let newline;
+		while ((newline = buffer.indexOf('\n')) !== -1) {
+			const rawLine = buffer.slice(0, newline).replace(/\r$/, '');
+			buffer = buffer.slice(newline + 1);
+			void handleFtpCommand(rawLine).catch((error) => {
+				sendFtp(socket, 451, errorText(error));
+			});
+		}
+	};
+
+	const attach = (nextSocket) => {
+		socket = nextSocket;
+		fixture.sockets.add(socket);
+		socket.setEncoding('utf8');
+		socket.once('close', () => fixture.sockets.delete(socket));
+		socket.on('error', () => fixture.sockets.delete(socket));
+		socket.on('data', onData);
+	};
+
+	attach(socket);
+	sendFtp(socket, 220, `TermixKit ${fixture.label} fixture ready`);
+
+	async function handleFtpCommand(rawLine) {
+		if (!rawLine.trim()) return;
+		const [rawCommand, ...rest] = rawLine.split(' ');
+		const command = rawCommand.toUpperCase();
+		const argument = rest.join(' ');
+
+		switch (command) {
+			case 'AUTH':
+				if (!fixture.tls || argument.toUpperCase() !== 'TLS') {
+					sendFtp(socket, 502, 'AUTH mechanism not supported');
+					return;
+				}
+				fixture.state.authTlsCount += 1;
+				socket.removeListener('data', onData);
+				sendFtp(socket, 234, 'AUTH TLS successful');
+				attach(
+					new TLSSocket(socket, {
+						isServer: true,
+						secureContext: createSecureContext({ key: fixture.tls.key, cert: fixture.tls.cert })
+					})
+				);
+				return;
+			case 'USER':
+				currentUser = argument;
+				sendFtp(socket, 331, 'Password required');
+				return;
+			case 'PASS':
+				if (currentUser === 'ftp-smoke' && argument === 'ftp-smoke-password') {
+					sendFtp(socket, 230, 'Login successful');
+					return;
+				}
+				sendFtp(socket, 530, 'Login incorrect');
+				return;
+			case 'FEAT':
+				sendFtpRaw(socket, '211-Features\r\n UTF8\r\n211 End\r\n');
+				return;
+			case 'OPTS':
+			case 'TYPE':
+			case 'STRU':
+			case 'PBSZ':
+				sendFtp(socket, 200, 'OK');
+				return;
+			case 'PROT':
+				protectedData = argument.toUpperCase() === 'P';
+				sendFtp(socket, 200, 'Protection set');
+				return;
+			case 'PWD':
+				sendFtp(socket, 257, `"${currentDirectory}" is current directory`);
+				return;
+			case 'CWD': {
+				const path = ftpPath(argument, currentDirectory);
+				if (!filesystem.directories.has(path)) {
+					sendFtp(socket, 550, 'Directory not found');
+					return;
+				}
+				currentDirectory = path;
+				sendFtp(socket, 250, 'Directory changed');
+				return;
+			}
+			case 'CDUP':
+				currentDirectory = currentDirectory === '/' ? '/' : posixPath.dirname(currentDirectory);
+				sendFtp(socket, 250, 'Directory changed');
+				return;
+			case 'EPSV':
+				pendingData = await prepareFtpDataConnection(fixture, protectedData);
+				sendFtp(socket, 229, `Entering Extended Passive Mode (|||${pendingData.port}|)`);
+				return;
+			case 'PASV':
+				pendingData = await prepareFtpDataConnection(fixture, protectedData);
+				sendFtp(
+					socket,
+					227,
+					`Entering Passive Mode (127,0,0,1,${pendingData.p1},${pendingData.p2})`
+				);
+				return;
+			case 'LIST':
+			case 'MLSD':
+				await sendFtpDirectoryList(
+					socket,
+					pendingData,
+					filesystem,
+					ftpListPath(argument, currentDirectory)
+				);
+				pendingData = null;
+				return;
+			case 'RETR':
+				await sendFtpFile(socket, pendingData, filesystem, ftpPath(argument, currentDirectory));
+				pendingData = null;
+				return;
+			case 'STOR':
+				await receiveFtpFile(socket, pendingData, filesystem, ftpPath(argument, currentDirectory));
+				pendingData = null;
+				return;
+			case 'MKD':
+				createFtpDirectoryPath(filesystem, ftpPath(argument, currentDirectory));
+				sendFtp(socket, 257, 'Directory created');
+				return;
+			case 'RNFR': {
+				const from = ftpPath(argument, currentDirectory);
+				if (!filesystem.files.has(from) && !filesystem.directories.has(from)) {
+					sendFtp(socket, 550, 'Path not found');
+					return;
+				}
+				pendingRename = from;
+				sendFtp(socket, 350, 'Ready for RNTO');
+				return;
+			}
+			case 'RNTO':
+				if (!pendingRename) {
+					sendFtp(socket, 503, 'RNFR required first');
+					return;
+				}
+				renameFtpFixturePath(filesystem, pendingRename, ftpPath(argument, currentDirectory));
+				pendingRename = null;
+				sendFtp(socket, 250, 'Rename successful');
+				return;
+			case 'DELE': {
+				const path = ftpPath(argument, currentDirectory);
+				if (!filesystem.files.delete(path)) {
+					sendFtp(socket, 550, 'File not found');
+					return;
+				}
+				sendFtp(socket, 250, 'Deleted');
+				return;
+			}
+			case 'RMD': {
+				const path = ftpPath(argument, currentDirectory);
+				if (
+					path === '/' ||
+					!filesystem.directories.has(path) ||
+					listFtpFixtureEntries(filesystem, path).length
+				) {
+					sendFtp(socket, 550, 'Directory unavailable');
+					return;
+				}
+				filesystem.directories.delete(path);
+				sendFtp(socket, 250, 'Directory removed');
+				return;
+			}
+			case 'QUIT':
+				sendFtp(socket, 221, 'Bye');
+				socket.end();
+				return;
+			default:
+				sendFtp(socket, 502, `Unsupported command ${command}`);
+		}
+	}
+}
+
+async function prepareFtpDataConnection(fixture, protectedData) {
+	const serverFactory =
+		protectedData && fixture.tls
+			? (handler) => createTlsServer({ key: fixture.tls.key, cert: fixture.tls.cert }, handler)
+			: (handler) => createServer(handler);
+
+	let resolveSocket;
+	const socketPromise = new Promise((resolve) => {
+		resolveSocket = resolve;
+	});
+	const dataServer = serverFactory((socket) => {
+		fixture.sockets.add(socket);
+		socket.once('close', () => fixture.sockets.delete(socket));
+		if (protectedData && fixture.tls) fixture.state.protectedTransferCount += 1;
+		resolveSocket(socket);
+		dataServer.close();
+		fixture.dataServers.delete(dataServer);
+	});
+	fixture.dataServers.add(dataServer);
+	await listen(dataServer);
+	const address = dataServer.address();
+	assert(address && typeof address !== 'string', 'FTP data server did not bind a TCP port');
+	return {
+		port: address.port,
+		p1: Math.floor(address.port / 256),
+		p2: address.port % 256,
+		socket: socketPromise
+	};
+}
+
+async function sendFtpDirectoryList(controlSocket, pendingData, filesystem, path) {
+	const dataSocket = await requireFtpDataSocket(pendingData);
+	const entries = listFtpFixtureEntries(filesystem, path);
+	sendFtp(controlSocket, 150, 'Opening data connection');
+	dataSocket.end(entries.map(formatFtpListEntry).join(''));
+	await once(dataSocket, 'close').catch(() => {});
+	sendFtp(controlSocket, 226, 'Transfer complete');
+}
+
+async function sendFtpFile(controlSocket, pendingData, filesystem, path) {
+	const data = filesystem.files.get(path);
+	if (!data) {
+		sendFtp(controlSocket, 550, 'File not found');
+		return;
+	}
+	const dataSocket = await requireFtpDataSocket(pendingData);
+	sendFtp(controlSocket, 150, 'Opening data connection');
+	dataSocket.end(data);
+	await once(dataSocket, 'close').catch(() => {});
+	sendFtp(controlSocket, 226, 'Transfer complete');
+}
+
+async function receiveFtpFile(controlSocket, pendingData, filesystem, path) {
+	if (!filesystem.directories.has(posixPath.dirname(path))) {
+		sendFtp(controlSocket, 550, 'Parent directory not found');
+		return;
+	}
+	const dataSocket = await requireFtpDataSocket(pendingData);
+	const chunks = [];
+	sendFtp(controlSocket, 150, 'Opening data connection');
+	dataSocket.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+	await once(dataSocket, 'end').catch(() => {});
+	filesystem.files.set(path, Buffer.concat(chunks));
+	sendFtp(controlSocket, 226, 'Transfer complete');
+}
+
+async function requireFtpDataSocket(pendingData) {
+	if (!pendingData) throw new Error('FTP data connection was not prepared');
+	return pendingData.socket;
+}
+
+function ftpPath(value, currentDirectory) {
+	const raw = typeof value === 'string' && value.trim() ? value.trim() : currentDirectory;
+	const joined = raw.startsWith('/') ? raw : posixPath.join(currentDirectory, raw);
+	const normalized = normalizeRemotePath(joined);
+	if (normalized.split('/').includes('..')) throw new Error('FTP path traversal is not allowed');
+	return normalized;
+}
+
+function ftpListPath(value, currentDirectory) {
+	const cleaned = value.replace(/(^|\s)-[A-Za-z]+\s*/g, '').trim();
+	return ftpPath(cleaned || currentDirectory, currentDirectory);
+}
+
+function createFtpDirectoryPath(filesystem, path) {
+	const segments = path.split('/').filter(Boolean);
+	let current = '/';
+	for (const segment of segments) {
+		current = normalizeRemotePath(posixPath.join(current, segment));
+		filesystem.directories.add(current);
+	}
+}
+
+function renameFtpFixturePath(filesystem, source, target) {
+	if (!filesystem.directories.has(posixPath.dirname(target))) {
+		throw new Error('FTP rename target parent is missing');
+	}
+	if (filesystem.files.has(source)) {
+		filesystem.files.set(target, filesystem.files.get(source));
+		filesystem.files.delete(source);
+		return;
+	}
+	if (source !== '/' && filesystem.directories.has(source)) {
+		filesystem.directories.add(target);
+		filesystem.directories.delete(source);
+		for (const [path, data] of [...filesystem.files.entries()]) {
+			if (path.startsWith(`${source}/`)) {
+				filesystem.files.set(`${target}${path.slice(source.length)}`, data);
+				filesystem.files.delete(path);
+			}
+		}
+		for (const path of [...filesystem.directories]) {
+			if (path.startsWith(`${source}/`)) {
+				filesystem.directories.add(`${target}${path.slice(source.length)}`);
+				filesystem.directories.delete(path);
+			}
+		}
+	}
+}
+
+function listFtpFixtureEntries({ files, directories }, directory) {
+	const entries = [];
+	for (const path of directories) {
+		if (path === directory || posixPath.dirname(path) !== directory) continue;
+		entries.push({ name: posixPath.basename(path), type: 'directory', size: 0 });
+	}
+	for (const [path, data] of files) {
+		if (posixPath.dirname(path) !== directory) continue;
+		entries.push({ name: posixPath.basename(path), type: 'file', size: data.length });
+	}
+	return entries.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function formatFtpListEntry(entry) {
+	const mode = entry.type === 'directory' ? 'drwxr-xr-x' : '-rw-r--r--';
+	return `${mode} 1 smoke smoke ${entry.size} Jan 01 2026 ${entry.name}\r\n`;
+}
+
+function sendFtp(socket, code, message) {
+	sendFtpRaw(socket, `${code} ${message}\r\n`);
+}
+
+function sendFtpRaw(socket, value) {
+	socket.write(value);
 }
 
 function installSftpFixtureServer(sftp, filesystem) {

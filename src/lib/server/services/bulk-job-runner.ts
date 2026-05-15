@@ -348,25 +348,32 @@ function runWithOptionalTimeout(
 	const onAbort = () => controller.abort(parentSignal.reason);
 	parentSignal.addEventListener('abort', onAbort, { once: true });
 
-	const timeout = setTimeout(() => {
-		controller.abort(new Error('Bulk host operation timed out'));
-	}, timeoutMs);
+	const timeoutFailure = {
+		code: 'timeout' as const,
+		message: 'Bulk host operation timed out',
+		retryable: true
+	};
+	let timedOut = false;
+	let timeout!: ReturnType<typeof setTimeout>;
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timeout = setTimeout(() => {
+			timedOut = true;
+			controller.abort(new Error('Bulk host operation timed out'));
+			reject(timeoutFailure);
+		}, timeoutMs);
+	});
 
-	return work(controller.signal)
-		.catch((error) => {
-			if (controller.signal.aborted && !parentSignal.aborted) {
-				throw {
-					code: 'timeout',
-					message: 'Bulk host operation timed out',
-					retryable: true
-				};
-			}
-			throw error;
-		})
-		.finally(() => {
-			clearTimeout(timeout);
-			parentSignal.removeEventListener('abort', onAbort);
-		});
+	const workPromise = work(controller.signal).catch((error) => {
+		if ((timedOut || controller.signal.aborted) && !parentSignal.aborted) {
+			throw timeoutFailure;
+		}
+		throw error;
+	});
+
+	return Promise.race([workPromise, timeoutPromise]).finally(() => {
+		clearTimeout(timeout);
+		parentSignal.removeEventListener('abort', onAbort);
+	});
 }
 
 function isAbortError(error: unknown): boolean {

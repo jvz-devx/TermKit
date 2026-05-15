@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	buildForwardHttpRequest,
 	parseForwardHttpResponse,
+	proxyHttpTunnelRequest,
 	proxyTcpTunnelWebSocket,
 	tunnelFailureCode,
 	SshTunnelProxyError
 } from './ssh-tunnel';
-import { ServiceValidationError } from '../services/errors';
+import { ServicePayloadTooLargeError, ServiceValidationError } from '../services/errors';
 
 const sshConnectMocks = vi.hoisted(() => ({
 	connectTrustedSsh: vi.fn()
@@ -148,8 +149,107 @@ describe('ssh-tunnel protocol helpers', () => {
 		expect(tunnelFailureCode(new Error('boom'))).toBe('tunnel_proxy_failed');
 	});
 
+	it('rejects oversized HTTP tunnel requests before opening SSH connections', async () => {
+		expect.assertions(2);
+
+		const request = new Request('https://termix.test/api/tunnels/session-1/proxy/upload', {
+			method: 'POST',
+			headers: { 'content-length': String(25 * 1024 * 1024 + 1) },
+			body: 'x'
+		});
+
+		await expect(
+			proxyHttpTunnelRequest(
+				sshTarget(),
+				{ targetHost: '127.0.0.1', targetPort: 8080 },
+				request,
+				'/upload'
+			)
+		).rejects.toBeInstanceOf(ServicePayloadTooLargeError);
+		expect(sshConnectMocks.connectTrustedSsh).not.toHaveBeenCalled();
+	});
+
+	it('maps SSH connection failures to tunnel proxy failure codes', async () => {
+		expect.assertions(3);
+
+		sshConnectMocks.connectTrustedSsh
+			.mockRejectedValueOnce(Object.assign(new Error('denied'), { level: 'client-authentication' }))
+			.mockRejectedValueOnce(
+				Object.assign(new Error('changed key'), { name: 'SshHostKeyTrustError' })
+			)
+			.mockRejectedValueOnce(new Error('network unreachable'));
+		const request = () => new Request('https://termix.test/proxy', { method: 'GET' });
+		const proxy = () =>
+			proxyHttpTunnelRequest(
+				sshTarget(),
+				{ targetHost: '127.0.0.1', targetPort: 8080 },
+				request(),
+				'/'
+			);
+
+		await expect(proxy()).rejects.toMatchObject({ code: 'ssh_auth_failed' });
+		await expect(proxy()).rejects.toMatchObject({ code: 'ssh_host_key_untrusted' });
+		await expect(proxy()).rejects.toMatchObject({
+			code: 'ssh_connection_failed',
+			message: 'network unreachable'
+		});
+	});
+
+	it('proxies HTTP tunnel requests over the forwarded channel and ends the SSH connection', async () => {
+		expect.assertions(6);
+
+		const channel = new FakeSshChannel();
+		channel.end = vi.fn((data: Buffer) => {
+			expect(data.toString('utf8')).toContain('GET /status HTTP/1.1\r\n');
+			channel.emit(
+				'data',
+				Buffer.from(['HTTP/1.1 202 Accepted', 'X-Upstream: ok', '', 'queued'].join('\r\n'))
+			);
+			channel.emit('close');
+		});
+		const connection = new FakeSshConnection(channel);
+		sshConnectMocks.connectTrustedSsh.mockResolvedValue(connection);
+
+		const response = await proxyHttpTunnelRequest(
+			sshTarget(),
+			{ targetHost: '127.0.0.1', targetPort: 8080 },
+			new Request('https://termix.test/proxy', { method: 'GET' }),
+			'/status'
+		);
+
+		expect(response.status).toBe(202);
+		expect(response.statusText).toBe('Accepted');
+		expect(response.headers.get('x-upstream')).toBe('ok');
+		expect(new TextDecoder().decode(response.body)).toBe('queued');
+		expect(connection.end).toHaveBeenCalledTimes(1);
+	});
+
+	it('cleans channel listeners and ends SSH connections when HTTP tunnel writes fail', async () => {
+		expect.assertions(5);
+
+		const channel = new FakeSshChannel();
+		channel.end = vi.fn(() => {
+			channel.emit('error', new Error('broken pipe'));
+		});
+		const connection = new FakeSshConnection(channel);
+		sshConnectMocks.connectTrustedSsh.mockResolvedValue(connection);
+
+		await expect(
+			proxyHttpTunnelRequest(
+				sshTarget(),
+				{ targetHost: '127.0.0.1', targetPort: 8080 },
+				new Request('https://termix.test/proxy', { method: 'GET' }),
+				'/status'
+			)
+		).rejects.toMatchObject({ code: 'tunnel_proxy_failed', message: 'broken pipe' });
+		expect(connection.end).toHaveBeenCalledTimes(1);
+		expect(channel.listenerCount('data')).toBe(0);
+		expect(channel.listenerCount('close')).toBe(0);
+		expect(channel.listenerCount('error')).toBe(0);
+	});
+
 	it('proxies websocket bytes through an SSH forwarded channel and cleans up on socket close', async () => {
-		expect.assertions(8);
+		expect.assertions(10);
 
 		const channel = new FakeSshChannel();
 		const connection = new FakeSshConnection(channel);
@@ -163,6 +263,8 @@ describe('ssh-tunnel protocol helpers', () => {
 		);
 
 		socket.emit('message', Buffer.from('client-bytes'));
+		socket.emit('message', new Uint8Array([1, 2, 3]).buffer);
+		socket.emit('message', [Buffer.from('A'), Buffer.from('B')]);
 		channel.emit('data', Buffer.from('server-bytes'));
 		socket.emit('close');
 
@@ -174,6 +276,8 @@ describe('ssh-tunnel protocol helpers', () => {
 			expect.any(Function)
 		);
 		expect(channel.write).toHaveBeenCalledWith(Buffer.from('client-bytes'));
+		expect(channel.write).toHaveBeenCalledWith(Buffer.from([1, 2, 3]));
+		expect(channel.write).toHaveBeenCalledWith(Buffer.from('AB'));
 		expect(socket.send).toHaveBeenCalledWith(Buffer.from('server-bytes'));
 		expect(channel.end).toHaveBeenCalledTimes(1);
 		expect(connection.end).toHaveBeenCalledTimes(1);
@@ -224,6 +328,28 @@ describe('ssh-tunnel protocol helpers', () => {
 		});
 		expect(connection.end).toHaveBeenCalledTimes(1);
 		expect(socket.listenerCount('message')).toBe(0);
+	});
+
+	it('destroys the forwarded channel and removes listeners when the websocket errors', async () => {
+		expect.assertions(5);
+
+		const channel = new FakeSshChannel();
+		const connection = new FakeSshConnection(channel);
+		const socket = new FakeWebSocket();
+		sshConnectMocks.connectTrustedSsh.mockResolvedValue(connection);
+
+		await proxyTcpTunnelWebSocket(
+			sshTarget(),
+			{ targetHost: '127.0.0.1', targetPort: 80 },
+			socket as never
+		);
+		socket.emit('error', new Error('socket reset'));
+
+		expect(channel.destroy).toHaveBeenCalledTimes(1);
+		expect(connection.end).toHaveBeenCalledTimes(1);
+		expect(socket.listenerCount('message')).toBe(0);
+		expect(channel.listenerCount('data')).toBe(0);
+		expect(channel.listenerCount('error')).toBe(0);
 	});
 });
 

@@ -85,6 +85,53 @@ describe('BulkJobRunner', () => {
 		expect(report.body).toContain('partial_failed');
 	});
 
+	it('plans large fan-outs in stable waves and enforces the runtime concurrency budget', async () => {
+		expect.assertions(8);
+
+		const hostIds = Array.from({ length: 64 }, (_, index) => `host-${index + 1}`);
+		const activity: string[] = [];
+		let active = 0;
+		let maxActive = 0;
+		const runner = new BulkJobRunner({
+			repository: new InMemoryBulkJobRepository(),
+			hosts: new StaticHostResolver(hostIds.map((id) => host(id, 'ssh'))),
+			executors: {
+				async runSshCommand(context) {
+					active += 1;
+					maxActive = Math.max(maxActive, active);
+					activity.push(context.host.hostId);
+					await Promise.resolve();
+					active -= 1;
+					return { stdout: `ok ${context.host.hostId}` };
+				}
+			}
+		});
+
+		const created = await runner.createJob({
+			id: 'job-large-fanout',
+			userId: 'user-1',
+			kind: 'ssh_command',
+			targets: hostIds.map((hostId) => ({ hostId })),
+			reviewedHostIds: hostIds,
+			concurrencyLimit: 7,
+			command: { command: 'uptime' }
+		});
+		const finished = await runner.run('user-1', created.id);
+
+		expect(created.concurrency).toMatchObject({
+			limit: 7,
+			totalHosts: 64,
+			waveCount: 10
+		});
+		expect(created.concurrency.waves[0]).toEqual(hostIds.slice(0, 7));
+		expect(created.concurrency.waves[8]).toEqual(hostIds.slice(56, 63));
+		expect(created.concurrency.waves[9]).toEqual(['host-64']);
+		expect(maxActive).toBeLessThanOrEqual(7);
+		expect(activity).toHaveLength(64);
+		expect(finished.hosts.every((item) => item.status === 'succeeded')).toBe(true);
+		expect(finished.status).toBe('completed');
+	});
+
 	it('cancels queued and running host work', async () => {
 		expect.assertions(6);
 
@@ -312,6 +359,60 @@ describe('BulkJobRunner', () => {
 			expect(attempts.get('host-1')).toBe(2);
 			expect(report.body).toContain('completed');
 			expect(secondRun.hosts[0].result?.stdout.text).toContain('retry ok 2');
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('keeps late executor success from winning after a timeout abort', async () => {
+		expect.assertions(5);
+
+		vi.useFakeTimers();
+		try {
+			let releaseLateSuccess!: () => void;
+			let sawAbort = false;
+			const lateSuccess = new Promise<void>((resolve) => {
+				releaseLateSuccess = resolve;
+			});
+			const runner = new BulkJobRunner({
+				repository: new InMemoryBulkJobRepository(),
+				hosts: new StaticHostResolver([host('host-1', 'ssh')]),
+				executors: {
+					async runSshCommand(context) {
+						context.signal.addEventListener(
+							'abort',
+							() => {
+								sawAbort = true;
+							},
+							{ once: true }
+						);
+						await waitForAbort(context.signal).catch(() => undefined);
+						await lateSuccess;
+						return { stdout: 'late success should not be persisted' };
+					}
+				}
+			});
+			const created = await runner.createJob({
+				id: 'job-timeout-late-success',
+				userId: 'user-1',
+				kind: 'ssh_command',
+				targets: [{ hostId: 'host-1' }],
+				reviewedHostIds: ['host-1'],
+				command: { command: 'sleep 10', timeoutMs: 1_000 }
+			});
+
+			const running = runner.run('user-1', created.id);
+			await vi.advanceTimersByTimeAsync(1_001);
+			const timedOut = await running;
+			releaseLateSuccess();
+			await Promise.resolve();
+			const persisted = await runner.getJob('user-1', created.id);
+
+			expect(sawAbort).toBe(true);
+			expect(timedOut.status).toBe('failed');
+			expect(timedOut.hosts[0].failure?.code).toBe('timeout');
+			expect(timedOut.hosts[0].result?.stdout.text).not.toContain('late success');
+			expect(persisted?.hosts[0].failure?.code).toBe('timeout');
 		} finally {
 			vi.useRealTimers();
 		}
