@@ -55,6 +55,32 @@ describe('session workspace layout metadata', () => {
 		});
 	});
 
+	it('preserves all remaining panes when closing from a quad layout to three panes', () => {
+		const layout = normalizeSessionLayout(
+			{
+				layout: 'quad',
+				panes: [
+					{ id: 'one', kind: 'ssh', hostId: 'host-1' },
+					{ id: 'two', kind: 'sftp', hostId: 'host-1' },
+					{ id: 'three', kind: 'rdp', hostId: 'host-2' },
+					{ id: 'four', kind: 'vnc', hostId: 'host-3' }
+				]
+			},
+			'single',
+			'ssh',
+			'fallback-host'
+		);
+
+		expect(removeSessionPane(layout, 'two', 'ssh', 'host-1')).toMatchObject({
+			layout: 'three',
+			panes: [
+				{ id: 'one', kind: 'ssh', hostId: 'host-1' },
+				{ id: 'three', kind: 'rdp', hostId: 'host-2' },
+				{ id: 'four', kind: 'vnc', hostId: 'host-3' }
+			]
+		});
+	});
+
 	it('builds deterministic multi-pane defaults for dense protocol workspaces', () => {
 		expect(createDefaultSessionLayout('quad', 'rdp', 'host-1').panes).toEqual([
 			{ id: 'pane-1', kind: 'rdp', hostId: 'host-1' },

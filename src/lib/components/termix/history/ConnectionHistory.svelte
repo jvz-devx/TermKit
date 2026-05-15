@@ -35,9 +35,7 @@
 		uniqueOptions(rows.map((row) => [hostKey(row), `${row.host} (${row.hostname})`]))
 	);
 	let failedCount = $derived(rows.filter((row) => row.status === 'failed').length);
-	let activeCount = $derived(
-		rows.filter((row) => row.status === 'active' || row.status === 'starting').length
-	);
+	let activeCount = $derived(rows.filter((row) => row.status === 'active').length);
 	let filteredRows = $derived.by(() => {
 		const needle = search.trim().toLowerCase();
 

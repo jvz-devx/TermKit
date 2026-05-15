@@ -62,7 +62,18 @@
 	onMount(() => {
 		let rfb: RfbClient | undefined;
 		let resizeObserver: ResizeObserver | undefined;
+		let fullscreenResizeTimer: ReturnType<typeof setTimeout> | undefined;
 		let disposed = false;
+		const refreshViewportSizing = () => {
+			if (!rfb) return;
+			rfb.scaleViewport = true;
+			rfb.resizeSession = true;
+		};
+		const refreshViewportAfterFullscreen = () => {
+			refreshViewportSizing();
+			clearTimeout(fullscreenResizeTimer);
+			fullscreenResizeTimer = setTimeout(refreshViewportSizing, 160);
+		};
 
 		if (!websocketUrl) {
 			connectionState = 'idle';
@@ -86,8 +97,7 @@
 				rfb.focusOnClick = true;
 				rfb.clipViewport = true;
 				rfb.dragViewport = true;
-				rfb.scaleViewport = true;
-				rfb.resizeSession = true;
+				refreshViewportSizing();
 				rfb.showDotCursor = true;
 
 				rfb.addEventListener('connect', () => {
@@ -147,12 +157,9 @@
 							: 'VNC';
 				});
 
-				resizeObserver = new ResizeObserver(() => {
-					if (!rfb) return;
-					rfb.scaleViewport = true;
-					rfb.resizeSession = true;
-				});
+				resizeObserver = new ResizeObserver(refreshViewportSizing);
 				resizeObserver.observe(mountElement);
+				document.addEventListener('fullscreenchange', refreshViewportAfterFullscreen);
 			} catch (caught) {
 				if (disposed) return;
 				connectionState = 'error';
@@ -162,6 +169,8 @@
 
 		return () => {
 			disposed = true;
+			clearTimeout(fullscreenResizeTimer);
+			document.removeEventListener('fullscreenchange', refreshViewportAfterFullscreen);
 			resizeObserver?.disconnect();
 			rfb?.disconnect();
 			rfbClient = null;
@@ -214,7 +223,7 @@
 	}
 </script>
 
-<div class="relative h-full min-h-[480px] overflow-hidden rounded-md border bg-black">
+<div class="relative h-full min-h-0 min-w-0 overflow-hidden rounded-md border bg-black">
 	<div
 		class="flex h-10 items-center justify-between border-b border-neutral-800 bg-neutral-950 px-3 text-xs text-neutral-400"
 	>
@@ -226,7 +235,7 @@
 			<span>{viewOnly ? 'view only' : 'interactive'}</span>
 		</div>
 	</div>
-	<div bind:this={mountElement} class="h-[calc(100%-2.5rem)] w-full overflow-hidden"></div>
+	<div bind:this={mountElement} class="h-[calc(100%-2.5rem)] w-full min-w-0 overflow-hidden"></div>
 
 	{#if credentialStrategy === 'saved-password' && !savedPasswordCleared && connectionState !== 'connected' && !authPromptVisible}
 		<Alert.Root

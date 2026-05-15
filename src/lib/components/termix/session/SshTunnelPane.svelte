@@ -18,6 +18,7 @@
 		type SshTunnelProfileSummary,
 		type SshTunnelSessionSummary
 	} from '$lib/termix.remote';
+	import { failureCopy, failureDetail } from '$lib/termix/failure-copy';
 	import StatePanel from '../StatePanel.svelte';
 
 	let { host }: { host: HostSummary } = $props();
@@ -30,6 +31,7 @@
 	let targetPort = $state(80);
 	let pendingAction = $state<string | null>(null);
 	let error = $state<string | null>(null);
+	let errorKind = $state<'tunnel' | 'clipboard'>('tunnel');
 	let notice = $state<string | null>(null);
 
 	let profiles = $derived(
@@ -40,6 +42,15 @@
 	);
 	let activeSessions = $derived(
 		sessions.filter((session) => session.status === 'active' || session.status === 'idle')
+	);
+	let errorCopy = $derived(
+		error && errorKind === 'tunnel'
+			? failureCopy({
+					protocol: 'ssh-tunnel',
+					message: error,
+					fallbackTitle: 'Tunnel request failed'
+				})
+			: null
 	);
 
 	async function createProfile() {
@@ -85,6 +96,7 @@
 
 	async function copyWebSocketEndpoint(session: SshTunnelSessionSummary) {
 		if (!navigator.clipboard) {
+			errorKind = 'clipboard';
 			error = 'Clipboard access is unavailable in this browser.';
 			return;
 		}
@@ -104,6 +116,7 @@
 			await action();
 			notice = success;
 		} catch (caught) {
+			errorKind = id.startsWith('session:copy:') ? 'clipboard' : 'tunnel';
 			error = caught instanceof Error ? caught.message : 'Tunnel operation failed.';
 		} finally {
 			pendingAction = null;
@@ -123,7 +136,7 @@
 </script>
 
 <div
-	class="relative grid h-full min-h-[480px] grid-rows-[auto_1fr] overflow-hidden rounded-md border"
+	class="relative grid h-full min-h-0 min-w-0 grid-rows-[auto_1fr] overflow-hidden rounded-md border"
 >
 	<div class="grid gap-3 border-b bg-muted/20 p-3 xl:grid-cols-[1fr_auto]">
 		{#if host.sshJumpHost.enabled && host.sshJumpHost.hostId}
@@ -303,11 +316,15 @@
 		<StatePanel
 			state={error ? 'error' : profilesQuery.loading || sessionsQuery.loading ? 'loading' : 'ready'}
 			title={error
-				? 'Tunnel request failed'
+				? errorKind === 'clipboard'
+					? 'Could not copy endpoint'
+					: (errorCopy?.title ?? 'Tunnel request failed')
 				: profilesQuery.loading || sessionsQuery.loading
 					? 'Loading tunnels'
 					: (notice ?? 'Tunnel ready')}
-			detail={error ?? `${host.hostname}:${host.port}`}
+			detail={errorCopy
+				? `${failureDetail(errorCopy)}${errorCopy.diagnostic ? ` Diagnostic: ${errorCopy.diagnostic}` : ''}`
+				: (error ?? `${host.hostname}:${host.port}`)}
 			class="absolute right-3 bottom-3 left-3 bg-background"
 		/>
 	{/if}

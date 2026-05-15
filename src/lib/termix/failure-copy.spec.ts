@@ -17,6 +17,14 @@ describe('failure copy helpers', () => {
 		expect(copy.diagnostic).toBe('code: ssh_host_key_not_trusted');
 	});
 
+	it('maps proxy backend availability failures to gateway recovery copy', () => {
+		const copy = failureCopy({ protocol: 'sftp', message: 'no available server' });
+
+		expect(copy.title).toBe('Gateway session failed');
+		expect(failureDetail(copy)).toContain('service is healthy');
+		expect(copy.diagnostic).toBe('message: no available server');
+	});
+
 	it('formats protocol labels and fallback codes consistently', () => {
 		expect(protocolLabel('ssh_tunnel')).toBe('SSH tunnel');
 		expect(protocolLabel('rdp')).toBe('RDP');

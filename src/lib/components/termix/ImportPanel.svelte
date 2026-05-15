@@ -46,6 +46,7 @@
 			credentials: Array<{ sourceId: string; name: string; kind: string }>;
 		};
 	};
+	type ApiResponseBody = Record<string, unknown>;
 
 	let selectedFile = $state<File | null>(null);
 	let sourceSecret = $state('');
@@ -124,11 +125,10 @@
 					body: form
 				}
 			);
-			const body = await response.json().catch(() => ({}));
+			const body = await readApiBody(response, 'Import request failed');
 
 			if (!response.ok) {
-				const issues = Array.isArray(body.issues) ? body.issues.join('; ') : undefined;
-				throw new Error(issues || body.error || 'Import request failed');
+				throw new Error(apiErrorMessage(body, 'Import request failed'));
 			}
 
 			result = body as ImportResult;
@@ -150,8 +150,8 @@
 
 		try {
 			const response = await fetch('/api/import/jobs');
-			const body = await response.json().catch(() => ({}));
-			if (!response.ok) throw new Error(body.error ?? 'Could not load import jobs');
+			const body = await readApiBody(response, 'Could not load import jobs');
+			if (!response.ok) throw new Error(apiErrorMessage(body, 'Could not load import jobs'));
 			if (requestId === importJobsRequestId) {
 				importJobs = Array.isArray(body.jobs) ? body.jobs : [];
 			}
@@ -167,6 +167,44 @@
 	onMount(() => {
 		void loadImportJobs();
 	});
+
+	async function readApiBody(response: Response, fallback: string): Promise<ApiResponseBody> {
+		const responseText = await response.text().catch(() => '');
+		const body = parseApiResponseBody(responseText);
+		if (body) return body;
+		if (!response.ok) throw new Error(responseError(responseText, fallback));
+		return {};
+	}
+
+	function apiErrorMessage(body: ApiResponseBody, fallback: string) {
+		if (typeof body.error === 'string' && body.error.trim()) return body.error;
+		if (Array.isArray(body.issues)) {
+			const issues = body.issues.filter((issue): issue is string => typeof issue === 'string');
+			if (issues.length) return issues.join('; ');
+		}
+		return fallback;
+	}
+
+	function responseError(responseText: string, fallback: string) {
+		const body = parseApiResponseBody(responseText);
+		if (body) return apiErrorMessage(body, fallback);
+		const plainText = compactResponseText(responseText);
+		return plainText ? `${fallback}: ${plainText}` : fallback;
+	}
+
+	function parseApiResponseBody(responseText: string): ApiResponseBody | null {
+		try {
+			const body = JSON.parse(responseText);
+			return typeof body === 'object' && body !== null && !Array.isArray(body) ? body : null;
+		} catch {
+			return null;
+		}
+	}
+
+	function compactResponseText(responseText: string) {
+		const compact = responseText.replace(/\s+/g, ' ').trim();
+		return compact.length > 240 ? `${compact.slice(0, 237)}...` : compact;
+	}
 </script>
 
 <section class="space-y-4 p-4">

@@ -45,6 +45,7 @@ import {
 	type SshJumpHostMetadata,
 	type TerminalPreferences
 } from '$lib/termix/host-metadata';
+import { isSessionLayoutKind } from '$lib/components/termix/session/workspace-layout';
 
 export type { RdpLaunchCredentials };
 export type { SshHostKeyTrustSummary };
@@ -776,7 +777,7 @@ function validateSessionWorkspaceLayoutMetadata(value: unknown): SessionWorkspac
 	if (!isRecord(value)) throw new ServiceValidationError(['metadata is required']);
 	const layout = typeof value.layout === 'string' ? value.layout : '';
 	const panes = Array.isArray(value.panes) ? value.panes.filter(isRecord) : [];
-	if (!['single', 'two-columns', 'two-rows', 'quad'].includes(layout)) {
+	if (!isSessionLayoutKind(layout)) {
 		throw new ServiceValidationError(['layout is invalid']);
 	}
 	if (panes.length < 1 || panes.length > 4) {

@@ -15,6 +15,7 @@
 		{ value: 'single', label: 'Single pane', icon: PanelTop },
 		{ value: 'two-columns', label: 'Two columns', icon: Columns2 },
 		{ value: 'two-rows', label: 'Two rows', icon: Rows2 },
+		{ value: 'three', label: 'Three panes', icon: Grid2X2 },
 		{ value: 'quad', label: '2x2 grid', icon: Grid2X2 }
 	];
 

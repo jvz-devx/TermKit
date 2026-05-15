@@ -54,12 +54,18 @@ export function failureCopy({
 	if (
 		normalized.includes('gateway') ||
 		normalized.includes('association') ||
-		normalized.includes('token')
+		normalized.includes('token') ||
+		normalized.includes('no available server') ||
+		normalized.includes('service unavailable') ||
+		normalized.includes('bad gateway') ||
+		normalized.includes('upstream') ||
+		normalized.includes('traefik')
 	) {
 		return {
 			title: 'Gateway session failed',
-			detail: `${label} could not get or use the short-lived Gateway session.`,
-			nextStep: 'Reconnect to request a new token. If it fails again, check Gateway availability.',
+			detail: `${label} could not reach the app backend or use the short-lived Gateway session.`,
+			nextStep:
+				'Retry after the service is healthy. If it repeats, check Traefik, Gateway, and backend availability.',
 			diagnostic
 		};
 	}

@@ -1,4 +1,4 @@
-export const sessionLayoutKinds = ['single', 'two-columns', 'two-rows', 'quad'] as const;
+export const sessionLayoutKinds = ['single', 'two-columns', 'two-rows', 'three', 'quad'] as const;
 
 export type SessionLayoutKind = (typeof sessionLayoutKinds)[number];
 
@@ -31,6 +31,7 @@ export const layoutPaneCounts: Record<SessionLayoutKind, number> = {
 	single: 1,
 	'two-columns': 2,
 	'two-rows': 2,
+	three: 3,
 	quad: 4
 };
 
@@ -150,7 +151,8 @@ export function removeSessionPane(
 		};
 	}
 
-	const layout: SessionLayoutKind = remaining.length >= 4 ? 'quad' : 'two-columns';
+	const layout: SessionLayoutKind =
+		remaining.length >= 4 ? 'quad' : remaining.length === 3 ? 'three' : 'two-columns';
 	const count = layoutPaneCounts[layout];
 	return {
 		layout,

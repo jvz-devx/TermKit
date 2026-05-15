@@ -138,6 +138,7 @@
 	let resizeObserver: ResizeObserver | null = null;
 	let resizeFrame: number | null = null;
 	let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+	let fullscreenResizeTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastDesktopSize: RdpDesktopSize | null = null;
 	let lifecycleFinalized = false;
 	let disposed = false;
@@ -471,6 +472,10 @@
 			clearTimeout(resizeTimer);
 			resizeTimer = null;
 		}
+		if (fullscreenResizeTimer !== null) {
+			clearTimeout(fullscreenResizeTimer);
+			fullscreenResizeTimer = null;
+		}
 
 		resizeObserver?.disconnect();
 		resizeObserver = null;
@@ -491,6 +496,19 @@
 			resizeFrame = null;
 			resizeRemoteDesktop(force);
 		});
+	}
+
+	function scheduleFullscreenResize() {
+		scheduleRemoteResize(true);
+		if (fullscreenResizeTimer !== null) clearTimeout(fullscreenResizeTimer);
+		fullscreenResizeTimer = setTimeout(() => {
+			fullscreenResizeTimer = null;
+			scheduleRemoteResize(true);
+		}, 160);
+	}
+
+	function handleFullscreenChange() {
+		scheduleFullscreenResize();
 	}
 
 	function resizeRemoteDesktop(force = false) {
@@ -593,12 +611,14 @@
 		try {
 			if (fullscreenActive) {
 				await document.exitFullscreen();
+				scheduleFullscreenResize();
 				focusDetail = 'Fullscreen exited.';
 				focusRemoteDesktop();
 				return;
 			}
 
 			await viewportElement.requestFullscreen();
+			scheduleFullscreenResize();
 			focusDetail = 'Fullscreen active. Press Escape to exit.';
 			focusRemoteDesktop();
 		} catch {
@@ -812,9 +832,13 @@
 	}
 </script>
 
-<svelte:document bind:fullscreenElement bind:activeElement />
+<svelte:document
+	bind:fullscreenElement
+	bind:activeElement
+	onfullscreenchange={handleFullscreenChange}
+/>
 
-<div class="flex h-full min-h-0 flex-col overflow-hidden rounded-md border bg-background">
+<div class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border bg-background">
 	<div
 		class="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5"
 	>
@@ -930,7 +954,7 @@
 	</div>
 
 	{#if error}
-		<div class="relative min-h-0 flex-1">
+		<div class="relative min-h-0 min-w-0 flex-1">
 			<StatePanel
 				state="error"
 				title={launchFailure?.title ?? 'RDP launch failed'}
@@ -944,7 +968,7 @@
 			</StatePanel>
 		</div>
 	{:else if !bootstrap}
-		<div class="relative min-h-0 flex-1 bg-neutral-950">
+		<div class="relative min-h-0 min-w-0 flex-1 bg-neutral-950">
 			<StatePanel
 				state="loading"
 				title="Provisioning Gateway session"
@@ -953,12 +977,12 @@
 			/>
 		</div>
 	{:else}
-		<div class="flex min-h-0 flex-1 flex-col bg-neutral-950">
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-neutral-950">
 			<div
-				class="relative min-h-0 flex-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				class="relative min-h-0 min-w-0 flex-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
 				bind:this={viewportElement}
 			>
-				<div class="h-full w-full overflow-hidden">
+				<div class="h-full w-full min-w-0 overflow-hidden">
 					{#if webComponentReady && rdpModule}
 						<svelte:element
 							this={'iron-remote-desktop'}

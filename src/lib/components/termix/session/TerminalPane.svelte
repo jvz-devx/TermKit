@@ -86,32 +86,41 @@
 		});
 		const fitAddon = new FitAddon();
 		let fitTimer: ReturnType<typeof setTimeout> | undefined;
+		let fullscreenFitTimer: ReturnType<typeof setTimeout> | undefined;
 
-		const fit = () => {
+		const fit = (delayMs = 40) => {
 			clearTimeout(fitTimer);
 			fitTimer = setTimeout(() => {
 				try {
 					fitAddon.fit();
-					dimensions = `${instance.cols}x${instance.rows}`;
+					const size = { cols: instance.cols, rows: instance.rows };
+					dimensions = `${size.cols}x${size.rows}`;
+					if (socketRef?.readyState === WebSocket.OPEN) sendResize(socketRef, size);
 				} catch {
 					// xterm can briefly be detached while tabs resize.
 				}
-			}, 40);
+			}, delayMs);
 		};
 
 		instance.loadAddon(fitAddon);
 		instance.open(terminalElement);
 		terminal = instance;
 		instance.focus();
-		fit();
+		fit(0);
 		pruneLocalTerminalRecordings();
 
 		for (const line of welcome) {
 			instance.writeln(line);
 		}
 
-		const resizeObserver = new ResizeObserver(fit);
+		const resizeObserver = new ResizeObserver(() => fit());
 		resizeObserver.observe(terminalElement);
+		const refitAfterFullscreenChange = () => {
+			fit(0);
+			clearTimeout(fullscreenFitTimer);
+			fullscreenFitTimer = setTimeout(() => fit(0), 160);
+		};
+		document.addEventListener('fullscreenchange', refitAfterFullscreenChange);
 		let dataDisposable: { dispose: () => void } | undefined;
 		let resizeDisposable: { dispose: () => void } | undefined;
 
@@ -132,6 +141,7 @@
 			socketRef.addEventListener('open', () => {
 				if (!socketRef || socketRef.readyState !== WebSocket.OPEN) return;
 				setConnectionState('connected', 'Terminal stream is connected.');
+				fit(0);
 				sendResize(socketRef, { cols: instance.cols, rows: instance.rows });
 				instance.focus();
 			});
@@ -155,6 +165,8 @@
 
 		return () => {
 			clearTimeout(fitTimer);
+			clearTimeout(fullscreenFitTimer);
+			document.removeEventListener('fullscreenchange', refitAfterFullscreenChange);
 			resizeObserver.disconnect();
 			dataDisposable?.dispose();
 			resizeDisposable?.dispose();
@@ -345,7 +357,9 @@
 	}
 </script>
 
-<div class="flex h-full min-h-[480px] flex-col overflow-hidden rounded-md border bg-zinc-950">
+<div
+	class="flex h-full min-h-[480px] min-w-0 flex-col overflow-hidden rounded-md border bg-zinc-950"
+>
 	<div
 		class="flex h-10 shrink-0 items-center justify-between border-b border-zinc-800 px-3 text-xs text-zinc-400"
 	>
@@ -367,7 +381,7 @@
 		</div>
 	</div>
 
-	<div class="relative min-h-0 flex-1">
+	<div class="relative min-h-0 min-w-0 flex-1">
 		{#if searchOpen}
 			<div
 				class="absolute top-3 right-3 left-3 z-10 grid gap-2 rounded-md border border-zinc-800 bg-zinc-950/95 p-2 shadow-lg backdrop-blur md:grid-cols-[minmax(0,1fr)_auto_auto]"
@@ -424,7 +438,8 @@
 				</div>
 			</div>
 		{/if}
-		<div bind:this={terminalElement} class="h-full w-full p-2"></div>
+
+		<div bind:this={terminalElement} class="h-full w-full min-w-0 p-2"></div>
 		{#if connectionState !== 'connected'}
 			<StatePanel
 				state={connectionState === 'error'

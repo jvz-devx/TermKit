@@ -366,20 +366,24 @@
 	}
 
 	async function selectPaneKind(paneId: string, kind: SessionPaneKind) {
+		const previousPane = activeWorkspaceLayout.panes.find((pane) => pane.id === paneId);
 		const nextLayout = updateSessionPaneKind(activeWorkspaceLayout, paneId, kind);
 		paneKindOverrides = {
 			...paneKindOverrides,
 			[paneId]: kind
 		};
+		if (previousPane?.kind === 'ssh' || kind === 'ssh') clearLiveSshViewState();
 		await persistSessionLayout(nextLayout);
 	}
 
 	async function selectPaneHost(paneId: string, hostId: string) {
+		const previousPane = activeWorkspaceLayout.panes.find((pane) => pane.id === paneId);
 		const nextLayout = updateSessionPaneHost(activeWorkspaceLayout, paneId, hostId);
 		paneHostIdOverrides = {
 			...paneHostIdOverrides,
 			[paneId]: hostId
 		};
+		if (previousPane?.kind === 'ssh') clearLiveSshViewState();
 		await persistSessionLayout(nextLayout);
 	}
 
@@ -392,6 +396,7 @@
 	}
 
 	async function closePane(paneId: string) {
+		const previousPane = activeWorkspaceLayout.panes.find((pane) => pane.id === paneId);
 		const nextLayout = removeSessionPane(
 			activeWorkspaceLayout,
 			paneId,
@@ -403,6 +408,7 @@
 		paneHostIdOverrides = Object.fromEntries(
 			nextLayout.panes.flatMap((pane) => (pane.hostId ? [[pane.id, pane.hostId]] : []))
 		);
+		if (previousPane?.kind === 'ssh') clearLiveSshViewState();
 		await persistSessionLayout(nextLayout);
 	}
 
@@ -425,11 +431,12 @@
 		liveSshError = null;
 
 		try {
+			const size = estimateWorkspaceTerminalSize(selectedHost);
 			const launch = await createLiveSshSession({
 				hostId: selectedHost.id,
 				title: selectedHost.name,
-				cols: 80,
-				rows: 24
+				cols: size.cols,
+				rows: size.rows
 			});
 			activeLiveSshSessionId = launch.session.id;
 			dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
@@ -542,7 +549,17 @@
 	function handleLiveSshTerminalState(
 		state: 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected'
 	) {
-		if (state === 'error' || state === 'disconnected') refreshLiveSshSessionsSoon();
+		if (state === 'error' || state === 'disconnected') {
+			liveSshAttach = null;
+			activeLiveSshSessionId = null;
+			refreshLiveSshSessionsSoon();
+		}
+	}
+
+	function clearLiveSshViewState() {
+		liveSshAttach = null;
+		liveSshError = null;
+		activeLiveSshSessionId = null;
 	}
 
 	function protocolForSelectedHost(host: HostSummary): WorkspaceProtocol {
@@ -671,11 +688,37 @@
 	function errorMessage(caught: unknown) {
 		return caught instanceof Error ? caught.message : 'Could not create session ticket';
 	}
+
+	function estimateWorkspaceTerminalSize(host: HostSummary) {
+		const bounds = workspaceElement?.getBoundingClientRect();
+		if (!browser || !bounds?.width || !bounds?.height) return { cols: 80, rows: 24 };
+
+		const large = window.innerWidth >= 1024;
+		const { columns, rows } = layoutGridDimensions(activeWorkspaceLayout.layout, large);
+		const fontSize = terminalFontSize(host.terminalPreferences, appSettings.terminalFontSize);
+		const paneWidth = (bounds.width - 16 - Math.max(0, columns - 1) * 8) / columns;
+		const paneHeight = (bounds.height - 148 - Math.max(0, rows - 1) * 8) / rows;
+		const charWidth = Math.max(6, fontSize * 0.62);
+		const rowHeight = Math.max(12, fontSize * 1.35);
+
+		return {
+			cols: Math.floor(Math.max(40, Math.min(240, (paneWidth - 24) / charWidth))),
+			rows: Math.floor(Math.max(12, Math.min(80, (paneHeight - 96) / rowHeight)))
+		};
+	}
+
+	function layoutGridDimensions(layout: SessionLayoutKind, large: boolean) {
+		if (layout === 'single') return { columns: 1, rows: 1 };
+		if (layout === 'two-columns') return large ? { columns: 2, rows: 1 } : { columns: 1, rows: 2 };
+		if (layout === 'two-rows') return { columns: 1, rows: 2 };
+		if (layout === 'three') return large ? { columns: 2, rows: 2 } : { columns: 1, rows: 3 };
+		return large ? { columns: 2, rows: 2 } : { columns: 1, rows: 4 };
+	}
 </script>
 
 <section
 	bind:this={workspaceElement}
-	class="flex h-[calc(100dvh-3.5rem)] min-h-0 flex-col overflow-hidden bg-background"
+	class="flex h-[calc(100dvh-3.5rem)] min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background"
 >
 	<div
 		class="flex flex-col gap-2 border-b px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4"
@@ -759,7 +802,7 @@
 			/>
 		</div>
 	{:else if !selectedHost}
-		<div class="flex min-h-0 flex-1 flex-col">
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 			<LiveSshTabStrip
 				sessions={liveSshSessions}
 				activeSessionId={activeLiveSshSessionId}
@@ -783,7 +826,7 @@
 			/>
 		</div>
 	{:else}
-		<div class="flex min-h-0 flex-1 flex-col">
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 			<div
 				class="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b bg-muted/10 px-3 py-2"
 			>

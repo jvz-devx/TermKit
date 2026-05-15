@@ -61,6 +61,7 @@
 	} from './file-manager-state';
 
 	type ApiBase = 'sftp' | 'ftp';
+	type ApiResponseBody = Record<string, unknown>;
 
 	type BookmarkEntry = {
 		id: string;
@@ -168,10 +169,10 @@
 				apiUrl(`/list?path=${encodeURIComponent(normalizePath(nextPath))}`),
 				{ signal: controller.signal }
 			);
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.error ?? 'Could not list directory');
-			path = body.path ?? normalizePath(nextPath);
-			entries = body.entries;
+			const body = await readApiBody(response, 'Could not list directory');
+			if (!response.ok) throw new Error(apiErrorMessage(body, 'Could not list directory'));
+			path = typeof body.path === 'string' ? body.path : normalizePath(nextPath);
+			entries = Array.isArray(body.entries) ? (body.entries as RemoteEntry[]) : [];
 			selected = null;
 			selectedPaths = [];
 			renamePath = '';
@@ -189,9 +190,9 @@
 		const response = await fetch(
 			apiUrl(`/list?path=${encodeURIComponent(normalizePath(remotePath))}`)
 		);
-		const body = await response.json();
-		if (!response.ok) throw new Error(body.error ?? 'Could not list directory');
-		return body.entries;
+		const body = await readApiBody(response, 'Could not list directory');
+		if (!response.ok) throw new Error(apiErrorMessage(body, 'Could not list directory'));
+		return Array.isArray(body.entries) ? (body.entries as RemoteEntry[]) : [];
 	}
 
 	async function uploadFromPicker() {
@@ -644,8 +645,8 @@
 	): Promise<Blob> {
 		const response = await fetch(downloadUrl(entry), { signal });
 		if (!response.ok) {
-			const body = await response.json().catch(() => ({}));
-			throw new Error(body.error ?? `Could not download ${entry.name}`);
+			const body = await readApiBody(response, `Could not download ${entry.name}`);
+			throw new Error(apiErrorMessage(body, `Could not download ${entry.name}`));
 		}
 
 		if (!response.body) {
@@ -688,10 +689,10 @@
 		lastRetry = () => openText(entry);
 		try {
 			const response = await fetch(apiUrl(`/text?path=${encodeURIComponent(entry.path)}`));
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.error ?? 'Could not read text file');
-			textPath = body.path;
-			textValue = body.text;
+			const body = await readApiBody(response, 'Could not read text file');
+			if (!response.ok) throw new Error(apiErrorMessage(body, 'Could not read text file'));
+			textPath = typeof body.path === 'string' ? body.path : entry.path;
+			textValue = typeof body.text === 'string' ? body.text : '';
 			textDirty = false;
 			lastRetry = null;
 		} catch (caught) {
@@ -747,10 +748,10 @@
 		};
 		try {
 			const response = await fetch(apiUrl(route), { ...init, signal: controller.signal });
-			const body = await response.json().catch(() => ({}));
+			const body = await readApiBody(response, fallback);
 			if (!response.ok) {
 				if (ignoreFailure) return false;
-				throw new Error(body.error ?? fallback);
+				throw new Error(apiErrorMessage(body, fallback));
 			}
 			return true;
 		} catch (caught) {
@@ -1065,13 +1066,42 @@
 		return caught instanceof DOMException && caught.name === 'AbortError';
 	}
 
+	async function readApiBody(response: Response, fallback: string): Promise<ApiResponseBody> {
+		const responseText = await response.text().catch(() => '');
+		const body = parseApiResponseBody(responseText);
+		if (body) return body;
+		if (!response.ok) throw new Error(responseError(responseText, fallback));
+		return {};
+	}
+
+	function apiErrorMessage(body: ApiResponseBody, fallback: string) {
+		if (typeof body.error === 'string' && body.error.trim()) return body.error;
+		if (Array.isArray(body.issues)) {
+			const issues = body.issues.filter((issue): issue is string => typeof issue === 'string');
+			if (issues.length) return issues.join('; ');
+		}
+		return fallback;
+	}
+
 	function responseError(responseText: string, fallback: string) {
+		const body = parseApiResponseBody(responseText);
+		if (body) return apiErrorMessage(body, fallback);
+		const plainText = compactResponseText(responseText);
+		return plainText ? `${fallback}: ${plainText}` : fallback;
+	}
+
+	function parseApiResponseBody(responseText: string): ApiResponseBody | null {
 		try {
 			const body = JSON.parse(responseText);
-			return typeof body.error === 'string' ? body.error : fallback;
+			return typeof body === 'object' && body !== null && !Array.isArray(body) ? body : null;
 		} catch {
-			return fallback;
+			return null;
 		}
+	}
+
+	function compactResponseText(responseText: string) {
+		const compact = responseText.replace(/\s+/g, ' ').trim();
+		return compact.length > 240 ? `${compact.slice(0, 237)}...` : compact;
 	}
 
 	onMount(() => {
@@ -1082,7 +1112,7 @@
 </script>
 
 <div
-	class={`grid h-full min-h-[560px] grid-rows-[auto_1fr] overflow-hidden rounded-md border transition-colors ${dragging ? 'border-primary bg-primary/5' : ''}`}
+	class={`grid h-full min-h-0 min-w-0 grid-rows-[auto_1fr] overflow-hidden rounded-md border transition-colors ${dragging ? 'border-primary bg-primary/5' : ''}`}
 	role="region"
 	aria-label={`${label} file manager`}
 	ondragover={(event) => {
@@ -1267,7 +1297,7 @@
 		{/if}
 	</div>
 
-	<div class="grid min-h-0 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_360px]">
+	<div class="grid min-h-0 min-w-0 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_360px]">
 		<aside class="min-h-0 border-b p-2 lg:border-r lg:border-b-0">
 			<div class="mb-2 flex items-center justify-between">
 				<div class="text-xs font-medium text-muted-foreground">Bookmarks</div>
@@ -1330,7 +1360,7 @@
 			{/if}
 		</aside>
 
-		<div class="relative min-h-0 overflow-auto">
+		<div class="relative min-h-0 min-w-0 overflow-auto">
 			{#if dragging}
 				<div
 					class="pointer-events-none absolute inset-3 z-20 grid place-items-center rounded-md border-2 border-dashed border-primary bg-background/85 text-sm font-medium"
@@ -1451,7 +1481,7 @@
 			{/if}
 		</div>
 
-		<div class="min-h-0 border-t p-2 lg:border-t-0 lg:border-l">
+		<div class="min-h-0 min-w-0 border-t p-2 lg:border-t-0 lg:border-l">
 			<div class="mb-2 flex h-8 items-center justify-between gap-2">
 				<div class="min-w-0 truncate font-mono text-xs text-muted-foreground">
 					{textPath ?? 'No text file open'}
