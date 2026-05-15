@@ -1,17 +1,21 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { appBuildInfo } from '$lib/app-version';
 	import { logoutForm } from '$lib/auth.remote';
 	import * as Avatar from '$lib/components/ui/avatar/index.js';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { useSidebar } from '$lib/components/ui/sidebar/index.js';
 	import ChevronsUpDownIcon from '@lucide/svelte/icons/chevrons-up-down';
+	import InfoIcon from '@lucide/svelte/icons/info';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 
 	let { user }: { user: { name: string; email: string; initials: string } } = $props();
 	const sidebar = useSidebar();
+	let aboutOpen = $state(false);
 </script>
 
 <Sidebar.Menu>
@@ -72,6 +76,10 @@
 					</DropdownMenu.Item>
 				</DropdownMenu.Group>
 				<DropdownMenu.Separator />
+				<DropdownMenu.Item onclick={() => (aboutOpen = true)}>
+					<InfoIcon />
+					About TermixKit
+				</DropdownMenu.Item>
 				<form {...logoutForm}>
 					<DropdownMenu.Item>
 						{#snippet child({ props })}
@@ -86,3 +94,38 @@
 		</DropdownMenu.Root>
 	</Sidebar.MenuItem>
 </Sidebar.Menu>
+
+<Dialog.Root bind:open={aboutOpen}>
+	<Dialog.Content class="max-w-md">
+		<Dialog.Header>
+			<Dialog.Title>About TermixKit</Dialog.Title>
+			<Dialog.Description>
+				Running build {appBuildInfo.displayVersion}
+			</Dialog.Description>
+		</Dialog.Header>
+		<div class="grid gap-3 text-sm">
+			<div class="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+				<span class="text-muted-foreground">Version</span>
+				<span class="font-mono">{appBuildInfo.shortCommitSha}</span>
+			</div>
+			<div class="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+				<span class="text-muted-foreground">Commit</span>
+				<span class="truncate font-mono" title={appBuildInfo.commitSha}>
+					{appBuildInfo.commitSha}
+				</span>
+			</div>
+			<div class="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+				<span class="text-muted-foreground">Package</span>
+				<span class="font-mono">{appBuildInfo.packageVersion}</span>
+			</div>
+			<div class="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+				<span class="text-muted-foreground">Built</span>
+				<span class="font-mono">{appBuildInfo.buildDate}</span>
+			</div>
+			<div class="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+				<span class="text-muted-foreground">Mode</span>
+				<span>{appBuildInfo.environment}</span>
+			</div>
+		</div>
+	</Dialog.Content>
+</Dialog.Root>

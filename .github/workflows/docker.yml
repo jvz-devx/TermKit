@@ -41,8 +41,10 @@ jobs:
         shell: bash
         run: |
           short_sha="${GITHUB_SHA::12}"
+          build_date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           {
             echo "short_sha=${short_sha}"
+            echo "build_date=${build_date}"
             echo "tags<<EOF"
             echo "${IMAGE_NAME}:${short_sha}"
             echo "${IMAGE_NAME}:main"
@@ -56,5 +58,9 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            TERMIXKIT_COMMIT_SHA=${{ github.sha }}
+            TERMIXKIT_SHORT_SHA=${{ steps.meta.outputs.short_sha }}
+            TERMIXKIT_BUILD_DATE=${{ steps.meta.outputs.build_date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
