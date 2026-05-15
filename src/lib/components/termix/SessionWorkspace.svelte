@@ -104,6 +104,13 @@
 		rdpAudioRedirection: false,
 		rememberLastActiveTab: true
 	};
+	const layoutLabels: Record<SessionLayoutKind, string> = {
+		single: 'Single pane',
+		'two-columns': 'Two columns',
+		'two-rows': 'Two rows',
+		three: 'Three panes',
+		quad: '2x2 grid'
+	};
 	const lastProtocolStoragePrefix = 'termixkit:last-protocol:';
 
 	let reconnectNonce = $state(0);
@@ -224,6 +231,20 @@
 	});
 	let workspaceHasSshPane = $derived(
 		activeWorkspaceLayout.panes.some((pane) => pane.kind === 'ssh')
+	);
+	let isSinglePaneLayout = $derived(activeWorkspaceLayout.layout === 'single');
+	let workspaceLayoutLabel = $derived(layoutLabels[activeWorkspaceLayout.layout]);
+	let workspacePaneSummary = $derived(
+		isSinglePaneLayout ? `${activeProtocol.toUpperCase()} session` : `${workspaceLayoutLabel} workspace`
+	);
+	let workspacePaneKinds = $derived(
+		[
+			...new Set(
+				activeWorkspaceLayout.panes.map((pane) =>
+					pane.kind === 'ssh-tunnel' ? 'SSH tunnel' : pane.kind.toUpperCase()
+				)
+			)
+		].join(' + ')
 	);
 	let detachedSshCount = $derived(
 		selectedHostLiveSshSessions.filter((session) => session.status === 'detached').length
@@ -822,7 +843,7 @@
 					{selectedHost.username
 						? `${selectedHost.username}@`
 						: ''}{selectedHost.hostname}:{selectedHost.port}
-					· {activeProtocol.toUpperCase()} session
+					· {workspacePaneSummary}
 				{:else}
 					No host selected
 				{/if}
@@ -917,19 +938,36 @@
 	{:else}
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 			<div
-				class="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b bg-muted/10 px-3 py-2"
+				class="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b bg-muted/10 px-3 py-1.5"
+				data-session-workbench-bar
 			>
 				<div class="flex min-w-0 flex-wrap items-center gap-2">
-					{#each availableTabs as tab (tab)}
-						<Button
-							size="sm"
-							variant={activeProtocol === tab ? 'secondary' : 'ghost'}
-							aria-pressed={activeProtocol === tab}
-							onclick={() => selectProtocol(tab)}
+					{#if isSinglePaneLayout}
+						<div
+							class="flex items-center rounded-md border bg-background p-0.5"
+							aria-label="Host protocol"
 						>
-							{tab.toUpperCase()}
-						</Button>
-					{/each}
+							{#each availableTabs as tab (tab)}
+								<Button
+									size="sm"
+									variant={activeProtocol === tab ? 'secondary' : 'ghost'}
+									class="h-8"
+									aria-pressed={activeProtocol === tab}
+									onclick={() => selectProtocol(tab)}
+								>
+									{tab.toUpperCase()}
+								</Button>
+							{/each}
+						</div>
+					{:else}
+						<div
+							class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
+							data-session-workbench-mode="multi-pane"
+						>
+							<Badge variant="outline">{workspaceLayoutLabel}</Badge>
+							<span class="truncate font-mono">{workspacePaneKinds}</span>
+						</div>
+					{/if}
 					{#if layoutPersistenceError}
 						<Badge variant="destructive">Layout not saved</Badge>
 					{/if}
