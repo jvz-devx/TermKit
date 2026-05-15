@@ -222,9 +222,15 @@ export const listHosts = query(async () => {
 		credentials.map((credential) => [credential.id, credential.name])
 	);
 
-	return hosts
-		.map((host): HostSummary => toHostSummary(host, credentialNames.get(host.credentialId ?? '')))
-		.sort((left, right) => left.name.localeCompare(right.name));
+	const summaries = await Promise.all(
+		hosts.map(async (host): Promise<HostSummary> => {
+			const hostKeyTrust =
+				host.protocol === 'ssh' ? await safeSshHostKeyTrustSummary(userId, host.id) : null;
+			return toHostSummary(host, credentialNames.get(host.credentialId ?? ''), hostKeyTrust);
+		})
+	);
+
+	return summaries.sort((left, right) => left.name.localeCompare(right.name));
 });
 
 export const listConnectionHistory = query(async () => {
@@ -564,6 +570,7 @@ export const createLiveSshSession = command<
 	const userId = requireRemoteUser();
 	const hostId = typeof input.hostId === 'string' ? input.hostId : '';
 	if (!hostId) throw new ServiceValidationError(['hostId is required']);
+	await assertSshHostKeyLaunchAllowed(userId, hostId);
 
 	const { session } = await sshLiveSessionService.createOrReuse(userId, {
 		hostId,
@@ -585,11 +592,13 @@ export const attachLiveSshSession = command<
 	const sessionId = typeof input.sessionId === 'string' ? input.sessionId : '';
 	if (!sessionId) throw new ServiceValidationError(['sessionId is required']);
 
+	const existingSession = await sshLiveSessionService.get(userId, sessionId);
+	await assertSshHostKeyLaunchAllowed(userId, existingSession.hostId);
+	const host = await hostService.get(userId, existingSession.hostId);
 	const session = await sshLiveSessionService.prepareAttach(userId, sessionId, {
 		terminalCols: input.cols,
 		terminalRows: input.rows
 	});
-	const host = await hostService.get(userId, session.hostId);
 	void listLiveSshSessions().refresh();
 
 	return createLiveSshAttach(userId, toLiveSshSessionSummary(session, host));
@@ -752,7 +761,31 @@ function toConnectionHistorySummary(record: ConnectionHistoryRecord): Connection
 	};
 }
 
-function toHostSummary(host: HostRecord, credentialName: string | null | undefined): HostSummary {
+async function safeSshHostKeyTrustSummary(
+	userId: string,
+	hostId: string
+): Promise<SshHostKeyTrustSummary | null> {
+	try {
+		return await getSshHostKeyTrustSummary(userId, hostId);
+	} catch {
+		return null;
+	}
+}
+
+async function assertSshHostKeyLaunchAllowed(userId: string, hostId: string): Promise<void> {
+	const trust = await getSshHostKeyTrustSummary(userId, hostId);
+	if (trust.status === 'unknown' && !trust.trustOnFirstUse) {
+		throw new ServiceValidationError([
+			'SSH host key is not enrolled. Enroll the host key before opening this SSH session.'
+		]);
+	}
+}
+
+function toHostSummary(
+	host: HostRecord,
+	credentialName: string | null | undefined,
+	hostKeyTrust: SshHostKeyTrustSummary | null = null
+): HostSummary {
 	const metadata = normalizeHostMetadata(host.metadata);
 	return {
 		id: host.id,
@@ -770,7 +803,7 @@ function toHostSummary(host: HostRecord, credentialName: string | null | undefin
 		terminalPreferences: metadata.terminalPreferences,
 		sshJumpHost: metadata.sshJumpHost,
 		ftps: metadata.ftps,
-		hostKeyTrust: null,
+		hostKeyTrust,
 		createdAt: host.createdAt.toISOString(),
 		updatedAt: host.updatedAt.toISOString()
 	};

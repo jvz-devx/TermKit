@@ -10,8 +10,7 @@
 		'two-rows': 'grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)]',
 		three:
 			'grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]',
-		quad:
-			'grid-cols-1 grid-rows-[repeat(4,minmax(0,1fr))] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]'
+		quad: 'grid-cols-1 grid-rows-[repeat(4,minmax(0,1fr))] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]'
 	};
 
 	let {

@@ -89,28 +89,28 @@
 	{#if error}
 		<StatePanel
 			state="error"
-		title={errorCopy?.title ?? 'SSH tab launch failed'}
-		detail={`${errorCopy ? failureDetail(errorCopy) : 'Retry the SSH launch.'} Diagnostic: ${errorCopy?.diagnostic ?? error}`}
-	>
-		<Button size="sm" onclick={() => openSshTab()} disabled={loading}>
-			<RotateCcw class="size-4" />
-			Retry SSH
-		</Button>
-	</StatePanel>
-{:else if launch}
-	<TerminalPane
-		title={launch.session.title}
-		subtitle={`${launch.session.username ?? 'user'}@${launch.session.hostname}`}
-		websocketUrl={toWebSocketUrl(launch.liveWebsocketPath)}
-		{welcome}
-		{fontSize}
-		preferences={host.terminalPreferences}
-		{onConnectionStateChange}
-	/>
+			title={errorCopy?.title ?? 'SSH tab launch failed'}
+			detail={`${errorCopy ? failureDetail(errorCopy) : 'Retry the SSH launch.'} Diagnostic: ${errorCopy?.diagnostic ?? error}`}
+		>
+			<Button size="sm" onclick={() => openSshTab()} disabled={loading}>
+				<RotateCcw class="size-4" />
+				Retry SSH
+			</Button>
+		</StatePanel>
+	{:else if launch}
+		<TerminalPane
+			title={launch.session.title}
+			subtitle={`${launch.session.username ?? 'user'}@${launch.session.hostname}`}
+			websocketUrl={toWebSocketUrl(launch.liveWebsocketPath)}
+			{welcome}
+			{fontSize}
+			preferences={host.terminalPreferences}
+			{onConnectionStateChange}
+		/>
 	{:else}
 		<StatePanel
-		state="loading"
-		title="Opening SSH tab"
+			state="loading"
+			title="Opening SSH tab"
 			detail="Creating a live session attach ticket."
 		/>
 	{/if}

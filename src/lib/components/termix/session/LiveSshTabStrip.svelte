@@ -43,6 +43,7 @@
 	}
 
 	function canAttach(session: LiveSshSessionSummary) {
+		if (session.expiresAt && Date.now() >= new Date(session.expiresAt).getTime()) return false;
 		return (
 			session.status === 'attached' ||
 			session.status === 'detached' ||

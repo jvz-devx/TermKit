@@ -498,10 +498,14 @@
 		}
 
 		try {
+			const host = hosts.find((entry) => entry.id === session.hostId) ?? selectedHost;
+			const size = host
+				? estimateWorkspaceTerminalSize(host)
+				: { cols: session.terminalCols, rows: session.terminalRows };
 			liveSshAttach = await attachLiveSshSession({
 				sessionId: session.id,
-				cols: session.terminalCols,
-				rows: session.terminalRows
+				cols: size.cols,
+				rows: size.rows
 			});
 			dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
 				(sessionId) => sessionId !== session.id
@@ -579,6 +583,9 @@
 	) {
 		if (state === 'error' || state === 'disconnected') {
 			if (paneId && liveSshAttachPaneId && paneId !== liveSshAttachPaneId) return;
+			liveSshAttach = null;
+			liveSshAttachPaneId = null;
+			activeLiveSshSessionId = null;
 			refreshLiveSshSessionsSoon();
 		}
 	}
@@ -716,11 +723,17 @@
 	}
 
 	function canAttachLiveSshSession(session: LiveSshSessionSummary) {
+		if (session.expiresAt && Date.now() >= new Date(session.expiresAt).getTime()) return false;
 		return (
 			session.status === 'attached' ||
 			session.status === 'detached' ||
 			session.status === 'starting'
 		);
+	}
+
+	function isSshHostKeyLaunchBlocked(host: HostSummary) {
+		const trust = host.hostKeyTrust;
+		return trust?.status === 'unknown' && trust.trustOnFirstUse === false;
 	}
 
 	function errorMessage(caught: unknown) {
@@ -928,6 +941,7 @@
 						{@const failedSshSessions = failedLiveSshSessionsForHost(paneHost.id)}
 						{@const endedSshSessions = endedLiveSshSessionsForHost(paneHost.id)}
 						{@const attachableSshSessions = attachableLiveSshSessionsForHost(paneHost.id)}
+						{@const hostKeyLaunchBlocked = isSshHostKeyLaunchBlocked(paneHost)}
 						<div class="min-h-0 flex-1 p-3">
 							{#if paneLiveSshError}
 								<StatePanel
@@ -941,7 +955,7 @@
 									<Button
 										size="sm"
 										onclick={() => createPersistentSshTab({ host: paneHost, paneId: pane.id })}
-										disabled={liveSshBusy}
+										disabled={liveSshBusy || hostKeyLaunchBlocked}
 									>
 										<RotateCcw class="size-4" />
 										Retry SSH
@@ -1019,7 +1033,7 @@
 									<Button
 										size="sm"
 										onclick={() => attachPersistentSshTab(attachableSshSessions[0], pane.id)}
-										disabled={liveSshBusy}
+										disabled={liveSshBusy || hostKeyLaunchBlocked}
 									>
 										Attach tab
 									</Button>
@@ -1027,7 +1041,7 @@
 										size="sm"
 										variant="outline"
 										onclick={() => createPersistentSshTab({ host: paneHost, paneId: pane.id })}
-										disabled={liveSshBusy}
+										disabled={liveSshBusy || hostKeyLaunchBlocked}
 									>
 										New SSH tab
 									</Button>
@@ -1041,7 +1055,7 @@
 									<Button
 										size="sm"
 										onclick={() => createPersistentSshTab({ host: paneHost, paneId: pane.id })}
-										disabled={liveSshBusy}
+										disabled={liveSshBusy || hostKeyLaunchBlocked}
 									>
 										New SSH tab
 									</Button>
@@ -1053,6 +1067,14 @@
 									>
 										Dismiss ended tab
 									</Button>
+								</StatePanel>
+							{:else if browser && hostKeyLaunchBlocked}
+								<StatePanel
+									state="ready"
+									title="SSH host key enrollment required"
+									detail="Enroll the host key before opening this SSH session."
+								>
+									<SshHostKeyTrustPanel host={paneHost} onEnrolled={reconnect} />
 								</StatePanel>
 							{:else if browser}
 								<SshHostKeyTrustPanel host={paneHost} onEnrolled={reconnect} />

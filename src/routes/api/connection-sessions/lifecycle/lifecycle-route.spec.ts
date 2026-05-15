@@ -4,6 +4,7 @@ import { POST } from './+server';
 
 vi.mock('$lib/server/services/connection-sessions', () => ({
 	connectionSessionService: {
+		markActiveForUser: vi.fn(),
 		endForUser: vi.fn(),
 		failForUser: vi.fn()
 	}
@@ -31,6 +32,23 @@ describe('connection session lifecycle API route', () => {
 		expect(connectionSessionService.endForUser).toHaveBeenCalledWith('user-1', 'session-1');
 	});
 
+	it('records a connected lifecycle event for the signed-in owner', async () => {
+		vi.mocked(connectionSessionService.markActiveForUser).mockResolvedValueOnce({
+			id: 'session-1'
+		} as never);
+
+		const response = await POST(
+			routeEvent({
+				connectionSessionId: 'session-1',
+				event: 'connected'
+			})
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({ ok: true });
+		expect(connectionSessionService.markActiveForUser).toHaveBeenCalledWith('user-1', 'session-1');
+	});
+
 	it('rejects unauthenticated lifecycle writes', async () => {
 		const response = await POST(
 			routeEvent(
@@ -43,6 +61,7 @@ describe('connection session lifecycle API route', () => {
 		);
 
 		expect(response.status).toBe(401);
+		expect(connectionSessionService.markActiveForUser).not.toHaveBeenCalled();
 		expect(connectionSessionService.endForUser).not.toHaveBeenCalled();
 	});
 

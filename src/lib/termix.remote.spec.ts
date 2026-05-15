@@ -8,6 +8,7 @@ import { settingsService } from '$lib/server/services/settings';
 import { termixRepository } from '$lib/server/services/repository';
 import { resolveVncLaunchCredentials } from '$lib/server/protocols/vnc';
 import { resolveRdpLaunchCredentials } from '$lib/server/protocols/rdp-credentials';
+import { getSshHostKeyTrustSummary } from '$lib/server/protocols/ssh-host-key-enrollment';
 import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
 import { liveSshManager } from '$lib/server/ssh-live/manager';
 import {
@@ -190,6 +191,7 @@ describe('termix remote functions', () => {
 		vi.mocked(settingsService.getBasicAppSettings).mockResolvedValue({
 			ticketTtlSeconds: 60
 		} as never);
+		vi.mocked(getSshHostKeyTrustSummary).mockResolvedValue(sshHostKeyTrustSummary() as never);
 		vi.mocked(termixRepository.listWorkspaceLayouts).mockResolvedValue([]);
 	});
 
@@ -219,11 +221,16 @@ describe('termix remote functions', () => {
 		expect(hosts[0]).toMatchObject({
 			id: 'host-a',
 			credentialName: 'Production SSH',
+			hostKeyTrust: {
+				status: 'pinned',
+				fingerprint: 'SHA256:test'
+			},
 			createdAt: now.toISOString(),
 			updatedAt: now.toISOString()
 		});
 		expect(hosts[0]).not.toHaveProperty('secret');
 		expect(hosts[0]).not.toHaveProperty('encryptedSecret');
+		expect(getSshHostKeyTrustSummary).toHaveBeenCalledWith('user-1', 'host-a');
 	});
 
 	it('normalizes host mutations before delegating to host service', async () => {
@@ -731,16 +738,37 @@ describe('termix remote functions', () => {
 		expect(appServer.refresh).toHaveBeenCalledOnce();
 	});
 
+	it('blocks live SSH creation when strict host-key trust has no pin', async () => {
+		vi.mocked(getSshHostKeyTrustSummary).mockResolvedValueOnce(
+			sshHostKeyTrustSummary({
+				status: 'unknown',
+				fingerprint: null,
+				trust: null,
+				trustOnFirstUse: false,
+				message: 'SSH host key is not enrolled yet.'
+			}) as never
+		);
+
+		await expect(createLiveSshSession({ hostId: 'host-1' })).rejects.toBeInstanceOf(
+			ServiceValidationError
+		);
+		expect(sshLiveSessionService.createOrReuse).not.toHaveBeenCalled();
+	});
+
 	it('attaches live SSH sessions and rejects missing session ids before service calls', async () => {
 		await expect(attachLiveSshSession({ cols: 80, rows: 24 })).rejects.toBeInstanceOf(
 			ServiceValidationError
 		);
+		expect(sshLiveSessionService.get).not.toHaveBeenCalled();
 		expect(sshLiveSessionService.prepareAttach).not.toHaveBeenCalled();
 
-		vi.mocked(sshLiveSessionService.prepareAttach).mockResolvedValueOnce(
+		vi.mocked(sshLiveSessionService.get).mockResolvedValueOnce(
 			liveSshSessionRecord({ id: 'live-1' }) as never
 		);
 		vi.mocked(hostService.get).mockResolvedValueOnce(hostRecord({ name: 'Shell host' }) as never);
+		vi.mocked(sshLiveSessionService.prepareAttach).mockResolvedValueOnce(
+			liveSshSessionRecord({ id: 'live-1' }) as never
+		);
 		vi.mocked(sshLiveSessionService.createAttachTicket).mockResolvedValueOnce({
 			ticket: 'attach-ticket',
 			record: { expiresAt: new Date('2026-05-15T10:01:00.000Z') }
@@ -748,11 +776,25 @@ describe('termix remote functions', () => {
 
 		const attach = await attachLiveSshSession({ sessionId: 'live-1', cols: 100, rows: 40 });
 
+		expect(sshLiveSessionService.get).toHaveBeenCalledWith('user-1', 'live-1');
+		expect(hostService.get).toHaveBeenCalledWith('user-1', 'host-1');
 		expect(sshLiveSessionService.prepareAttach).toHaveBeenCalledWith('user-1', 'live-1', {
 			terminalCols: 100,
 			terminalRows: 40
 		});
 		expect(attach.session).toMatchObject({ id: 'live-1', hostName: 'Shell host' });
+	});
+
+	it('does not prepare live SSH attach dimensions when host lookup fails', async () => {
+		vi.mocked(sshLiveSessionService.get).mockResolvedValueOnce(
+			liveSshSessionRecord({ id: 'live-1', hostId: 'deleted-host' }) as never
+		);
+		vi.mocked(hostService.get).mockRejectedValueOnce(new Error('host deleted'));
+
+		await expect(
+			attachLiveSshSession({ sessionId: 'live-1', cols: 100, rows: 40 })
+		).rejects.toThrow('host deleted');
+		expect(sshLiveSessionService.prepareAttach).not.toHaveBeenCalled();
 	});
 
 	it('does not refresh live SSH lists when rename fails', async () => {
@@ -950,6 +992,23 @@ function hostRecord(overrides: Record<string, unknown> = {}) {
 		metadata: {},
 		createdAt: new Date('2026-05-15T10:00:00.000Z'),
 		updatedAt: new Date('2026-05-15T10:00:00.000Z'),
+		...overrides
+	};
+}
+
+function sshHostKeyTrustSummary(overrides: Record<string, unknown> = {}) {
+	return {
+		hostId: 'host-1',
+		hostname: 'shell.internal',
+		port: 22,
+		status: 'pinned',
+		fingerprint: 'SHA256:test',
+		firstSeenAt: '2026-05-15T10:00:00.000Z',
+		lastSeenAt: '2026-05-15T10:00:00.000Z',
+		trust: 'pinned',
+		trustOnFirstUse: true,
+		productionTofuBlocked: false,
+		message: 'SSH host key is pinned for this host.',
 		...overrides
 	};
 }

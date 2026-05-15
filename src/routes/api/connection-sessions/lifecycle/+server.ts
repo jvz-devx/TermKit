@@ -11,15 +11,17 @@ export const POST: RequestHandler = async (event) => {
 			typeof input.connectionSessionId === 'string' ? input.connectionSessionId : '';
 		const lifecycleEvent = typeof input.event === 'string' ? input.event : '';
 		const updated =
-			lifecycleEvent === 'ended'
-				? await connectionSessionService.endForUser(userId, connectionSessionId)
-				: lifecycleEvent === 'failed'
-					? await connectionSessionService.failForUser(
-							userId,
-							connectionSessionId,
-							sanitizeConnectionErrorCode(input.errorCode)
-						)
-					: null;
+			lifecycleEvent === 'connected'
+				? await connectionSessionService.markActiveForUser(userId, connectionSessionId)
+				: lifecycleEvent === 'ended'
+					? await connectionSessionService.endForUser(userId, connectionSessionId)
+					: lifecycleEvent === 'failed'
+						? await connectionSessionService.failForUser(
+								userId,
+								connectionSessionId,
+								sanitizeConnectionErrorCode(input.errorCode)
+							)
+						: null;
 
 		if (!updated) {
 			throw new ServiceValidationError(['connectionSessionId is invalid or event is unsupported']);

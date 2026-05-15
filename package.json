@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build && npm run build:server",
+		"build": "node scripts/build.mjs",
 		"build:server": "node scripts/build-server.mjs",
 		"audit:acceptance": "node scripts/acceptance-audit.mjs",
 		"acceptance:github-microsoft": "node scripts/github-microsoft-acceptance.mjs",
