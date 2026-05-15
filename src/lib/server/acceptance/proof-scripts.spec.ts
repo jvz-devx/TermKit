@@ -300,7 +300,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[local] V6 fleet operations UI shell and navigation');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: 2 repo-owned requirement(s) still need implementation or stronger local proof'
+			'acceptance audit: 1 repo-owned requirement(s) still need implementation or stronger local proof'
 		);
 	});
 
@@ -324,7 +324,7 @@ describe('acceptance proof scripts', () => {
 			'[pending] V7 final coverage target achievement',
 			'[local] V7 full workflow and protocol browser coverage',
 			'[local] V7 reliability and performance budget foundation',
-			'[pending] V7 final reliability and performance budgets',
+			'[local] V7 final reliability and performance budgets',
 			'[proof-ready] V7 real FTP external proof',
 			'[proof-ready] V7 real FTPS external proof'
 		]);
@@ -334,7 +334,15 @@ describe('acceptance proof scripts', () => {
 		expect(readme).toContain('V7 test hardening');
 		expect(readme).toContain('docs/coverage-baseline.md');
 		expect(coverageDocs).toContain('remaining final target');
+		expect(coverageDocs).toContain('src/lib/server/**` at or above 85% line coverage');
+		expect(coverageDocs).toContain('security-critical pure logic at or above 90% line coverage');
+		expect(coverageDocs).toContain('workspace layout/rendering helpers');
 		expect(coverageDocs).toContain('Real Microsoft, RDP, VNC, SSH, FTP, and FTPS');
+		expect(result.stdout).toContain('src/lib/server/** >=85% lines and >=75% branches');
+		expect(result.stdout).toContain(
+			'npm run test:performance runs the explicit coarse budget checks'
+		);
+		expect(result.stdout).toContain('workspace layout/rendering helpers');
 	});
 
 	it('rejects hand-edited external proofs with skipped or secret-looking output', () => {
@@ -427,7 +435,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[local] V6 host health and SSH fact intelligence');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
-			'acceptance audit: 2 repo-owned requirement(s) still need implementation or stronger local proof'
+			'acceptance audit: 1 repo-owned requirement(s) still need implementation or stronger local proof'
 		);
 	});
 
@@ -444,7 +452,7 @@ describe('acceptance proof scripts', () => {
 		expect(result.stdout).toContain('[external-blocked] V7 real FTP external proof');
 		expect(result.stdout).toContain('[external-blocked] V7 real FTPS external proof');
 		expect(result.stdout).toContain(
-			'acceptance audit: 2 repo-owned requirement(s) still need implementation or stronger local proof; 2 external proof item(s) remain blocked until real tenant or target infrastructure is available'
+			'acceptance audit: 1 repo-owned requirement(s) still need implementation or stronger local proof; 2 external proof item(s) remain blocked until real tenant or target infrastructure is available'
 		);
 	});
 });
@@ -457,7 +465,7 @@ function expectV7Rows(output: string) {
 	expect(output).toContain('[pending] V7 final coverage target achievement');
 	expect(output).toContain('[local] V7 full workflow and protocol browser coverage');
 	expect(output).toContain('[local] V7 reliability and performance budget foundation');
-	expect(output).toContain('[pending] V7 final reliability and performance budgets');
+	expect(output).toContain('[local] V7 final reliability and performance budgets');
 	expect(output).toContain('[proof-ready] V7 real FTP external proof');
 	expect(output).toContain('[proof-ready] V7 real FTPS external proof');
 }

@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import {
 	createDefaultSessionLayout,
@@ -7,6 +8,8 @@ import {
 	updateSessionPaneKind,
 	updateSessionPaneHost
 } from './workspace-layout';
+
+const performanceIt = process.env.TERMIXKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
 
 describe('session workspace layout metadata', () => {
 	it('preserves pane host ids and supports per-pane host replacement', () => {
@@ -120,6 +123,48 @@ describe('session workspace layout metadata', () => {
 			[...propertyReads.values()].reduce((total, count) => total + count, 0)
 		).toBeLessThanOrEqual(32);
 	});
+
+	performanceIt(
+		'keeps representative workspace layout creation and normalization within budget',
+		() => {
+			const budgetMs = 250;
+			const iterations = 5_000;
+			const oversizedPanes = Array.from({ length: 1_000 }, (_, index) => ({
+				id: `pane-${index}`,
+				kind: ['ssh', 'sftp', 'rdp', 'vnc'][index % 4],
+				hostId: `host-${index}`
+			}));
+			let normalizedPaneCount = 0;
+			let createdPaneCount = 0;
+
+			const startedAt = performance.now();
+			for (let index = 0; index < iterations; index += 1) {
+				const normalized = normalizeSessionLayout(
+					{
+						layout: 'quad',
+						panes: oversizedPanes,
+						updatedAt: '2026-05-15T10:00:00.000Z'
+					},
+					'single',
+					'ssh',
+					'fallback-host'
+				);
+				const created = createDefaultSessionLayout(
+					index % 2 === 0 ? 'quad' : 'two-columns',
+					index % 3 === 0 ? 'rdp' : 'ssh',
+					`host-${index % 10}`
+				);
+
+				normalizedPaneCount += normalized.panes.length;
+				createdPaneCount += created.panes.length;
+			}
+			const elapsedMs = performance.now() - startedAt;
+
+			expect(normalizedPaneCount).toBe(iterations * 4);
+			expect(createdPaneCount).toBe(iterations * 3);
+			expect(elapsedMs).toBeLessThan(budgetMs);
+		}
+	);
 });
 
 function countedPane(index: number, propertyReads: Map<string, number>) {

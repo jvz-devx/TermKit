@@ -643,4 +643,166 @@ describe('V6ResourcesService', () => {
 			issues: ['uptimeSeconds must be a non-negative integer']
 		});
 	});
+
+	it('keeps job retention, aggregate counts, reports, and list visibility consistent', async () => {
+		expect.assertions(8);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+		const retentionExpiresAt = new Date('2026-05-22T10:00:00.000Z');
+		const startedAt = new Date('2026-05-15T10:00:00.000Z');
+		const finishedAt = new Date('2026-05-15T10:05:00.000Z');
+		const reportExpiresAt = new Date('2026-06-15T10:05:00.000Z');
+
+		const result = await service.createBackgroundJob('operator-1', {
+			workspaceId: 'workspace-1',
+			kind: 'bulk_ssh_command',
+			title: 'Patch mixed fleet',
+			targetHostIds: ['host-1', 'host-2', 'host-3'],
+			concurrencyLimit: 2,
+			retentionExpiresAt,
+			metadata: { rollout: 'v7' }
+		});
+		await service.createBackgroundJob('other-1', {
+			kind: 'inventory_check',
+			title: 'Private inventory',
+			targetHostIds: ['host-9']
+		});
+		await expect(
+			repository.updateBackgroundJob(result.job.id, {
+				status: 'completed_with_errors',
+				completedCount: 1,
+				failedCount: 1,
+				skippedCount: 1,
+				startedAt,
+				finishedAt,
+				updatedAt: finishedAt,
+				metadata: { summary: 'partial' }
+			})
+		).resolves.toMatchObject({
+			status: 'completed_with_errors',
+			completedCount: 1,
+			failedCount: 1,
+			skippedCount: 1,
+			retentionExpiresAt,
+			metadata: { summary: 'partial' }
+		});
+		await expect(
+			service.updateJobTarget(result.targets[0].id, {
+				status: 'succeeded',
+				attempt: 1,
+				report: { changed: true },
+				finishedAt
+			})
+		).resolves.toMatchObject({
+			status: 'succeeded',
+			attempt: 1,
+			report: { changed: true }
+		});
+		await expect(
+			service.createJobReport({
+				jobId: result.job.id,
+				format: 'csv',
+				storageKey: 'reports/job-1.csv',
+				summary: { completed: 1, failed: 1, skipped: 1 },
+				generatedBy: 'operator-1',
+				generatedAt: finishedAt,
+				expiresAt: reportExpiresAt,
+				metadata: { retained: true }
+			})
+		).resolves.toMatchObject({
+			jobId: result.job.id,
+			format: 'csv',
+			storageKey: 'reports/job-1.csv',
+			summary: { completed: 1, failed: 1, skipped: 1 },
+			generatedBy: 'operator-1',
+			generatedAt: finishedAt,
+			expiresAt: reportExpiresAt,
+			metadata: { retained: true }
+		});
+		await expect(service.listBackgroundJobs('operator-1')).resolves.toEqual([
+			expect.objectContaining({ id: result.job.id })
+		]);
+		await expect(service.listBackgroundJobs('member-1', ['workspace-1'])).resolves.toEqual([
+			expect.objectContaining({ id: result.job.id })
+		]);
+		await expect(service.listBackgroundJobs('member-1', ['workspace-2'])).resolves.toEqual([]);
+		expect([...repository.jobReports.values()]).toEqual([
+			expect.objectContaining({
+				jobId: result.job.id,
+				format: 'csv',
+				expiresAt: reportExpiresAt
+			})
+		]);
+		await expect(repository.getBackgroundJob('missing-job')).resolves.toBeNull();
+	});
+
+	it('rejects additional malformed V6 resource inputs without repository writes', async () => {
+		expect.assertions(6);
+
+		const repository = new InMemoryV6ResourcesRepository();
+		const service = new V6ResourcesService(repository);
+		const result = await service.createBackgroundJob('operator-1', {
+			kind: 'bulk_ssh_command',
+			title: 'Patch selected hosts',
+			targetHostIds: ['host-1']
+		});
+		const countsBefore = {
+			targets: repository.jobTargets.size,
+			reports: repository.jobReports.size,
+			facts: repository.hostFacts.size,
+			health: repository.hostHealth.size
+		};
+
+		await expect(
+			service.updateJobTarget(result.targets[0].id, {
+				status: 'done' as never,
+				errorCode: ' auth_failed ',
+				errorMessage: ' Credential rejected '
+			})
+		).rejects.toMatchObject({
+			issues: ['status must be a supported job target status']
+		});
+		await expect(
+			service.createJobReport({
+				jobId: ' ',
+				format: 'pdf' as never,
+				storageKey: ' '
+			})
+		).rejects.toMatchObject({
+			issues: ['jobId is required', 'format must be json or csv', 'storageKey is required']
+		});
+		await expect(
+			service.upsertHostFacts({
+				hostId: ' ',
+				source: 'probe' as never,
+				uptimeSeconds: 1
+			})
+		).rejects.toMatchObject({
+			issues: ['hostId is required', 'source must be ssh, manual, or import']
+		});
+		await expect(
+			service.upsertHostHealth({
+				hostId: ' ',
+				state: 'healthy',
+				consecutiveFailures: -1
+			})
+		).rejects.toMatchObject({
+			issues: ['hostId is required', 'consecutiveFailures must be a non-negative integer']
+		});
+		expect({
+			targets: repository.jobTargets.size,
+			reports: repository.jobReports.size,
+			facts: repository.hostFacts.size,
+			health: repository.hostHealth.size
+		}).toEqual(countsBefore);
+		await expect(repository.listJobTargets(result.job.id)).resolves.toEqual([
+			expect.objectContaining({
+				id: result.targets[0].id,
+				status: 'pending',
+				errorCode: null,
+				errorMessage: null
+			})
+		]);
+	});
 });

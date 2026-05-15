@@ -1,7 +1,12 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
-import { LiveSshManager, type LiveSshChannel, type LiveSshClient } from './manager';
+import {
+	LiveSshAttachError,
+	LiveSshManager,
+	type LiveSshChannel,
+	type LiveSshClient
+} from './manager';
 import type { ConsumedTicket } from '../protocols/types';
 
 describe('LiveSshManager', () => {
@@ -56,6 +61,30 @@ describe('LiveSshManager', () => {
 		expect(secondSocket.closed).toBeUndefined();
 	});
 
+	it('rejects missing, closed, and non-SSH live attachments without starting clients', () => {
+		expect.assertions(6);
+
+		const createClient = vi.fn(() => new FakeSshClient());
+		const manager = new LiveSshManager({ createClient });
+		const socket = new FakeWebSocket();
+
+		expect(() => manager.attach('missing-session', socket as unknown as WebSocket)).toThrow(
+			LiveSshAttachError
+		);
+		expect(() => manager.start(testTicket({ protocol: 'vnc' as never }))).toThrow(
+			LiveSshAttachError
+		);
+		expect(createClient).not.toHaveBeenCalled();
+
+		manager.attach(testTicket(), socket as unknown as WebSocket).close();
+
+		expect(manager.get('ticket-1')).toBeUndefined();
+		expect(() => manager.attach('ticket-1', new FakeWebSocket() as unknown as WebSocket)).toThrow(
+			LiveSshAttachError
+		);
+		expect(createClient).toHaveBeenCalledTimes(1);
+	});
+
 	it('handles resize and explicit close control frames', () => {
 		const harness = createHarness();
 		const manager = new LiveSshManager({ createClient: harness.createClient });
@@ -70,6 +99,39 @@ describe('LiveSshManager', () => {
 		expect(harness.channel.ended).toBe(true);
 		expect(harness.client.ended).toBe(true);
 		expect(socket.closed).toEqual({ code: 1000, reason: 'ssh session closed' });
+	});
+
+	it('ignores resize and input frames after explicit close', () => {
+		const harness = createHarness();
+		const manager = new LiveSshManager({ createClient: harness.createClient });
+		const socket = new FakeWebSocket();
+
+		manager.attach(testTicket(), socket as unknown as WebSocket);
+		harness.client.emit('ready');
+		socket.emitMessage(JSON.stringify({ type: 'terminal.control', action: 'close' }), false);
+		socket.emitMessage(JSON.stringify({ type: 'terminal.resize', cols: 132, rows: 43 }), false);
+		socket.emitMessage(Buffer.from('whoami\n'), true);
+
+		expect(harness.channel.windowUpdates).toEqual([]);
+		expect(harness.channel.writes).toEqual([]);
+		expect(socket.closed).toEqual({ code: 1000, reason: 'ssh session closed' });
+	});
+
+	it('detaches websocket errors without ending the remote shell', () => {
+		const harness = createHarness();
+		const manager = new LiveSshManager({ createClient: harness.createClient });
+		const socket = new FakeWebSocket();
+
+		manager.attach(testTicket(), socket as unknown as WebSocket);
+		harness.client.emit('ready');
+		socket.emitError(new Error('browser socket failed'));
+		harness.channel.emitData(Buffer.from('detached output'));
+
+		expect(manager.get('ticket-1')).toBeDefined();
+		expect(manager.hasActiveAttachment('ticket-1')).toBe(false);
+		expect(harness.client.ended).toBe(false);
+		expect(harness.channel.ended).toBe(false);
+		expect(socket.sentBuffers()).toEqual([]);
 	});
 
 	it('closes the attached websocket when the remote shell closes', () => {
@@ -247,6 +309,10 @@ class FakeWebSocket extends EventEmitter {
 		this.emit('close', 1000);
 	}
 
+	emitError(error: Error): void {
+		this.emit('error', error);
+	}
+
 	sentBuffers(): Buffer[] {
 		return this.sent;
 	}
@@ -265,7 +331,7 @@ function createHarness(): {
 	};
 }
 
-function testTicket(): ConsumedTicket {
+function testTicket(overrides: Partial<ConsumedTicket> = {}): ConsumedTicket {
 	return {
 		ticketId: 'ticket-1',
 		userId: 'user-1',
@@ -280,6 +346,7 @@ function testTicket(): ConsumedTicket {
 				username: 'alice',
 				password: 'secret'
 			}
-		}
+		},
+		...overrides
 	};
 }

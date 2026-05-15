@@ -284,6 +284,105 @@ describe('V5 resources repository', () => {
 		).resolves.toMatchObject({ status: 'expired', metadata: { cleanup: 'ttl' } });
 		await expect(repository.listTerminalRecordings('user-2')).resolves.toEqual([]);
 	});
+
+	it('tracks terminal recording retention transitions without changing ownership', async () => {
+		expect.assertions(6);
+
+		const repository = new InMemoryV5ResourcesRepository();
+		const startedAt = new Date('2026-05-15T09:00:00.000Z');
+		const endedAt = new Date('2026-05-15T09:05:00.000Z');
+		const retentionExpiresAt = new Date('2026-05-22T09:05:00.000Z');
+		await repository.createTerminalRecording(
+			terminalRecording({ id: 'recording-active', status: 'recording', startedAt })
+		);
+		await repository.createTerminalRecording(
+			terminalRecording({
+				id: 'recording-failed',
+				status: 'failed',
+				endedAt,
+				retentionExpiresAt,
+				metadata: { reason: 'websocket_close' }
+			})
+		);
+		await repository.createTerminalRecording(
+			terminalRecording({
+				id: 'recording-other-host',
+				hostId: 'host-2',
+				status: 'completed',
+				endedAt
+			})
+		);
+
+		await expect(
+			repository.updateTerminalRecording('user-1', 'recording-active', {
+				status: 'completed',
+				endedAt,
+				retentionExpiresAt,
+				metadata: { bytes: 2048 },
+				updatedAt: endedAt
+			})
+		).resolves.toMatchObject({
+			id: 'recording-active',
+			userId: 'user-1',
+			status: 'completed',
+			endedAt,
+			retentionExpiresAt,
+			metadata: { bytes: 2048 }
+		});
+		await expect(
+			repository.updateTerminalRecording('user-2', 'recording-active', {
+				status: 'expired',
+				metadata: { cleanup: true }
+			})
+		).resolves.toBeNull();
+		await expect(
+			repository.listTerminalRecordings('user-1', { hostId: 'host-1', status: 'completed' })
+		).resolves.toEqual([
+			expect.objectContaining({
+				id: 'recording-active',
+				retentionExpiresAt,
+				metadata: { bytes: 2048 }
+			})
+		]);
+		await expect(
+			repository.listTerminalRecordings('user-1', { hostId: 'host-1', status: 'failed' })
+		).resolves.toEqual([
+			expect.objectContaining({
+				id: 'recording-failed',
+				retentionExpiresAt,
+				metadata: { reason: 'websocket_close' }
+			})
+		]);
+		await expect(
+			repository.listTerminalRecordings('user-1', { hostId: 'host-2', status: 'completed' })
+		).resolves.toEqual([expect.objectContaining({ id: 'recording-other-host' })]);
+		await expect(repository.listTerminalRecordings('user-2')).resolves.toEqual([]);
+	});
+
+	it('surfaces empty V5 persistence returns instead of treating them as successful writes', async () => {
+		expect.assertions(6);
+
+		const repository = new DrizzleV5ResourcesRepository(fakeReturningInsertDb([]));
+
+		await expect(repository.upsertTerminalPreference(terminalPreference())).rejects.toThrow(
+			'Could not persist terminal preferences'
+		);
+		await expect(repository.createCommandSnippet(commandSnippet())).rejects.toThrow(
+			'Could not create command snippet'
+		);
+		await expect(repository.createTerminalRecording(terminalRecording())).rejects.toThrow(
+			'Could not create terminal recording'
+		);
+		await expect(repository.createFileBookmark(fileBookmark())).rejects.toThrow(
+			'Could not create file bookmark'
+		);
+		await expect(repository.upsertFtpsHostSettings(ftpsHostSettings())).rejects.toThrow(
+			'Could not persist FTPS host settings'
+		);
+		await expect(repository.upsertRdpHostSettings(rdpHostSettings())).rejects.toThrow(
+			'Could not persist RDP host settings'
+		);
+	});
 });
 
 function queryResult<T>(rows: T[]) {
@@ -298,6 +397,19 @@ function fakeSelectDb<T>(rows: T[]): TermixDb {
 		select: () => ({
 			from: () => ({
 				where: () => queryResult(rows)
+			})
+		})
+	} as unknown as TermixDb;
+}
+
+function fakeReturningInsertDb<T>(rows: T[]): TermixDb {
+	return {
+		insert: () => ({
+			values: () => ({
+				onConflictDoUpdate: () => ({
+					returning: () => Promise.resolve(rows)
+				}),
+				returning: () => Promise.resolve(rows)
 			})
 		})
 	} as unknown as TermixDb;

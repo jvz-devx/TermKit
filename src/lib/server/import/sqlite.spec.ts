@@ -161,6 +161,82 @@ describe('parseTermixSqliteDatabase', () => {
 		]);
 	});
 
+	it('merges JSON config columns and ignores malformed JSON text columns', () => {
+		const database = createSqliteDatabase([
+			{
+				name: 'connections',
+				columns: ['id', 'name', 'config', 'settings', 'metadata'],
+				rows: [
+					[
+						'json-config',
+						'JSON configured shell',
+						'not-json',
+						JSON.stringify({
+							connection_type: 'ssh',
+							host: 'json.example.test',
+							port: 2222,
+							username: 'deploy',
+							tags: 'json, merged',
+							server_stats: { cpu: 2 }
+						}),
+						JSON.stringify({
+							folder: 'Imported',
+							notes: 'Merged from metadata column'
+						})
+					]
+				]
+			}
+		]);
+
+		const [record] = parseTermixSqliteDatabase(database);
+		const mapped = mapTermixRecords(record ? [record] : []);
+
+		expect(record).toMatchObject({
+			id: 'json-config',
+			connectionType: 'ssh',
+			hostname: 'json.example.test',
+			port: 2222,
+			username: 'deploy',
+			folder: 'Imported',
+			notes: 'Merged from metadata column',
+			serverStats: { cpu: 2 }
+		});
+		expect(mapped.hosts[0]).toMatchObject({
+			hostname: 'json.example.test',
+			tags: ['json', 'merged'],
+			folder: 'Imported',
+			notes: 'Merged from metadata column'
+		});
+	});
+
+	it('rejects SQLite databases without supported Termix host tables', () => {
+		const database = createSqliteDatabase([
+			{
+				name: 'settings',
+				columns: ['key', 'value'],
+				rows: [['theme', 'dark']]
+			}
+		]);
+
+		expect(() => parseTermixSqliteDatabase(database)).toThrow(
+			'SQLite import did not include a supported Termix host table.'
+		);
+	});
+
+	it('rejects SQLite files with unsupported declared page sizes', () => {
+		const database = createSqliteDatabase([
+			{
+				name: 'hosts',
+				columns: ['id', 'name', 'connection_type', 'host', 'port'],
+				rows: [['router', 'Lab router', 'telnet', 'router.lab', 23]]
+			}
+		]);
+		database[16] = 0x00;
+		database[17] = 0x03;
+
+		expect(() => parseTermixSqliteDatabase(database)).toThrow('SQLite page size is not supported.');
+	});
+
 	it('reports corrupt SQLite pages as validation errors', () => {
 		const database = createSqliteDatabase([
 			{

@@ -9,6 +9,8 @@ import {
 	uniqueFleetValues
 } from './fleet-data';
 
+const performanceIt = process.env.TERMIXKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
+
 describe('fleet operations helpers', () => {
 	it('filters hosts by health, workspace, patch state, region, and search text', () => {
 		const result = filterFleetHosts(demoFleetOverview.hosts, {
@@ -56,7 +58,7 @@ describe('fleet operations helpers', () => {
 		]);
 	});
 
-	it('keeps repeated fleet filtering inside a coarse rendering-helper budget', () => {
+	performanceIt('keeps repeated fleet filtering inside a coarse rendering-helper budget', () => {
 		const hosts = Array.from({ length: 600 }, (_, index) => ({
 			...demoFleetOverview.hosts[index % demoFleetOverview.hosts.length],
 			id: `host-${index}`,

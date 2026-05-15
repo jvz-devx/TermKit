@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CredentialEncryptionError } from '$lib/server/crypto/credentials';
 import { HostService } from '$lib/server/services/hosts';
 import { InMemoryTermixServicesRepository } from '$lib/server/services/repository';
@@ -6,6 +6,10 @@ import { SessionTicketService } from '$lib/server/services/session-tickets';
 import { SshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
 import type { CredentialCrypto, EncryptionMetadata } from '$lib/server/services/types';
 import { LiveSshAttachTicketConsumer, SessionTicketConsumer } from './ticket-consumer';
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 describe('SessionTicketConsumer', () => {
 	it('does not consume tickets for a different authenticated user', async () => {
@@ -167,6 +171,30 @@ describe('SessionTicketConsumer', () => {
 			name: 'TicketConsumedError'
 		});
 	});
+
+	it('returns null for already consumed session tickets', async () => {
+		expect.assertions(2);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const tickets = new SessionTicketService(repository, hosts, repository);
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const created = await tickets.create('user-1', {
+			hostId: host.id,
+			protocol: 'ssh'
+		});
+		const consumer = new SessionTicketConsumer(tickets, hosts, repository, passthroughCrypto());
+
+		await expect(consumer.consume(created.ticket, 'ssh', 'user-1')).resolves.toMatchObject({
+			ticketId: created.record.id
+		});
+		await expect(consumer.consume(created.ticket, 'ssh', 'user-1')).resolves.toBeNull();
+	});
 });
 
 describe('LiveSshAttachTicketConsumer', () => {
@@ -244,6 +272,49 @@ describe('LiveSshAttachTicketConsumer', () => {
 			}
 		});
 		await expect(consumer.consume(attachTicket.ticket, 'user-1')).resolves.toBeNull();
+	});
+
+	it('returns null for expired attach tickets and leaves them unconsumed', async () => {
+		expect.assertions(3);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const liveSessions = new SshLiveSessionService(repository, hosts, repository);
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const { session } = await liveSessions.createOrReuse('user-1', {
+			hostId: host.id,
+			now: new Date('2026-05-13T12:00:00.000Z')
+		});
+		const attachTicket = await liveSessions.createAttachTicket(
+			'user-1',
+			session.id,
+			new Date('2026-05-13T12:00:00.000Z'),
+			1_000
+		);
+		const consumer = new LiveSshAttachTicketConsumer(
+			liveSessions,
+			hosts,
+			repository,
+			passthroughCrypto()
+		);
+
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-05-13T12:00:02.000Z'));
+		await expect(consumer.consume(attachTicket.ticket, 'user-1')).resolves.toBeNull();
+		await expect(
+			repository.getSshAttachTicketByHash(attachTicket.record.ticketHash)
+		).resolves.toMatchObject({
+			consumedAt: null
+		});
+		await expect(repository.getSshLiveSession('user-1', session.id)).resolves.toMatchObject({
+			status: 'ended'
+		});
+		vi.useRealTimers();
 	});
 });
 

@@ -71,6 +71,55 @@ describe('WorkspaceService', () => {
 			issues: ['workspace owners cannot remove their own membership']
 		});
 	});
+
+	it('keeps membership authorization and idempotent member writes precise', async () => {
+		expect.assertions(8);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const service = new WorkspaceService(repository);
+		const workspace = await service.create('owner-1', {
+			name: 'Ops',
+			metadata: { tier: 'prod' }
+		});
+		const member = await service.addMember('owner-1', workspace.id, {
+			userId: ' member-1 ',
+			role: 'member'
+		});
+
+		await expect(service.get('outsider-1', workspace.id)).rejects.toMatchObject({
+			message: 'Workspace not found'
+		});
+		await expect(service.listMembers('outsider-1', workspace.id)).rejects.toMatchObject({
+			message: 'Workspace not found'
+		});
+		await expect(
+			service.addMember('owner-1', workspace.id, { userId: 'member-1', role: 'owner' })
+		).resolves.toEqual(member);
+		await expect(service.listMembers('owner-1', workspace.id)).resolves.toEqual([
+			expect.objectContaining({ userId: 'owner-1', role: 'owner' }),
+			expect.objectContaining({ userId: 'member-1', role: 'member' })
+		]);
+		await expect(
+			service.addMember('owner-1', workspace.id, { userId: ' ', role: 'admin' as never })
+		).rejects.toMatchObject({
+			issues: ['userId is required', 'role must be owner or member']
+		});
+		await expect(
+			service.setMemberRole('owner-1', workspace.id, 'member-1', 'admin' as never)
+		).rejects.toMatchObject({
+			issues: ['role must be owner or member']
+		});
+		await expect(
+			service.setMemberRole('owner-1', workspace.id, 'missing-member', 'member')
+		).rejects.toMatchObject({
+			message: 'Workspace membership not found'
+		});
+		await expect(
+			service.removeMember('owner-1', workspace.id, 'missing-member')
+		).rejects.toMatchObject({
+			message: 'Workspace membership not found'
+		});
+	});
 });
 
 describe('workspace scoped hosts and credentials', () => {

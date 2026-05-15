@@ -12,6 +12,8 @@ import {
 	startBulkJob
 } from './bulk-jobs';
 
+const performanceIt = process.env.TERMIXKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
+
 describe('bulk job domain', () => {
 	it('requires an explicit reviewed host set and plans concurrency waves', () => {
 		expect.assertions(5);
@@ -225,35 +227,38 @@ describe('bulk job domain', () => {
 		expect(csvReport.body).toContain('Bearer [REDACTED]');
 	});
 
-	it('keeps large fan-out wave planning deterministic and inside a coarse budget', () => {
-		const targets = Array.from({ length: 251 }, (_, index) => ({
-			hostId: `host-${String(index).padStart(3, '0')}`,
-			protocol: 'ssh'
-		}));
-		const reviewedHostIds = targets.map((target) => target.hostId);
+	performanceIt(
+		'keeps large fan-out wave planning deterministic and inside a coarse budget',
+		() => {
+			const targets = Array.from({ length: 251 }, (_, index) => ({
+				hostId: `host-${String(index).padStart(3, '0')}`,
+				protocol: 'ssh'
+			}));
+			const reviewedHostIds = targets.map((target) => target.hostId);
 
-		const startedAt = performance.now();
-		const job = planBulkJob({
-			id: 'job-large-fanout',
-			userId: 'user-1',
-			kind: 'ssh_command',
-			targets,
-			reviewedHostIds,
-			concurrencyLimit: 25,
-			command: { command: 'uname -a' }
-		});
-		const elapsedMs = performance.now() - startedAt;
+			const startedAt = performance.now();
+			const job = planBulkJob({
+				id: 'job-large-fanout',
+				userId: 'user-1',
+				kind: 'ssh_command',
+				targets,
+				reviewedHostIds,
+				concurrencyLimit: 25,
+				command: { command: 'uname -a' }
+			});
+			const elapsedMs = performance.now() - startedAt;
 
-		expect(job.concurrency).toMatchObject({
-			limit: 25,
-			totalHosts: 251,
-			waveCount: 11
-		});
-		expect(job.concurrency.waves[0]).toEqual(reviewedHostIds.slice(0, 25));
-		expect(job.concurrency.waves.at(-1)).toEqual(['host-250']);
-		expect(job.hosts.map((host) => host.hostId)).toEqual(reviewedHostIds);
-		expect(elapsedMs).toBeLessThan(250);
-	});
+			expect(job.concurrency).toMatchObject({
+				limit: 25,
+				totalHosts: 251,
+				waveCount: 11
+			});
+			expect(job.concurrency.waves[0]).toEqual(reviewedHostIds.slice(0, 25));
+			expect(job.concurrency.waves.at(-1)).toEqual(['host-250']);
+			expect(job.hosts.map((host) => host.hostId)).toEqual(reviewedHostIds);
+			expect(elapsedMs).toBeLessThan(250);
+		}
+	);
 
 	it('rejects fan-out concurrency above the guarded limit', () => {
 		expect(() =>

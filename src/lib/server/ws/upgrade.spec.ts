@@ -8,6 +8,7 @@ import {
 	type AuthenticatedWebSocketSession,
 	type LiveSshManager
 } from './upgrade';
+import { CredentialEncryptionError } from '$lib/server/crypto/credentials';
 import { SessionTicketConsumer } from './ticket-consumer';
 import type { ProtocolAdapter } from '$lib/server/protocols';
 import { HostService } from '$lib/server/services/hosts';
@@ -482,6 +483,43 @@ describe('websocket upgrade routing', () => {
 		expect(managerCalled).toBe(false);
 	});
 
+	it('rejects malformed live SSH attach ticket session contexts before manager handoff', async () => {
+		expect.assertions(3);
+
+		let consumedForUserId: string | undefined;
+		let managerCalled = false;
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			sshAttachTickets: {
+				async consume(_ticket, userId) {
+					consumedForUserId = userId;
+					return testSshAttachTicket({
+						session: {
+							...baseConsumedTicket(),
+							ticketId: 'ssh-live-session-1',
+							protocol: 'vnc' as never
+						}
+					});
+				}
+			},
+			liveSshManager: {
+				handle() {
+					managerCalled = true;
+				}
+			}
+		});
+
+		await listen(server);
+		const response = await rawUpgrade(server, '/ws/ssh/live/attach-ticket-1');
+
+		expect(response).toContain('401 Invalid or expired SSH attach ticket');
+		expect(consumedForUserId).toBe('user-1');
+		expect(managerCalled).toBe(false);
+	});
+
 	it('consumes live SSH attach tickets and hands the socket to the live SSH manager', async () => {
 		expect.assertions(3);
 
@@ -848,7 +886,7 @@ describe('websocket upgrade routing', () => {
 	});
 
 	it('records live SSH manager failures as failed', async () => {
-		expect.assertions(2);
+		expect.assertions(3);
 
 		const calls: string[] = [];
 		const server = createServer((_request, response) => response.end('ok'));
@@ -873,6 +911,35 @@ describe('websocket upgrade routing', () => {
 		await expect(webSocketClose(server, '/ws/ssh/live/attach-ticket-1')).resolves.toBe(1011);
 		await waitFor(() => calls.includes('fail:ssh-live-session-1'));
 		expect(calls).toEqual(['fail:ssh-live-session-1']);
+		expect(calls).not.toContain('attached:ssh-live-session-1');
+	});
+
+	it('unsubscribes live SSH manager close persistence when the HTTP server closes', () => {
+		expect.assertions(3);
+
+		let closeListener: Parameters<NonNullable<LiveSshManager['onSessionClose']>>[0] | undefined;
+		let releaseCount = 0;
+		const server = createServer((_request, response) => response.end('ok'));
+
+		installWebSocketUpgrades(server, {
+			liveSshManager: {
+				handle() {
+					throw new Error('unused manager');
+				},
+				onSessionClose(listener) {
+					closeListener = listener;
+					return () => {
+						closeListener = undefined;
+						releaseCount += 1;
+					};
+				}
+			}
+		});
+
+		expect(closeListener).toBeDefined();
+		server.emit('close');
+		expect(releaseCount).toBe(1);
+		expect(closeListener).toBeUndefined();
 	});
 
 	it('rejects upgrades with invalid tickets before an adapter is called', async () => {
@@ -1100,6 +1167,95 @@ describe('websocket upgrade routing', () => {
 		expect(response).toContain('401 Invalid or expired session ticket');
 		expect(consumedForUserId).toBe('user-2');
 		expect(adapterCalled).toBe(false);
+	});
+
+	it('masks unexpected ticket consumer error details in upgrade diagnostics', async () => {
+		expect.assertions(4);
+
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			tickets: {
+				async consume() {
+					throw new Error('database url contains password=super-secret');
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						throw new Error('adapter should not receive failed ticket');
+					}
+				}
+			]
+		});
+
+		try {
+			await listen(server);
+			const response = await rawUpgrade(server, '/ws/ssh/ticket-1');
+			const warned = JSON.stringify(warn.mock.calls);
+
+			expect(response).toContain('401 Invalid or expired session ticket');
+			expect(warn).toHaveBeenCalledWith('WebSocket session ticket upgrade failed', {
+				protocol: 'ssh',
+				error: {
+					name: 'Error',
+					message: 'Session ticket upgrade failed before websocket acceptance'
+				}
+			});
+			expect(warned).not.toContain('super-secret');
+			expect(warned).not.toContain('password=');
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it('keeps credential encryption diagnostics actionable without logging raw secrets', async () => {
+		expect.assertions(3);
+
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		const server = createServer((_request, response) => response.end('ok'));
+		servers.push(server);
+
+		installWebSocketUpgrades(server, {
+			authenticateSession: testSessionAuthenticator(),
+			tickets: {
+				async consume() {
+					throw new CredentialEncryptionError(
+						'Credential secret could not be decrypted; verify CREDENTIAL_MASTER_KEY'
+					);
+				}
+			},
+			adapters: [
+				{
+					protocol: 'ssh',
+					handle() {
+						throw new Error('adapter should not receive failed ticket');
+					}
+				}
+			]
+		});
+
+		try {
+			await listen(server);
+			const response = await rawUpgrade(server, '/ws/ssh/ticket-1');
+			const warned = JSON.stringify(warn.mock.calls);
+
+			expect(response).toContain('401 Invalid or expired session ticket');
+			expect(warn).toHaveBeenCalledWith('WebSocket session ticket upgrade failed', {
+				protocol: 'ssh',
+				error: {
+					name: 'CredentialEncryptionError',
+					message: 'Credential secret could not be decrypted; verify CREDENTIAL_MASTER_KEY'
+				}
+			});
+			expect(warned).not.toContain('decrypted-password');
+		} finally {
+			warn.mockRestore();
+		}
 	});
 
 	it('rejects unavailable protocol adapters before consuming tickets', async () => {

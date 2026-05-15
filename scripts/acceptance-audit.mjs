@@ -401,7 +401,7 @@ const checks = [
 		name: 'V7 final coverage target achievement',
 		status: 'pending',
 		evidence:
-			'remaining local gap: reach the final spec.md coverage targets across global lines/branches, server-owned modules, security-critical logic, protocol adapters, repositories, migrations, and remote/API boundaries'
+			'remaining local gap: only mark local after npm run test:coverage proves the final spec.md targets: src/lib/server/** >=85% lines and >=75% branches, security-critical pure logic >=90% lines where practical, protocol adapter and websocket-owned logic >=80% lines where practical, and importer/repository/migration/settings/workspace/policy/job/acceptance-audit logic >=75% lines where practical, with any coverage include/exclude change documented as generated or low-value rather than hiding reachable product logic'
 	},
 	{
 		name: 'V7 full workflow and protocol browser coverage',
@@ -413,13 +413,13 @@ const checks = [
 		name: 'V7 reliability and performance budget foundation',
 		status: 'local',
 		evidence:
-			'npm test covers live SSH attach takeover, connection and shell failure injection, single-use ticket rejection paths, bulk-job concurrency, cancellation, timeout/retry behavior, secret-safe reports, large fan-out planning budgets, and file-list transform budgets; docs/coverage-baseline.md lists remaining reliability/perf gaps'
+			'npm test covers live SSH attach takeover, connection and shell failure injection, single-use ticket rejection paths, bulk-job concurrency, cancellation, timeout/retry behavior, secret-safe reports, large fan-out planning invariants, and file-list transform invariants; npm run test:performance owns coarse wall-clock budget checks outside the default unit suite'
 	},
 	{
 		name: 'V7 final reliability and performance budgets',
-		status: 'pending',
+		status: 'local',
 		evidence:
-			'partial local proof: npm test enforces deterministic boundedness checks for protocol failure/timeout boundaries, adapter upload-size limits, route-level multipart upload preflight/stream limits, transfer completion/cancellation/progress helpers, importer parsing, workspace layout normalization, bulk-job fan-out, retry, timeout, and cancellation behavior; npm run test:e2e covers browser-level transfer cancellation and partial-progress behavior without false completion; remaining local gap: measurable final workspace/importer performance budgets'
+			'npm test enforces deterministic boundedness checks for protocol failure/timeout boundaries, adapter upload-size limits, route-level multipart upload preflight/stream limits, transfer completion/cancellation/progress helpers, importer parsing, workspace layout normalization, bulk-job fan-out, retry, timeout, and cancellation behavior; npm run test:e2e covers browser-level transfer cancellation and partial-progress behavior without false completion; npm run test:performance runs the explicit coarse budget checks for importer parsing/validation, file-listing transforms, job fan-out scheduling, fleet filtering, and workspace layout/rendering helpers outside the default unit suite'
 	},
 	{
 		name: 'V7 real FTP external proof',

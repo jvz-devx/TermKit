@@ -15,23 +15,24 @@ Baseline from the integrated V7 foundation wave:
 | Functions  |  58.77% |
 | Lines      |  63.05% |
 
-Latest V7 ratchet measurement after the sixth coverage, workflow, and reliability hardening wave:
+Latest V7 ratchet measurement after the current coverage and performance-budget
+hardening wave:
 
 | Metric     | Current |
 | ---------- | ------: |
-| Statements |  81.70% |
-| Branches   |  75.55% |
-| Functions  |  79.83% |
-| Lines      |  84.55% |
+| Statements |  83.13% |
+| Branches   |  76.89% |
+| Functions  |  81.55% |
+| Lines      |  85.75% |
 
 The current global CI gate intentionally ratchets just below that measured floor:
 
 | Metric     | Gate |
 | ---------- | ---: |
-| Statements |  81% |
-| Branches   |  75% |
-| Functions  |  79% |
-| Lines      |  84% |
+| Statements |  83% |
+| Branches   |  76% |
+| Functions  |  81% |
+| Lines      |  85% |
 
 Additional scoped ratchets protect the owned surfaces that already clear higher local bars:
 
@@ -63,16 +64,33 @@ boundaries have direct branch tests that raised the global measured floor.
 
 V7 is not complete at this baseline. The current audit treats coverage ratchets
 and full local browser/protocol workflow coverage as repo-owned local evidence,
-not final V7 completion. `audit:acceptance` keeps separate pending rows for
-final coverage target achievement and final reliability/performance budgets
-until the measured coverage and performance proof reach the `spec.md` target
-surfaces.
+not final V7 completion. `audit:acceptance` keeps a pending row for final
+coverage target achievement until the measured coverage proof reaches the
+`spec.md` target surfaces.
+
+Do not mark the final coverage row `local` until a current
+`npm run test:coverage` run proves the V7 acceptance targets from `spec.md`:
+`src/lib/server/**` at or above 85% line coverage and 75% branch coverage,
+security-critical pure logic at or above 90% line coverage where practical,
+protocol adapter and websocket-owned logic at or above 80% line coverage where
+practical, and importer, repository, migration, settings, workspace, policy,
+job, and acceptance-audit logic at or above 75% line coverage where practical.
+Any include/exclude change must name a generated, fixture, markup-heavy, or
+otherwise low-value boundary and must not hide reachable product logic.
+
+The final reliability/performance row is now local because `npm test` enforces
+the deterministic boundedness and cancellation invariants, while
+`npm run test:performance` runs the coarse wall-clock budgets for importer
+parsing and validation, file-listing transforms, job fan-out scheduling, fleet
+filtering, and workspace layout/rendering helpers outside the default unit
+suite.
 
 These are the remaining final target gaps before V7 can be called complete:
 
-- The measured global line floor is still just below the final 85% target, and
-  `src/lib/server/**` still has low or uneven coverage in database schema
-  helpers, repository mapping, websocket routing, and some service resources.
+- The current measured global line floor is above 85%, but the
+  `src/lib/server/**` aggregate is still below the final 85% line target because
+  database schema helpers, repository mapping, and some service resources remain
+  low or uneven.
 - Security-critical pure logic is not uniformly at 90% line coverage; auth,
   crypto, host-key trust, ticketing, route auth helpers, policy checks, and
   secret redaction need separate final-target review.
@@ -108,8 +126,10 @@ These are the remaining final target gaps before V7 can be called complete:
   missing/dishonest-length streams before `formData()` parsing. Browser tests
   now cover cancelling in-flight SFTP/FTP/FTPS file-manager transfers, request
   abort observation, and partial-progress state without false completion.
-  Remaining reliability gaps are measurable final
-  workspace/importer performance budgets.
+  `npm run test:performance` now covers importer parsing and validation,
+  file-listing transforms, job fan-out scheduling, fleet filtering, and
+  workspace layout/rendering helpers outside the default unit suite so normal
+  coverage/check runs are not coupled to wall-clock budget variance.
 
 Real Microsoft, RDP, VNC, SSH, FTP, and FTPS acceptance remains external proof
 only. Local coverage gates must not require those live tenants or targets.

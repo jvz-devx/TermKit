@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import {
 	assertRecursiveUploadItemsWithinLimits,
@@ -51,6 +52,7 @@ const entries: RemoteEntry[] = [
 		link: '/releases/42'
 	}
 ];
+const performanceIt = process.env.TERMIXKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
 
 describe('file manager state helpers', () => {
 	it('normalizes and joins remote paths without parent traversal', () => {
@@ -117,6 +119,50 @@ describe('file manager state helpers', () => {
 		expect(nextSelection).toEqual(filtered.map((entry) => entry.path).sort());
 		expect(nextSelection).toHaveLength(filtered.length);
 		expect(new Set(nextSelection).size).toBe(nextSelection.length);
+	});
+
+	performanceIt('keeps representative selection and progress transforms within budget', () => {
+		const budgetMs = 300;
+		const iterations = 250;
+		const largeListing = Array.from({ length: 1_500 }, (_, index): RemoteEntry => {
+			const type = index % 6 === 0 ? 'directory' : 'file';
+			return {
+				name: type === 'directory' ? `release-${index}` : `artifact-${index}.log`,
+				path: `/srv/workspaces/prod/${index}`,
+				type,
+				size: index * 1024,
+				mtime: null
+			};
+		});
+		let checksum = 0;
+
+		const startedAt = performance.now();
+		for (let index = 0; index < iterations; index += 1) {
+			const selection = setVisibleSelection(['/srv/outside'], largeListing, true);
+			const summary = selectionSummary(largeListing, selection);
+			const selected = selectedEntries(largeListing, selection);
+			const progress = updateTransferProgress(
+				createTransferProgress({
+					kind: 'download',
+					label: 'Workspace export',
+					totalBytes: 10_000_000,
+					totalItems: largeListing.length,
+					now: 1_000
+				}),
+				{
+					completedBytes: 4_000_000,
+					completedItems: 600,
+					currentName: `artifact-${index}.log`,
+					now: 2_000
+				}
+			);
+
+			checksum += summary.visibleCount + selected.length + transferPercent(progress);
+		}
+		const elapsedMs = performance.now() - startedAt;
+
+		expect(checksum).toBe(iterations * (1_500 + 1_500 + 40));
+		expect(elapsedMs).toBeLessThan(budgetMs);
 	});
 
 	it('derives progress percentage, throughput, and remaining time', () => {
