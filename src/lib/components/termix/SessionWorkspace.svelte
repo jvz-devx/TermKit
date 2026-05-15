@@ -618,6 +618,10 @@
 		return `${failureDetail(copy)} Diagnostic: ${copy.diagnostic ?? error.message}`;
 	}
 
+	function isHostKeyTrustFailure(error: LiveSshErrorState) {
+		return error.message.toLowerCase().includes('host key');
+	}
+
 	function liveSshSessionFailureDetail(session: LiveSshSessionSummary) {
 		const copy = failureCopy({
 			protocol: 'ssh',
@@ -850,6 +854,9 @@
 									title={liveSshActionTitle(paneLiveSshError)}
 									detail={liveSshActionDetail(paneLiveSshError)}
 								>
+									{#if isHostKeyTrustFailure(paneLiveSshError)}
+										<SshHostKeyTrustPanel host={paneHost} onEnrolled={reconnect} />
+									{/if}
 									<Button size="sm" onclick={() => createPersistentSshTab()} disabled={liveSshBusy}>
 										<RotateCcw class="size-4" />
 										Retry SSH

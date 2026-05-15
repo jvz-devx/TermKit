@@ -194,11 +194,11 @@ export function verifySshHostKeyFingerprint(
 export function readSshHostKeyTrustPolicy(
 	environment: SshHostKeyTrustEnvironment = env
 ): SshHostKeyTrustPolicy {
-	const tofuRequested = isEnabled(environment.TERMIXKIT_SSH_TRUST_ON_FIRST_USE);
+	const tofuRequested = !isDisabled(environment.TERMIXKIT_SSH_TRUST_ON_FIRST_USE);
 	const productionTofuBlocked =
 		tofuRequested &&
 		environment.NODE_ENV === 'production' &&
-		!isEnabled(environment.TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU);
+		isDisabled(environment.TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU);
 
 	return {
 		trustOnFirstUse: tofuRequested && !productionTofuBlocked,
@@ -233,8 +233,8 @@ function defaultKnownHostsPath(): string {
 	);
 }
 
-function isEnabled(value: string | undefined): boolean {
-	return value === '1' || value?.toLowerCase() === 'true';
+function isDisabled(value: string | undefined): boolean {
+	return value === '0' || value?.toLowerCase() === 'false';
 }
 
 function normalizeFingerprint(fingerprint: string): string {
@@ -247,9 +247,9 @@ function unknownHostKeyMessage(
 ): string {
 	const prefix = `SSH host key is not pinned for ${identity.hostname}:${identity.port}; refusing to submit credentials`;
 	if (policy.productionTofuBlocked) {
-		return `${prefix}. TERMIXKIT_SSH_TRUST_ON_FIRST_USE is blocked in production unless TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU=1 is set; seed TERMIXKIT_SSH_KNOWN_HOSTS_PATH instead.`;
+		return `${prefix}. TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU=0 blocks first-use enrollment in production; seed TERMIXKIT_SSH_KNOWN_HOSTS_PATH or remove the override.`;
 	}
-	return `${prefix}. Set TERMIXKIT_SSH_TRUST_ON_FIRST_USE=1 only for trusted first-use enrollment, then keep the resulting pin.`;
+	return `${prefix}. Remove TERMIXKIT_SSH_TRUST_ON_FIRST_USE=0 or enroll the host key manually, then keep the resulting pin.`;
 }
 
 function verificationFailure(

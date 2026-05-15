@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Fingerprint, KeyRound, ShieldAlert } from '@lucide/svelte';
+	import { Fingerprint, ShieldAlert } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import {
@@ -38,7 +38,8 @@
 		busy = true;
 		error = null;
 		try {
-			trust = await enrollSshHostKey(host.id).updates(listHosts);
+			trust = await enrollSshHostKey(host.id);
+			void listHosts().refresh();
 			await onEnrolled?.();
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not enroll SSH host key';
@@ -55,30 +56,28 @@
 	let fingerprint = $derived(displayedTrust?.fingerprint ?? null);
 </script>
 
-<div
-	class="mb-2 flex flex-col gap-2 rounded-md border bg-muted/20 p-2 text-xs md:flex-row md:items-center md:justify-between"
->
-	<div class="flex min-w-0 items-start gap-2">
-		{#if status === 'pinned'}
-			<KeyRound class="mt-0.5 size-4 shrink-0 text-emerald-600" />
-		{:else}
+{#if status !== 'pinned'}
+	<div
+		class="mb-2 flex flex-col gap-2 rounded-md border bg-muted/20 p-2 text-xs md:flex-row md:items-center md:justify-between"
+	>
+		<div class="flex min-w-0 items-start gap-2">
 			<ShieldAlert class="mt-0.5 size-4 shrink-0 text-amber-600" />
-		{/if}
-		<div class="min-w-0">
-			<div class="flex flex-wrap items-center gap-2">
-				<span class="font-medium">SSH host key</span>
-				<Badge variant={status === 'pinned' ? 'secondary' : 'outline'}>{status}</Badge>
-				{#if fingerprint}
-					<span class="inline-flex min-w-0 items-center gap-1 font-mono text-muted-foreground">
-						<Fingerprint class="size-3" />{fingerprint}
-					</span>
-				{/if}
+			<div class="min-w-0">
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="font-medium">SSH host key</span>
+					<Badge variant="outline">{status}</Badge>
+					{#if fingerprint}
+						<span class="inline-flex min-w-0 items-center gap-1 font-mono text-muted-foreground">
+							<Fingerprint class="size-3" />{fingerprint}
+						</span>
+					{/if}
+				</div>
+				<p class="mt-0.5 text-muted-foreground">{message}</p>
 			</div>
-			<p class="mt-0.5 text-muted-foreground">{message}</p>
+		</div>
+		<div class="flex shrink-0 gap-2">
+			<Button size="sm" variant="outline" disabled={busy} onclick={inspect}>Check</Button>
+			<Button size="sm" disabled={busy} onclick={enroll}>Enroll</Button>
 		</div>
 	</div>
-	<div class="flex shrink-0 gap-2">
-		<Button size="sm" variant="outline" disabled={busy} onclick={inspect}>Check</Button>
-		<Button size="sm" disabled={busy || status === 'pinned'} onclick={enroll}>Enroll</Button>
-	</div>
-</div>
+{/if}

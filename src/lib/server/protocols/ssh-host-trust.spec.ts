@@ -51,7 +51,7 @@ describe('SSH host key trust', () => {
 		expect(store.get(identity)).toBeNull();
 	});
 
-	it('pins first-use fingerprints only when TOFU is explicitly enabled', () => {
+	it('pins first-use fingerprints when TOFU is enabled', () => {
 		const store = new InMemorySshHostKeyTrustStore();
 		const first = verifySshHostKeyFingerprint(
 			identity,
@@ -100,11 +100,37 @@ describe('SSH host key trust', () => {
 		expect(store.get(identity)).toMatchObject({ fingerprint: 'sha256:abc123' });
 	});
 
-	it('blocks production TOFU unless the production override is set', () => {
+	it('enables first-use trust when host-key env overrides are absent', () => {
+		expect(readSshHostKeyTrustPolicy({})).toEqual({
+			trustOnFirstUse: true,
+			productionTofuBlocked: false
+		});
+		expect(readSshHostKeyTrustPolicy({ NODE_ENV: 'production' })).toEqual({
+			trustOnFirstUse: true,
+			productionTofuBlocked: false
+		});
+	});
+
+	it('respects explicit strict host-key trust overrides', () => {
+		expect(readSshHostKeyTrustPolicy({ TERMIXKIT_SSH_TRUST_ON_FIRST_USE: '0' })).toEqual({
+			trustOnFirstUse: false,
+			productionTofuBlocked: false
+		});
+		expect(
+			readSshHostKeyTrustPolicy({
+				TERMIXKIT_SSH_TRUST_ON_FIRST_USE: 'false'
+			})
+		).toEqual({
+			trustOnFirstUse: false,
+			productionTofuBlocked: false
+		});
+	});
+
+	it('blocks production TOFU only when the production override is explicitly disabled', () => {
 		expect(
 			readSshHostKeyTrustPolicy({
 				NODE_ENV: 'production',
-				TERMIXKIT_SSH_TRUST_ON_FIRST_USE: '1'
+				TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: '0'
 			})
 		).toEqual({
 			trustOnFirstUse: false,
@@ -114,7 +140,16 @@ describe('SSH host key trust', () => {
 			readSshHostKeyTrustPolicy({
 				NODE_ENV: 'production',
 				TERMIXKIT_SSH_TRUST_ON_FIRST_USE: '1',
-				TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: '1'
+				TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: '0'
+			})
+		).toEqual({
+			trustOnFirstUse: false,
+			productionTofuBlocked: true
+		});
+		expect(
+			readSshHostKeyTrustPolicy({
+				NODE_ENV: 'production',
+				TERMIXKIT_SSH_TRUST_ON_FIRST_USE: '1'
 			})
 		).toEqual({
 			trustOnFirstUse: true,
