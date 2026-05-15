@@ -9,13 +9,24 @@
 	import { useSidebar } from '$lib/components/ui/sidebar/index.js';
 	import ChevronsUpDownIcon from '@lucide/svelte/icons/chevrons-up-down';
 	import InfoIcon from '@lucide/svelte/icons/info';
+	import LaptopIcon from '@lucide/svelte/icons/laptop';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
+	import MoonIcon from '@lucide/svelte/icons/moon';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
+	import SunIcon from '@lucide/svelte/icons/sun';
+	import { setMode, userPrefersMode } from 'mode-watcher';
 
 	let { user }: { user: { name: string; email: string; initials: string } } = $props();
 	const sidebar = useSidebar();
+	type ThemeMode = 'light' | 'dark' | 'system';
+	const themeModes = ['light', 'dark', 'system'] as const;
 	let aboutOpen = $state(false);
+
+	function setThemeMode(value: string) {
+		if (!themeModes.includes(value as ThemeMode)) return;
+		setMode(value as ThemeMode);
+	}
 </script>
 
 <Sidebar.Menu>
@@ -25,6 +36,7 @@
 				{#snippet child({ props })}
 					<Sidebar.MenuButton
 						size="lg"
+						aria-label="Account menu"
 						tooltipContent="Account menu"
 						class="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
 						{...props}
@@ -76,6 +88,26 @@
 						{/snippet}
 					</DropdownMenu.Item>
 				</DropdownMenu.Group>
+				<DropdownMenu.Separator />
+				<DropdownMenu.Label>Theme</DropdownMenu.Label>
+				<DropdownMenu.RadioGroup
+					value={userPrefersMode.current}
+					onValueChange={setThemeMode}
+					aria-label="Theme"
+				>
+					<DropdownMenu.RadioItem value="light">
+						<SunIcon />
+						Light
+					</DropdownMenu.RadioItem>
+					<DropdownMenu.RadioItem value="dark">
+						<MoonIcon />
+						Dark
+					</DropdownMenu.RadioItem>
+					<DropdownMenu.RadioItem value="system">
+						<LaptopIcon />
+						System
+					</DropdownMenu.RadioItem>
+				</DropdownMenu.RadioGroup>
 				<DropdownMenu.Separator />
 				<DropdownMenu.Item onclick={() => (aboutOpen = true)}>
 					<InfoIcon />

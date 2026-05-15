@@ -122,6 +122,41 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 	});
 
+	test('switches app theme from the account menu and persists it locally', async ({
+		context,
+		page
+	}) => {
+		await ensureAdminSession(page, context);
+		await page.goto('/hosts');
+
+		await chooseTheme(page, 'Dark');
+		await expect(page.locator('html')).toHaveClass(/dark/);
+		expect(await page.evaluate(() => localStorage.getItem('termixkit:theme-mode'))).toBe('dark');
+
+		await page.reload();
+		await expect(page.locator('html')).toHaveClass(/dark/);
+
+		await chooseTheme(page, 'Light');
+		await expect(page.locator('html')).not.toHaveClass(/dark/);
+		expect(await page.evaluate(() => localStorage.getItem('termixkit:theme-mode'))).toBe('light');
+
+		await page.reload();
+		await expect(page.locator('html')).not.toHaveClass(/dark/);
+
+		await chooseTheme(page, 'Dark');
+		await context.clearCookies();
+		await page.goto('/login');
+		await expect(page.locator('html')).toHaveClass(/dark/);
+
+		await page.getByLabel('Username').fill(adminUsername);
+		await page.getByLabel('Password').fill(adminPassword);
+		await page.getByRole('button', { name: 'Sign in' }).click();
+		await expect(page).toHaveURL(/\/hosts$/);
+
+		await chooseTheme(page, 'System');
+		expect(await page.evaluate(() => localStorage.getItem('termixkit:theme-mode'))).toBe('system');
+	});
+
 	test('saves settings and reloads the persisted values', async ({ context, page }) => {
 		await ensureAdminSession(page, context);
 		await page.goto('/settings');
@@ -255,6 +290,11 @@ async function expandSidebarGroup(page: Page, name: string) {
 	if ((await button.getAttribute('aria-expanded')) !== 'true') {
 		await button.click();
 	}
+}
+
+async function chooseTheme(page: Page, theme: 'Light' | 'Dark' | 'System') {
+	await page.getByRole('button', { name: 'Account menu' }).click();
+	await page.getByRole('menuitemradio', { name: theme }).click();
 }
 
 async function setSwitch(locator: Locator, checked: boolean) {

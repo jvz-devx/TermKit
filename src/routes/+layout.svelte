@@ -1,6 +1,7 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
+	import { ModeWatcher } from 'mode-watcher';
 
 	let { children } = $props();
 </script>
@@ -13,6 +14,10 @@
 	<meta name="apple-mobile-web-app-title" content="TermixKit" />
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="mobile-web-app-capable" content="yes" />
-	<meta name="theme-color" content="#18181b" />
 </svelte:head>
+<ModeWatcher
+	defaultMode="system"
+	modeStorageKey="termixkit:theme-mode"
+	themeColors={{ light: '#ffffff', dark: '#18181b' }}
+/>
 {@render children()}
