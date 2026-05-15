@@ -311,6 +311,76 @@ describe('SshLiveSessionService', () => {
 		).rejects.toBeInstanceOf(TicketInvalidError);
 	});
 
+	it('prepares reattach dimensions without ending detached sessions', async () => {
+		expect.assertions(2);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository, {
+			detachedIdleTtlMs: 5_000
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const { session } = await service.createOrReuse('user-1', { hostId: host.id });
+		await service.markDetached('user-1', session.id, new Date('2026-05-13T12:00:00.000Z'));
+
+		await expect(
+			service.prepareAttach(
+				'user-1',
+				session.id,
+				{
+					terminalCols: 132,
+					terminalRows: 43
+				},
+				new Date('2026-05-13T12:00:01.000Z')
+			)
+		).resolves.toMatchObject({
+			status: 'detached',
+			terminalCols: 132,
+			terminalRows: 43
+		});
+		await expect(repository.getSshLiveSession('user-1', session.id)).resolves.toMatchObject({
+			status: 'detached',
+			terminalCols: 132,
+			terminalRows: 43
+		});
+	});
+
+	it('keeps detached sessions attachable for the lifetime of a fresh attach ticket', async () => {
+		expect.assertions(2);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new SshLiveSessionService(repository, hosts, repository, {
+			detachedIdleTtlMs: 5_000
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const { session } = await service.createOrReuse('user-1', { hostId: host.id });
+		await service.markDetached('user-1', session.id, new Date('2026-05-13T12:00:00.000Z'));
+
+		const ticket = await service.createAttachTicket(
+			'user-1',
+			session.id,
+			new Date('2026-05-13T12:00:03.000Z'),
+			10_000
+		);
+
+		expect(ticket.record.expiresAt).toEqual(new Date('2026-05-13T12:00:13.000Z'));
+		await expect(repository.getSshLiveSession('user-1', session.id)).resolves.toMatchObject({
+			status: 'detached',
+			expiresAt: new Date('2026-05-13T12:00:13.000Z')
+		});
+	});
+
 	it('persists close, end, and fail terminal statuses', async () => {
 		expect.assertions(9);
 

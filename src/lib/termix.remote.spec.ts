@@ -144,6 +144,7 @@ vi.mock('$lib/server/services/ssh-live-sessions', () => ({
 		listVisible: vi.fn(),
 		createOrReuse: vi.fn(),
 		get: vi.fn(),
+		prepareAttach: vi.fn(),
 		rename: vi.fn(),
 		close: vi.fn(),
 		createAttachTicket: vi.fn()
@@ -734,9 +735,9 @@ describe('termix remote functions', () => {
 		await expect(attachLiveSshSession({ cols: 80, rows: 24 })).rejects.toBeInstanceOf(
 			ServiceValidationError
 		);
-		expect(sshLiveSessionService.get).not.toHaveBeenCalled();
+		expect(sshLiveSessionService.prepareAttach).not.toHaveBeenCalled();
 
-		vi.mocked(sshLiveSessionService.get).mockResolvedValueOnce(
+		vi.mocked(sshLiveSessionService.prepareAttach).mockResolvedValueOnce(
 			liveSshSessionRecord({ id: 'live-1' }) as never
 		);
 		vi.mocked(hostService.get).mockResolvedValueOnce(hostRecord({ name: 'Shell host' }) as never);
@@ -747,7 +748,10 @@ describe('termix remote functions', () => {
 
 		const attach = await attachLiveSshSession({ sessionId: 'live-1', cols: 100, rows: 40 });
 
-		expect(sshLiveSessionService.get).toHaveBeenCalledWith('user-1', 'live-1');
+		expect(sshLiveSessionService.prepareAttach).toHaveBeenCalledWith('user-1', 'live-1', {
+			terminalCols: 100,
+			terminalRows: 40
+		});
 		expect(attach.session).toMatchObject({ id: 'live-1', hostName: 'Shell host' });
 	});
 

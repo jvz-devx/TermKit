@@ -220,7 +220,11 @@ export class SshLiveSessionService {
 			consumedAt: null,
 			createdAt: now
 		});
-		if (session.status === 'starting') {
+		if (
+			session.status === 'starting' ||
+			(session.status === 'detached' &&
+				(session.expiresAt === null || session.expiresAt.getTime() < expiresAt.getTime()))
+		) {
 			await this.repository.updateSshLiveSession(userId, session.id, {
 				expiresAt,
 				updatedAt: now
@@ -228,6 +232,22 @@ export class SshLiveSessionService {
 		}
 
 		return { ticket, record };
+	}
+
+	async prepareAttach(
+		userId: string,
+		id: string,
+		input: Pick<CreateOrReuseSshLiveSessionInput, 'terminalCols' | 'terminalRows'> = {},
+		now = new Date()
+	): Promise<SshLiveSessionRecord> {
+		const session = await this.getLiveSession(userId, id, now);
+		const updated = await this.repository.updateSshLiveSession(userId, id, {
+			terminalCols: normalizeDimension(input.terminalCols, session.terminalCols),
+			terminalRows: normalizeDimension(input.terminalRows, session.terminalRows),
+			updatedAt: now
+		});
+		if (!updated) throw new ServiceNotFoundError('SSH live session not found');
+		return updated;
 	}
 
 	async consumeAttachTicket(

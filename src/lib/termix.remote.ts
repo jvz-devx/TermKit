@@ -585,7 +585,10 @@ export const attachLiveSshSession = command<
 	const sessionId = typeof input.sessionId === 'string' ? input.sessionId : '';
 	if (!sessionId) throw new ServiceValidationError(['sessionId is required']);
 
-	const session = await sshLiveSessionService.get(userId, sessionId);
+	const session = await sshLiveSessionService.prepareAttach(userId, sessionId, {
+		terminalCols: input.cols,
+		terminalRows: input.rows
+	});
 	const host = await hostService.get(userId, session.hostId);
 	void listLiveSshSessions().refresh();
 

@@ -65,6 +65,10 @@
 		hostId: string | null;
 		sessionId: string | null;
 	};
+	type LiveSshLaunchTarget = {
+		host?: HostSummary | null;
+		paneId?: string | null;
+	};
 	type SessionLayoutRemotes = typeof termixRemote & {
 		getSessionWorkspaceLayout?: () => SessionLayoutQuery;
 		saveSessionWorkspaceLayout?: (input: {
@@ -100,6 +104,7 @@
 	let sessionSearch = $state('');
 	let activeLiveSshSessionId = $state<string | null>(null);
 	let liveSshAttach = $state<LiveSshAttach | null>(null);
+	let liveSshAttachPaneId = $state<string | null>(null);
 	let liveSshBusy = $state(false);
 	let liveSshError = $state<LiveSshErrorState | null>(null);
 	let dismissedLiveSshSessionIds = $state<string[]>([]);
@@ -248,6 +253,7 @@
 				attachableSessions.find((session) => session.id === activeLiveSshSessionId) ??
 				attachableSessions[0];
 			liveSshAttach = null;
+			liveSshAttachPaneId = null;
 			reconnectNonce += 1;
 
 			if (existingSession) {
@@ -265,7 +271,10 @@
 		if (!selectedHost || activeProtocol === 'sftp') return;
 		const key = sessionPauseKey(selectedHost.id, activeProtocol);
 		pausedSessionKey = key;
-		if (activeProtocol === 'ssh') liveSshAttach = null;
+		if (activeProtocol === 'ssh') {
+			liveSshAttach = null;
+			liveSshAttachPaneId = null;
+		}
 		reconnectNonce += 1;
 	}
 
@@ -302,6 +311,7 @@
 		}
 		pausedSessionKey = null;
 		liveSshAttach = null;
+		liveSshAttachPaneId = null;
 		activeLiveSshSessionId = null;
 		liveSshError = null;
 		void goto(resolve(sessionUrl(params) as '/'), {
@@ -319,6 +329,7 @@
 		rememberProtocol(host.id, protocol);
 		pausedSessionKey = null;
 		liveSshAttach = null;
+		liveSshAttachPaneId = null;
 		activeLiveSshSessionId = null;
 		liveSshError = null;
 		void goto(resolve(`/sessions?${params.toString()}` as '/'));
@@ -330,6 +341,7 @@
 		if (activeProtocol) params.set('tab', activeProtocol);
 		pausedSessionKey = null;
 		liveSshAttach = null;
+		liveSshAttachPaneId = null;
 		activeLiveSshSessionId = null;
 		liveSshError = null;
 		void goto(resolve(sessionUrl(params) as '/'));
@@ -345,6 +357,7 @@
 		liveSshError = null;
 		if (protocol !== 'ssh') {
 			liveSshAttach = null;
+			liveSshAttachPaneId = null;
 			activeLiveSshSessionId = null;
 		}
 		void goto(resolve(`/sessions?${params.toString()}` as '/'));
@@ -391,8 +404,11 @@
 		pausedSessionKey = null;
 		reconnectNonce += 1;
 		const pane = activeWorkspaceLayout.panes.find((entry) => entry.id === paneId);
-		if (pane?.kind === 'ssh') liveSshAttach = null;
-		if (pane?.kind === 'ssh') liveSshError = null;
+		if (pane?.kind === 'ssh') {
+			liveSshAttach = null;
+			liveSshAttachPaneId = null;
+			liveSshError = null;
+		}
 	}
 
 	async function closePane(paneId: string) {
@@ -425,16 +441,19 @@
 		}
 	}
 
-	async function createPersistentSshTab() {
-		if (!selectedHost || liveSshBusy) return;
+	async function createPersistentSshTab(target: LiveSshLaunchTarget = {}) {
+		const host = target.host ?? selectedHost;
+		if (!host || liveSshBusy) return;
 		liveSshBusy = true;
 		liveSshError = null;
+		const targetPaneId = target.paneId ?? preferredLiveSshPaneId(host.id);
+		liveSshAttachPaneId = targetPaneId;
 
 		try {
-			const size = estimateWorkspaceTerminalSize(selectedHost);
+			const size = estimateWorkspaceTerminalSize(host);
 			const launch = await createLiveSshSession({
-				hostId: selectedHost.id,
-				title: selectedHost.name,
+				hostId: host.id,
+				title: host.name,
 				cols: size.cols,
 				rows: size.rows
 			});
@@ -448,7 +467,7 @@
 			liveSshError = {
 				action: 'create',
 				message: errorMessage(caught),
-				hostId: selectedHost.id,
+				hostId: host.id,
 				sessionId: null
 			};
 		} finally {
@@ -456,21 +475,26 @@
 		}
 	}
 
-	async function attachPersistentSshTab(session: LiveSshSessionSummary) {
+	async function attachPersistentSshTab(
+		session: LiveSshSessionSummary,
+		targetPaneId: string | null = null
+	) {
 		if (liveSshBusy) return;
 		liveSshBusy = true;
 		liveSshError = null;
 		activeLiveSshSessionId = session.id;
+		liveSshAttachPaneId = targetPaneId ?? preferredLiveSshPaneId(session.hostId);
 
 		if (selectedHost?.id !== session.hostId) {
 			const params = new SvelteURLSearchParams(page.url.searchParams);
 			params.set('host', session.hostId);
 			params.set('tab', 'ssh');
 			rememberProtocol(session.hostId, 'ssh');
-			void goto(resolve(`/sessions?${params.toString()}` as '/'), {
+			await goto(resolve(`/sessions?${params.toString()}` as '/'), {
 				keepFocus: true,
 				noScroll: true
 			});
+			liveSshAttachPaneId = targetPaneId ?? preferredLiveSshPaneId(session.hostId);
 		}
 
 		try {
@@ -518,9 +542,11 @@
 				dismissedLiveSshSessionIds = [...dismissedLiveSshSessionIds, session.id];
 				void listLiveSshSessions().refresh();
 			}
+
 			if (activeLiveSshSessionId === session.id) {
 				activeLiveSshSessionId = null;
 				liveSshAttach = null;
+				liveSshAttachPaneId = null;
 			}
 		} catch (caught) {
 			liveSshError = {
@@ -532,12 +558,13 @@
 		}
 	}
 
-	function handleLiveSshLaunch(launch: LiveSshAttach) {
+	function handleLiveSshLaunch(launch: LiveSshAttach, paneId: string | null = null) {
 		activeLiveSshSessionId = launch.session.id;
 		dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
 			(sessionId) => sessionId !== launch.session.id
 		);
 		liveSshAttach = launch;
+		liveSshAttachPaneId = paneId ?? preferredLiveSshPaneId(launch.session.hostId);
 		pausedSessionKey = null;
 	}
 
@@ -547,11 +574,11 @@
 	}
 
 	function handleLiveSshTerminalState(
-		state: 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected'
+		state: 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected',
+		paneId: string | null = null
 	) {
 		if (state === 'error' || state === 'disconnected') {
-			liveSshAttach = null;
-			activeLiveSshSessionId = null;
+			if (paneId && liveSshAttachPaneId && paneId !== liveSshAttachPaneId) return;
 			refreshLiveSshSessionsSoon();
 		}
 	}
@@ -560,6 +587,7 @@
 		liveSshAttach = null;
 		liveSshError = null;
 		activeLiveSshSessionId = null;
+		liveSshAttachPaneId = null;
 	}
 
 	function protocolForSelectedHost(host: HostSummary): WorkspaceProtocol {
@@ -600,6 +628,16 @@
 
 	function hostForPane(pane: { hostId: string | null }) {
 		return hosts.find((host) => host.id === pane.hostId) ?? selectedHost;
+	}
+
+	function preferredLiveSshPaneId(hostId: string) {
+		const matchingPane = activeWorkspaceLayout.panes.find((pane) => {
+			if (pane.kind !== 'ssh') return false;
+			return hostForPane(pane)?.id === hostId;
+		});
+		if (matchingPane) return matchingPane.id;
+
+		return activeWorkspaceLayout.panes.find((pane) => pane.kind === 'ssh')?.id ?? null;
 	}
 
 	function liveSshSessionsForHost(hostId: string) {
@@ -807,7 +845,7 @@
 				sessions={liveSshSessions}
 				activeSessionId={activeLiveSshSessionId}
 				busy={liveSshBusy}
-				onCreate={createPersistentSshTab}
+				onCreate={() => createPersistentSshTab()}
 				onAttach={attachPersistentSshTab}
 				onRename={renamePersistentSshTab}
 				onClose={closePersistentSshTab}
@@ -854,7 +892,7 @@
 					activeSessionId={activeLiveSshSessionId}
 					currentHostId={selectedHost.id}
 					busy={liveSshBusy}
-					onCreate={createPersistentSshTab}
+					onCreate={() => createPersistentSshTab({ host: selectedHost })}
 					onAttach={attachPersistentSshTab}
 					onRename={renamePersistentSshTab}
 					onClose={closePersistentSshTab}
@@ -900,20 +938,24 @@
 									{#if isHostKeyTrustFailure(paneLiveSshError)}
 										<SshHostKeyTrustPanel host={paneHost} onEnrolled={reconnect} />
 									{/if}
-									<Button size="sm" onclick={() => createPersistentSshTab()} disabled={liveSshBusy}>
+									<Button
+										size="sm"
+										onclick={() => createPersistentSshTab({ host: paneHost, paneId: pane.id })}
+										disabled={liveSshBusy}
+									>
 										<RotateCcw class="size-4" />
 										Retry SSH
 									</Button>
 									<Button size="sm" variant="outline" onclick={returnToLauncher}>Change host</Button
 									>
 								</StatePanel>
-							{:else if liveSshBusy}
+							{:else if liveSshBusy && liveSshAttachPaneId === pane.id}
 								<StatePanel
 									state="loading"
 									title="Opening SSH tab"
 									detail="Preparing attach ticket."
 								/>
-							{:else if liveSshAttach && liveSshAttach.session.hostId === paneHost.id}
+							{:else if liveSshAttach && liveSshAttachPaneId === pane.id && liveSshAttach.session.hostId === paneHost.id}
 								<SshHostKeyTrustPanel host={paneHost} onEnrolled={reconnect} />
 								{#key `ssh-live:${liveSshAttach.session.id}:${liveSshAttach.liveTicket}:${reconnectNonce}`}
 									<TerminalPane
@@ -926,7 +968,7 @@
 											appSettings.terminalFontSize
 										)}
 										preferences={paneHost.terminalPreferences}
-										onConnectionStateChange={handleLiveSshTerminalState}
+										onConnectionStateChange={(state) => handleLiveSshTerminalState(state, pane.id)}
 									/>
 								{/key}
 							{:else if isPanePaused(paneHost, pane.kind)}
@@ -947,7 +989,11 @@
 									title="SSH tab failed"
 									detail={liveSshSessionFailureDetail(failedSshSessions[0])}
 								>
-									<Button size="sm" onclick={() => createPersistentSshTab()} disabled={liveSshBusy}>
+									<Button
+										size="sm"
+										onclick={() => createPersistentSshTab({ host: paneHost, paneId: pane.id })}
+										disabled={liveSshBusy}
+									>
 										<RotateCcw class="size-4" />
 										Retry SSH
 									</Button>
@@ -972,7 +1018,7 @@
 								>
 									<Button
 										size="sm"
-										onclick={() => attachPersistentSshTab(attachableSshSessions[0])}
+										onclick={() => attachPersistentSshTab(attachableSshSessions[0], pane.id)}
 										disabled={liveSshBusy}
 									>
 										Attach tab
@@ -980,7 +1026,7 @@
 									<Button
 										size="sm"
 										variant="outline"
-										onclick={() => createPersistentSshTab()}
+										onclick={() => createPersistentSshTab({ host: paneHost, paneId: pane.id })}
 										disabled={liveSshBusy}
 									>
 										New SSH tab
@@ -992,7 +1038,11 @@
 									title="SSH tab ended"
 									detail="The previous SSH tab closed cleanly. Start a new tab or dismiss the ended tab."
 								>
-									<Button size="sm" onclick={() => createPersistentSshTab()} disabled={liveSshBusy}>
+									<Button
+										size="sm"
+										onclick={() => createPersistentSshTab({ host: paneHost, paneId: pane.id })}
+										disabled={liveSshBusy}
+									>
 										New SSH tab
 									</Button>
 									<Button
@@ -1013,8 +1063,8 @@
 											paneHost.terminalPreferences,
 											appSettings.terminalFontSize
 										)}
-										onLaunch={handleLiveSshLaunch}
-										onConnectionStateChange={handleLiveSshTerminalState}
+										onLaunch={(launch) => handleLiveSshLaunch(launch, pane.id)}
+										onConnectionStateChange={(state) => handleLiveSshTerminalState(state, pane.id)}
 									/>
 								{/key}
 							{/if}
