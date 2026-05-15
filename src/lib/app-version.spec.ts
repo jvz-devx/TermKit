@@ -5,19 +5,19 @@ describe('app build info', () => {
 	it('formats production build metadata from GitHub image inputs', () => {
 		expect(
 			createAppBuildInfo({
-				packageVersion: '1.2.3',
+				packageVersion: '1.2.3+1234567890ab',
 				commitSha: '1234567890abcdef',
 				shortCommitSha: '1234567890ab',
 				buildDate: '2026-05-15T12:00:00Z'
 			})
 		).toEqual({
 			name: 'TermixKit',
-			packageVersion: '1.2.3',
+			packageVersion: '1.2.3+1234567890ab',
 			commitSha: '1234567890abcdef',
 			shortCommitSha: '1234567890ab',
 			buildDate: '2026-05-15T12:00:00Z',
 			environment: 'production',
-			displayVersion: '1234567890ab (1.2.3)'
+			displayVersion: '1234567890ab (1.2.3+1234567890ab)'
 		});
 	});
 
@@ -27,7 +27,7 @@ describe('app build info', () => {
 			packageVersion: '1.2.3',
 			commitSha: 'dev',
 			shortCommitSha: 'dev',
-			buildDate: 'unknown',
+			buildDate: 'local development',
 			environment: 'development',
 			displayVersion: 'dev (1.2.3)'
 		});

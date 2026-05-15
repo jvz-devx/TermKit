@@ -18,7 +18,7 @@ type AppBuildInfoInput = {
 };
 
 export const appBuildInfo = createAppBuildInfo({
-	packageVersion: packageJson.version,
+	packageVersion: import.meta.env.PUBLIC_TERMIXKIT_PACKAGE_VERSION || packageJson.version,
 	commitSha: import.meta.env.PUBLIC_TERMIXKIT_COMMIT_SHA,
 	shortCommitSha: import.meta.env.PUBLIC_TERMIXKIT_SHORT_SHA,
 	buildDate: import.meta.env.PUBLIC_TERMIXKIT_BUILD_DATE
@@ -28,7 +28,7 @@ export function createAppBuildInfo(input: AppBuildInfoInput = {}): AppBuildInfo 
 	const packageVersion = clean(input.packageVersion) ?? '0.0.0';
 	const commitSha = clean(input.commitSha) ?? 'dev';
 	const shortCommitSha = clean(input.shortCommitSha) ?? deriveShortCommitSha(commitSha);
-	const buildDate = clean(input.buildDate) ?? 'unknown';
+	const buildDate = clean(input.buildDate) ?? 'local development';
 	const environment = commitSha === 'dev' ? 'development' : 'production';
 
 	return {
