@@ -1301,21 +1301,40 @@
 		{/if}
 	</div>
 
-	<div class="grid min-h-0 min-w-0 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_360px]">
-		<aside class="min-h-0 border-b p-2 lg:border-r lg:border-b-0">
+	<div
+		class={`grid min-h-0 min-w-0 grid-cols-1 transition-[grid-template-columns] ${
+			bookmarksOpen
+				? 'lg:grid-cols-[220px_minmax(0,1fr)_360px]'
+				: 'lg:grid-cols-[44px_minmax(0,1fr)_360px]'
+		}`}
+	>
+		<aside
+			class={`min-h-0 border-b p-2 transition-[padding] lg:border-r lg:border-b-0 ${
+				bookmarksOpen ? '' : 'lg:p-1'
+			}`}
+		>
 			<Collapsible.Root bind:open={bookmarksOpen}>
 				<Collapsible.Trigger
-					class="mb-2 flex h-7 w-full items-center justify-between rounded-md px-1 text-left text-xs font-medium text-muted-foreground outline-hidden hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+					class={`mb-2 flex h-7 w-full items-center rounded-md text-xs font-medium text-muted-foreground outline-hidden hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring ${
+						bookmarksOpen ? 'justify-between px-1 text-left' : 'justify-center px-0'
+					}`}
 					aria-label={`${bookmarksOpen ? 'Collapse' : 'Expand'} bookmarks`}
+					title={`${bookmarksOpen ? 'Collapse' : 'Expand'} bookmarks`}
 				>
-					<span class="flex min-w-0 items-center gap-1.5">
+					<span
+						class={`flex min-w-0 items-center ${
+							bookmarksOpen ? 'gap-1.5' : 'justify-center gap-1'
+						}`}
+					>
 						{#if bookmarksOpen}
 							<ChevronDown class="size-3.5 shrink-0" />
 						{:else}
 							<ChevronRight class="size-3.5 shrink-0" />
 						{/if}
-						<span>Bookmarks</span>
-						<span class="text-[11px] text-muted-foreground/75">({bookmarks.length})</span>
+						{#if bookmarksOpen}
+							<span>Bookmarks</span>
+							<span class="text-[11px] text-muted-foreground/75">({bookmarks.length})</span>
+						{/if}
 					</span>
 					<Bookmark class="size-3.5 shrink-0 text-muted-foreground" />
 				</Collapsible.Trigger>
@@ -1350,7 +1369,7 @@
 				</Collapsible.Content>
 			</Collapsible.Root>
 
-			{#if remoteSearchResults.length}
+			{#if bookmarksOpen && remoteSearchResults.length}
 				<div class="mt-4 border-t pt-3">
 					<div class="mb-2 text-xs font-medium text-muted-foreground">
 						Search results ({remoteSearchResults.length})
