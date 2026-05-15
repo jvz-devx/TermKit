@@ -626,11 +626,23 @@ describe('SshLiveSessionService', () => {
 	});
 
 	it('rejects expired attach tickets, leaves the ticket unused, and ends pending sessions', async () => {
-		expect.assertions(3);
+		expect.assertions(4);
 
 		const repository = new InMemoryTermixServicesRepository();
 		const hosts = new HostService(repository);
-		const service = new SshLiveSessionService(repository, hosts, repository);
+		const closedSessionIds: string[] = [];
+		let service: SshLiveSessionService;
+		service = new SshLiveSessionService(repository, hosts, repository, {
+			liveManager: {
+				close(id) {
+					closedSessionIds.push(id);
+					void service
+						.end('user-1', id, new Date('2026-05-13T12:00:02.000Z'))
+						.catch(() => undefined);
+					return true;
+				}
+			}
+		});
 		const host = await hosts.create('user-1', {
 			name: 'Shell',
 			protocol: 'ssh',
@@ -655,6 +667,7 @@ describe('SshLiveSessionService', () => {
 			status: 'ended',
 			endedAt: new Date('2026-05-13T12:00:01.000Z')
 		});
+		expect(closedSessionIds).toEqual([session.id]);
 	});
 
 	it('rejects attach tickets for sessions expired while detached', async () => {
@@ -687,6 +700,45 @@ describe('SshLiveSessionService', () => {
 			now: new Date('2026-05-13T12:00:02.000Z')
 		});
 		expect(reused.reused).toBe(false);
+	});
+
+	it('does not close the live manager when ending an expired session fails to persist', async () => {
+		expect.assertions(3);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const closedSessionIds: string[] = [];
+		const service = new SshLiveSessionService(repository, hosts, repository, {
+			detachedIdleTtlMs: 1_000,
+			liveManager: {
+				close(id) {
+					closedSessionIds.push(id);
+					return true;
+				}
+			}
+		});
+		const host = await hosts.create('user-1', {
+			name: 'Shell',
+			protocol: 'ssh',
+			hostname: 'shell.example.test',
+			port: 22
+		});
+		const { session } = await service.createOrReuse('user-1', { hostId: host.id });
+		await service.markDetached('user-1', session.id, new Date('2026-05-13T12:00:00.000Z'));
+
+		const updateSshLiveSession = repository.updateSshLiveSession.bind(repository);
+		repository.updateSshLiveSession = (userId, id, patch) => {
+			if (patch.status === 'ended') return Promise.resolve(null);
+			return updateSshLiveSession(userId, id, patch);
+		};
+
+		await expect(
+			service.createAttachTicket('user-1', session.id, new Date('2026-05-13T12:00:01.000Z'))
+		).rejects.toMatchObject({ issues: ['SSH live session expired while detached'] });
+		await expect(repository.getSshLiveSession('user-1', session.id)).resolves.toMatchObject({
+			status: 'detached'
+		});
+		expect(closedSessionIds).toEqual([]);
 	});
 
 	it('rejects attach tickets for sessions expired before attachment', async () => {
@@ -751,13 +803,20 @@ describe('SshLiveSessionService', () => {
 	});
 
 	it('expires detached and abandoned starting sessions during maintenance', async () => {
-		expect.assertions(5);
+		expect.assertions(6);
 
 		const repository = new InMemoryTermixServicesRepository();
 		const hosts = new HostService(repository);
+		const closedSessionIds: string[] = [];
 		const service = new SshLiveSessionService(repository, hosts, repository, {
 			attachTicketTtlMs: 1_000,
-			detachedIdleTtlMs: 1_000
+			detachedIdleTtlMs: 1_000,
+			liveManager: {
+				close(id) {
+					closedSessionIds.push(id);
+					return true;
+				}
+			}
 		});
 		const host = await hosts.create('user-1', {
 			name: 'Shell',
@@ -801,5 +860,6 @@ describe('SshLiveSessionService', () => {
 			status: 'ended'
 		});
 		await expect(repository.countOpenSshLiveSessions('user-1')).resolves.toBe(0);
+		expect(closedSessionIds.sort()).toEqual([abandoned.session.id, second.session.id].sort());
 	});
 });

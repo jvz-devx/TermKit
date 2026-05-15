@@ -1,4 +1,9 @@
-import { fleetBulkOperations } from '$lib/termix/fleet-contracts';
+import {
+	fleetBulkOperations,
+	formatFleetAttentionWarning,
+	formatFleetHighRiskWarning,
+	hasFleetCriticalTargetTag
+} from '$lib/termix/fleet-contracts';
 
 export type FleetHealthStatus = 'healthy' | 'degraded' | 'offline' | 'maintenance';
 export type FleetTargetStatus = 'healthy' | 'needs_attention' | 'offline' | 'not_checked';
@@ -24,6 +29,7 @@ export type FleetHost = {
 	id: string;
 	name: string;
 	hostname: string;
+	workspaceId: string | null;
 	workspace: string;
 	owner: string;
 	environment: 'production' | 'staging' | 'development';
@@ -43,6 +49,7 @@ export type FleetHost = {
 export type FleetAutomationTemplate = {
 	id: string;
 	name: string;
+	workspaceId: string | null;
 	category: string;
 	description: string;
 	risk: FleetRiskLevel;
@@ -87,17 +94,28 @@ export type FleetPolicy = {
 	impact: string;
 };
 
+export type FleetWorkspace = {
+	id: string;
+	name: string;
+};
+
 export type FleetRunbook = FleetAutomationTemplate;
 export type FleetTarget = FleetHost;
 export type FleetExecution = FleetJob;
 export type FleetApprovalRequest = FleetPolicy;
 
 export type FleetOverview = {
+	workspaces: FleetWorkspace[];
 	hosts: FleetHost[];
 	templates: FleetAutomationTemplate[];
 	bulkOperations: FleetBulkOperation[];
 	jobs: FleetJob[];
 	policies: FleetPolicy[];
+};
+
+export type FleetRunbooksData = {
+	workspaces: FleetWorkspace[];
+	templates: FleetAutomationTemplate[];
 };
 
 export type FleetHostFilters = {
@@ -129,12 +147,20 @@ export type FleetExecutionSubmitResult =
 	| { status: 'queued'; job: FleetJob; message: string }
 	| { status: 'approval_requested'; job?: null; message: string };
 
+const approvalWorkspaceTargetMessage =
+	'approval-required executions require every target to belong to a workspace';
+const approvalWorkspaceScopeMessage =
+	'approval-required executions must target one workspace at a time until approval requests can be created atomically.';
+const mixedExecutionScopeMessage =
+	'Select targets from one workspace or personal scope; mixed-scope executions are blocked until job history supports multiple scopes.';
+
 export const demoFleetOverview: FleetOverview = {
 	hosts: [
 		{
 			id: 'host-ams-api-01',
 			name: 'ams-api-01',
 			hostname: 'ams-api-01.internal',
+			workspaceId: 'workspace-platform',
 			workspace: 'Platform',
 			owner: 'SRE',
 			environment: 'production',
@@ -153,6 +179,7 @@ export const demoFleetOverview: FleetOverview = {
 			id: 'host-ams-db-01',
 			name: 'ams-db-01',
 			hostname: 'ams-db-01.internal',
+			workspaceId: 'workspace-platform',
 			workspace: 'Platform',
 			owner: 'Database',
 			environment: 'production',
@@ -171,6 +198,7 @@ export const demoFleetOverview: FleetOverview = {
 			id: 'host-fra-rdp-07',
 			name: 'fra-rdp-07',
 			hostname: 'fra-rdp-07.corp',
+			workspaceId: 'workspace-support',
 			workspace: 'Support',
 			owner: 'Helpdesk',
 			environment: 'production',
@@ -189,6 +217,7 @@ export const demoFleetOverview: FleetOverview = {
 			id: 'host-nyc-build-02',
 			name: 'nyc-build-02',
 			hostname: 'nyc-build-02.internal',
+			workspaceId: 'workspace-engineering',
 			workspace: 'Engineering',
 			owner: 'Developer Experience',
 			environment: 'development',
@@ -207,6 +236,7 @@ export const demoFleetOverview: FleetOverview = {
 			id: 'host-sfo-edge-03',
 			name: 'sfo-edge-03',
 			hostname: 'sfo-edge-03.edge',
+			workspaceId: 'workspace-network',
 			workspace: 'Network',
 			owner: 'NetOps',
 			environment: 'production',
@@ -225,6 +255,7 @@ export const demoFleetOverview: FleetOverview = {
 			id: 'host-lon-stage-04',
 			name: 'lon-stage-04',
 			hostname: 'lon-stage-04.internal',
+			workspaceId: 'workspace-product',
 			workspace: 'Product',
 			owner: 'Release',
 			environment: 'staging',
@@ -244,6 +275,7 @@ export const demoFleetOverview: FleetOverview = {
 		{
 			id: 'template-patch-linux',
 			name: 'Linux patch window',
+			workspaceId: 'workspace-platform',
 			category: 'Maintenance',
 			description:
 				'Apply package updates, restart affected services, and capture post-check evidence.',
@@ -256,6 +288,7 @@ export const demoFleetOverview: FleetOverview = {
 		{
 			id: 'template-cert-rotate',
 			name: 'Certificate rotation',
+			workspaceId: 'workspace-platform',
 			category: 'Security',
 			description:
 				'Distribute renewed certificates and verify listeners before replacing the active bundle.',
@@ -268,6 +301,7 @@ export const demoFleetOverview: FleetOverview = {
 		{
 			id: 'template-inventory-sync',
 			name: 'Inventory sync',
+			workspaceId: null,
 			category: 'Discovery',
 			description: 'Refresh OS, protocol, tag, and workspace metadata from reachable hosts.',
 			risk: 'low',
@@ -276,6 +310,13 @@ export const demoFleetOverview: FleetOverview = {
 			lastRun: '23 minutes ago',
 			parameters: ['probe depth', 'tag overwrite mode']
 		}
+	],
+	workspaces: [
+		{ id: 'workspace-engineering', name: 'Engineering' },
+		{ id: 'workspace-network', name: 'Network' },
+		{ id: 'workspace-platform', name: 'Platform' },
+		{ id: 'workspace-product', name: 'Product' },
+		{ id: 'workspace-support', name: 'Support' }
 	],
 	bulkOperations: fleetBulkOperations,
 	jobs: [
@@ -289,7 +330,7 @@ export const demoFleetOverview: FleetOverview = {
 			successful: 82,
 			failed: 2,
 			requestedBy: 'jens',
-			reportUrl: '/fleet/reports/job-1842'
+			reportUrl: '/fleet/executions/job-1842'
 		},
 		{
 			id: 'job-1841',
@@ -301,7 +342,7 @@ export const demoFleetOverview: FleetOverview = {
 			successful: 8,
 			failed: 0,
 			requestedBy: 'ops-admin',
-			reportUrl: '/fleet/reports/job-1841'
+			reportUrl: '/fleet/executions/job-1841'
 		},
 		{
 			id: 'job-1840',
@@ -313,7 +354,7 @@ export const demoFleetOverview: FleetOverview = {
 			successful: 0,
 			failed: 0,
 			requestedBy: 'security',
-			reportUrl: '/fleet/reports/job-1840'
+			reportUrl: '/fleet/executions/job-1840'
 		}
 	],
 	policies: [
@@ -390,12 +431,14 @@ export function buildBulkOperationReview(
 	runbook: FleetAutomationTemplate | null | undefined,
 	targets: FleetHost[]
 ): FleetTargetReview {
-	const highRiskTargets = targets.filter((host) => host.riskScore >= 70).length;
-	const offlineTargets = targets.filter((host) => explainFleetTargetHealth(host).status === 'offline').length;
+	const highRiskTargets = targets.filter((host) => hasFleetCriticalTargetTag(host.tags)).length;
+	const offlineTargets = targets.filter(
+		(host) => explainFleetTargetHealth(host).status === 'offline'
+	).length;
 	const attentionTargets = targets.filter(
 		(host) => explainFleetTargetHealth(host).status === 'needs_attention'
 	).length;
-	const approvalRequired = Boolean(operation?.approvalRequired || runbook?.approvalRequired || highRiskTargets > 0);
+	const approvalRequired = Boolean(operation?.approvalRequired || runbook?.approvalRequired);
 	const blockers: string[] = [];
 	const warnings: string[] = [];
 
@@ -403,8 +446,17 @@ export function buildBulkOperationReview(
 	if (!operation) blockers.push('Choose an operation.');
 	if (!targets.length) blockers.push('Select at least one target.');
 	if (offlineTargets > 0) blockers.push('Remove offline targets before running.');
-	if (attentionTargets > 0) warnings.push(`${attentionTargets} selected target(s) need attention.`);
-	if (highRiskTargets > 0) warnings.push(`${highRiskTargets} selected target(s) are high risk.`);
+	if (approvalRequired && targets.some((host) => !host.workspaceId)) {
+		blockers.push(approvalWorkspaceTargetMessage);
+	}
+	if (approvalRequired && targetWorkspaceIds(targets).length > 1) {
+		blockers.push(approvalWorkspaceScopeMessage);
+	}
+	if (!approvalRequired && hasMixedFleetScopes(targets)) {
+		blockers.push(mixedExecutionScopeMessage);
+	}
+	if (attentionTargets > 0) warnings.push(formatFleetAttentionWarning(attentionTargets));
+	if (highRiskTargets > 0) warnings.push(formatFleetHighRiskWarning(highRiskTargets));
 
 	return {
 		targetCount: targets.length,
@@ -416,6 +468,19 @@ export function buildBulkOperationReview(
 		blockers,
 		warnings
 	};
+}
+
+function targetWorkspaceIds(targets: FleetHost[]): string[] {
+	return [
+		...new Set(targets.map((host) => host.workspaceId).filter((id): id is string => Boolean(id)))
+	];
+}
+
+function hasMixedFleetScopes(targets: FleetHost[]): boolean {
+	const scopes = new Set(
+		targets.map((host) => (host.workspaceId ? `workspace:${host.workspaceId}` : 'personal'))
+	);
+	return scopes.size > 1;
 }
 
 export function explainFleetTargetHealth(host: FleetHost): FleetTargetHealthSummary {

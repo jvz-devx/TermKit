@@ -18,6 +18,20 @@ export type VisibleFleetBulkOperation = Omit<
 	'jobKind' | 'jobTitle' | 'policyCapability' | 'secretPolicy'
 >;
 
+export const fleetCriticalTargetTag = 'critical';
+
+export function hasFleetCriticalTargetTag(tags: readonly string[]) {
+	return tags.includes(fleetCriticalTargetTag);
+}
+
+export function formatFleetAttentionWarning(count: number) {
+	return `${count} selected target(s) need attention.`;
+}
+
+export function formatFleetHighRiskWarning(count: number) {
+	return `${count} selected target(s) are high risk.`;
+}
+
 export const fleetBulkOperationContracts = [
 	{
 		id: 'bulk-ssh-command',

@@ -27,6 +27,7 @@
 		onSelectRunbook,
 		onSelectOperation,
 		onPreflight,
+		onPayloadChange,
 		onQueueOperation
 	}: {
 		runbooks: FleetAutomationTemplate[];
@@ -45,6 +46,7 @@
 			reason: string;
 			concurrencyLimit: number;
 		}) => Promise<void>;
+		onPayloadChange?: () => void;
 		onQueueOperation: (input: {
 			operationId: string;
 			templateId: string;
@@ -66,6 +68,10 @@
 	let reviewing = $state(false);
 	let error = $state<string | null>(null);
 	let message = $state<string | null>(null);
+	const executionReview = $derived(preflight ?? review);
+	const canReviewExecution = $derived(
+		Boolean(selectedOperation && selectedRunbook && targets.length > 0)
+	);
 
 	function payload() {
 		if (!selectedOperation || !selectedRunbook) return null;
@@ -76,6 +82,10 @@
 			reason,
 			concurrencyLimit
 		};
+	}
+
+	function payloadChanged() {
+		onPayloadChange?.();
 	}
 
 	async function reviewExecution() {
@@ -94,6 +104,7 @@
 	}
 
 	async function queueOperation() {
+		if (reviewing) return;
 		const input = payload();
 		if (!input) return;
 		busy = true;
@@ -116,7 +127,9 @@
 			<ClipboardCheck class="size-4" />
 			New execution
 		</Card.Title>
-		<Card.Description>Choose the runbook, operation, and exact targets before anything runs.</Card.Description>
+		<Card.Description
+			>Choose the runbook, operation, and exact targets before anything runs.</Card.Description
+		>
 	</Card.Header>
 	<Card.Content class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_340px]">
 		<div class="space-y-3">
@@ -138,7 +151,9 @@
 						</Badge>
 					</div>
 					<div class="mt-3 text-xs text-muted-foreground">
-						{runbook.category} · {runbook.approvalRequired ? 'Approval required' : 'Operator runnable'}
+						{runbook.category} · {runbook.approvalRequired
+							? 'Approval required'
+							: 'Operator runnable'}
 					</div>
 				</button>
 			{/each}
@@ -179,21 +194,21 @@
 						{selectedRunbook?.name ?? 'No runbook'} · {selectedOperation?.name ?? 'No operation'}
 					</div>
 				</div>
-				<Badge variant={review.canRun ? 'outline' : 'destructive'}>
-					{review.canRun ? 'Ready' : 'Blocked'}
+				<Badge variant={executionReview.canRun ? 'outline' : 'destructive'}>
+					{executionReview.canRun ? 'Ready' : 'Blocked'}
 				</Badge>
 			</div>
 			<div class="mt-4 grid grid-cols-3 gap-2 text-center">
 				<div class="rounded-md border bg-background p-2">
-					<div class="text-lg font-semibold">{review.targetCount}</div>
+					<div class="text-lg font-semibold">{executionReview.targetCount}</div>
 					<div class="text-[11px] text-muted-foreground">Targets</div>
 				</div>
 				<div class="rounded-md border bg-background p-2">
-					<div class="text-lg font-semibold">{review.highRiskTargets}</div>
+					<div class="text-lg font-semibold">{executionReview.highRiskTargets}</div>
 					<div class="text-[11px] text-muted-foreground">High risk</div>
 				</div>
 				<div class="rounded-md border bg-background p-2">
-					<div class="text-lg font-semibold">{review.offlineTargets}</div>
+					<div class="text-lg font-semibold">{executionReview.offlineTargets}</div>
 					<div class="text-[11px] text-muted-foreground">Offline</div>
 				</div>
 			</div>
@@ -202,7 +217,7 @@
 
 			<div class="space-y-2">
 				<div class="flex items-center gap-2 text-sm">
-					{#if review.approvalRequired}
+					{#if executionReview.approvalRequired}
 						<ShieldAlert class="size-4 text-amber-600" />
 						Approval required before execution
 					{:else}
@@ -216,13 +231,13 @@
 						<span>{guardrail}</span>
 					</div>
 				{/each}
-				{#each review.blockers as blocker (blocker)}
+				{#each executionReview.blockers as blocker (blocker)}
 					<div class="flex gap-2 text-xs text-destructive">
 						<AlertTriangle class="mt-0.5 size-3.5" />
 						<span>{blocker}</span>
 					</div>
 				{/each}
-				{#each review.warnings as warning (warning)}
+				{#each executionReview.warnings as warning (warning)}
 					<div class="flex gap-2 text-xs text-amber-700">
 						<AlertTriangle class="mt-0.5 size-3.5" />
 						<span>{warning}</span>
@@ -250,7 +265,12 @@
 			</div>
 			<div class="mt-3 grid gap-2">
 				<Label class="text-xs" for="fleet-bulk-reason">Reason</Label>
-				<Input id="fleet-bulk-reason" class="h-8 text-xs" bind:value={reason} />
+				<Input
+					id="fleet-bulk-reason"
+					class="h-8 text-xs"
+					bind:value={reason}
+					oninput={payloadChanged}
+				/>
 				<Label class="text-xs" for="fleet-bulk-concurrency">Concurrency</Label>
 				<Input
 					id="fleet-bulk-concurrency"
@@ -259,6 +279,7 @@
 					min="1"
 					max="10"
 					bind:value={concurrencyLimit}
+					oninput={payloadChanged}
 				/>
 				{#if error}
 					<p class="text-xs text-destructive">{error}</p>
@@ -270,13 +291,22 @@
 		</div>
 	</Card.Content>
 	<Card.Footer class="justify-end gap-2 border-t pt-4">
-		<Button size="sm" variant="outline" disabled={!review.canRun || reviewing} onclick={reviewExecution}>
+		<Button
+			size="sm"
+			variant="outline"
+			disabled={!canReviewExecution || reviewing}
+			onclick={reviewExecution}
+		>
 			<ClipboardCheck class="size-4" />
 			{reviewing ? 'Reviewing...' : 'Review policy'}
 		</Button>
-		<Button size="sm" disabled={!review.canRun || busy} onclick={queueOperation}>
+		<Button
+			size="sm"
+			disabled={!canReviewExecution || !executionReview.canRun || reviewing || busy}
+			onclick={queueOperation}
+		>
 			<Play class="size-4" />
-			{busy ? 'Submitting...' : preflight?.ctaLabel ?? review.ctaLabel}
+			{busy ? 'Submitting...' : executionReview.ctaLabel}
 		</Button>
 	</Card.Footer>
 </Card.Root>

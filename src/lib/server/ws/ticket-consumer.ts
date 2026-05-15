@@ -116,6 +116,7 @@ export class LiveSshAttachTicketConsumer {
 				consumed.sshLiveSessionId,
 				consumedAt
 			);
+			const sessionStatus = liveAttachableStatus(session.status);
 			const host = await this.hosts.get(consumed.userId, session.hostId);
 			const credential = await resolveCredential(
 				consumed.userId,
@@ -129,6 +130,7 @@ export class LiveSshAttachTicketConsumer {
 				userId: consumed.userId,
 				sshLiveSessionId: consumed.sshLiveSessionId,
 				consumedAt,
+				sessionStatus,
 				session: {
 					ticketId: consumed.sshLiveSessionId,
 					userId: consumed.userId,
@@ -166,6 +168,11 @@ export class LiveSshAttachTicketConsumer {
 			throw error;
 		}
 	}
+}
+
+function liveAttachableStatus(status: string): 'starting' | 'attached' | 'detached' {
+	if (status === 'starting' || status === 'attached' || status === 'detached') return status;
+	throw new TicketInvalidError();
 }
 
 export function createSessionTicketConsumer(): TicketConsumer {

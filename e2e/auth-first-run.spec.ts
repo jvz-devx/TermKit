@@ -82,38 +82,36 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(protocolFilters.getByRole('button', { name: 'Telnet' })).toBeVisible();
 
 		await expandSidebarGroup(page, 'Fleet operations');
-		await page.getByRole('link', { name: 'Fleet console' }).click();
+		await page.getByRole('link', { name: 'Overview' }).click();
 		await expect(page).toHaveURL(/\/fleet$/);
-		await expect(page.getByRole('heading', { name: 'Fleet operations' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Fleet overview' })).toBeVisible();
 		await expect(page.getByText('remote functions', { exact: true })).toBeVisible();
-		await expect(page.getByRole('tab', { name: 'Operations' })).toBeVisible();
-		await expect(page.getByRole('tab', { name: 'Inventory' })).toBeVisible();
-		await expect(page.getByRole('tab', { name: 'Reports' })).toBeVisible();
-		await expect(page.getByRole('tab', { name: 'Policies' })).toBeVisible();
-		const operationsPanel = page.getByRole('tabpanel', { name: 'Operations' });
-		await expect(operationsPanel.getByText('Bulk operations', { exact: true })).toBeVisible();
-		await expect(operationsPanel.getByText('No targets selected.', { exact: true })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Runbooks', exact: true })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Targets', exact: true })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Executions', exact: true })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Approvals', exact: true })).toBeVisible();
+
+		await page.getByRole('link', { name: 'New execution' }).click();
+		await expect(page).toHaveURL(/\/fleet\/executions\/new$/);
+		await expect(page.getByRole('heading', { name: 'New execution' })).toBeVisible();
+		await expect(page.getByText('1. Runbook', { exact: true })).toBeVisible();
+		await expect(page.getByText('2. Operation', { exact: true })).toBeVisible();
+		await expect(page.getByText('No targets selected.', { exact: true })).toBeVisible();
+		await expect(page.getByText('Select at least one target.', { exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Queue execution' })).toBeDisabled();
+		await expect(page.getByRole('heading', { name: 'Targets' })).toBeVisible();
 		await expect(
-			operationsPanel.getByText('Select at least one target.', { exact: true })
-		).toBeVisible();
-		await expect(operationsPanel.getByRole('button', { name: 'Queue operation' })).toBeDisabled();
-		await expect(
-			operationsPanel.getByRole('heading', { name: 'Host health and inventory' })
-		).toBeVisible();
-		await expect(
-			operationsPanel.getByText('3 of 3 hosts match the current review.', { exact: true })
+			page.getByText('3 of 3 targets match the current filters.', { exact: true })
 		).toBeVisible();
 		for (const host of seededHosts) {
-			await expect(operationsPanel.getByText(host.name, { exact: true })).toBeVisible();
+			await expect(page.getByText(host.name, { exact: true })).toBeVisible();
 		}
-		await operationsPanel
-			.getByPlaceholder('Search host, owner, tag, OS')
-			.fill('missing-fleet-host');
+		await page.getByPlaceholder('Search host, owner, tag, OS').fill('missing-fleet-host');
 		await expect(
-			operationsPanel.getByText('0 of 3 hosts match the current review.', { exact: true })
+			page.getByText('0 of 3 targets match the current filters.', { exact: true })
 		).toBeVisible();
 		await expect(
-			operationsPanel.getByText('No hosts match these filters.', { exact: true })
+			page.getByText('No hosts match these filters.', { exact: true })
 		).toBeVisible();
 
 		await expandSidebarGroup(page, 'Administration');

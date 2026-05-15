@@ -1,21 +1,24 @@
 <script lang="ts">
 	import { createFleetAutomationTemplate, getFleetRunbooks } from '$lib/fleet.remote';
 	import AutomationTemplatesPanel from './AutomationTemplatesPanel.svelte';
-	import type { FleetAutomationTemplate } from './fleet-data';
 
-	let { runbooks }: { runbooks: FleetAutomationTemplate[] } = $props();
+	const runbooksQuery = getFleetRunbooks();
 
 	let selectedRunbookId = $state('');
+	let runbooks = $derived(runbooksQuery.current?.templates ?? []);
+	let workspaces = $derived(runbooksQuery.current?.workspaces ?? []);
 
 	async function createRunbook(input: {
 		name: string;
 		kind: string;
 		visibility: string;
+		workspaceId: string | null;
 		body: string;
 		variables: string;
 		dangerous: boolean;
 	}) {
-		await createFleetAutomationTemplate(input).updates(getFleetRunbooks);
+		const created = await createFleetAutomationTemplate(input).updates(getFleetRunbooks);
+		selectedRunbookId = created.id;
 	}
 </script>
 
@@ -32,6 +35,7 @@
 	</div>
 	<AutomationTemplatesPanel
 		templates={runbooks}
+		{workspaces}
 		selectedTemplateId={selectedRunbookId}
 		onSelectTemplate={(runbookId) => (selectedRunbookId = runbookId)}
 		onCreateTemplate={createRunbook}

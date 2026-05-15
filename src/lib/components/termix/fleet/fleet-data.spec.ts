@@ -48,6 +48,124 @@ describe('fleet operations helpers', () => {
 		expect(review.blockers).toContain('Remove offline targets before running.');
 	});
 
+	it('blocks approval-required mixed workspace and personal target reviews', () => {
+		const operation = demoFleetOverview.bulkOperations.find(
+			(candidate) => candidate.id === 'bulk-file-transfer'
+		);
+		const runbook = demoFleetOverview.templates[0];
+		const workspaceHost = demoFleetOverview.hosts[0];
+		const personalHost = {
+			...demoFleetOverview.hosts[5],
+			id: 'host-personal',
+			workspaceId: null,
+			workspace: 'Personal'
+		};
+
+		const review = buildBulkOperationReview(operation, runbook, [workspaceHost, personalHost]);
+
+		expect(review).toMatchObject({
+			approvalRequired: true,
+			canRun: false
+		});
+		expect(review.blockers).toContain(
+			'approval-required executions require every target to belong to a workspace'
+		);
+	});
+
+	it('blocks approval-required target reviews spanning multiple workspaces', () => {
+		const operation = demoFleetOverview.bulkOperations.find(
+			(candidate) => candidate.id === 'bulk-file-transfer'
+		);
+		const runbook = demoFleetOverview.templates[0];
+		const platformHost = demoFleetOverview.hosts[0];
+		const supportHost = demoFleetOverview.hosts[2];
+
+		const review = buildBulkOperationReview(operation, runbook, [platformHost, supportHost]);
+
+		expect(review).toMatchObject({
+			approvalRequired: true,
+			canRun: false
+		});
+		expect(review.blockers).toContain(
+			'approval-required executions must target one workspace at a time until approval requests can be created atomically.'
+		);
+	});
+
+	it('blocks non-approval mixed workspace and personal target reviews', () => {
+		const operation = demoFleetOverview.bulkOperations.find(
+			(candidate) => candidate.id === 'bulk-ssh-command'
+		);
+		const runbook = demoFleetOverview.templates.find(
+			(candidate) => candidate.id === 'template-inventory-sync'
+		);
+		const workspaceHost = demoFleetOverview.hosts[3];
+		const personalHost = {
+			...demoFleetOverview.hosts[5],
+			id: 'host-personal',
+			workspaceId: null,
+			workspace: 'Personal',
+			riskScore: 12
+		};
+
+		const review = buildBulkOperationReview(operation, runbook, [workspaceHost, personalHost]);
+
+		expect(review).toMatchObject({
+			approvalRequired: false,
+			canRun: false
+		});
+		expect(review.blockers).toContain(
+			'Select targets from one workspace or personal scope; mixed-scope executions are blocked until job history supports multiple scopes.'
+		);
+	});
+
+	it('keeps high-risk non-approval operations runnable with a warning', () => {
+		const operation = demoFleetOverview.bulkOperations.find(
+			(candidate) => candidate.id === 'bulk-ssh-command'
+		);
+		const runbook = demoFleetOverview.templates.find(
+			(candidate) => candidate.id === 'template-inventory-sync'
+		);
+		const highRiskTarget = {
+			...demoFleetOverview.hosts[0],
+			id: 'host-high-risk',
+			riskScore: 12,
+			tags: ['critical']
+		};
+
+		const review = buildBulkOperationReview(operation, runbook, [highRiskTarget]);
+
+		expect(review).toMatchObject({
+			highRiskTargets: 1,
+			approvalRequired: false,
+			canRun: true
+		});
+		expect(review.blockers).toEqual([]);
+		expect(review.warnings).toContain('1 selected target(s) are high risk.');
+	});
+
+	it('uses critical tags rather than riskScore for high-risk warning parity', () => {
+		const operation = demoFleetOverview.bulkOperations.find(
+			(candidate) => candidate.id === 'bulk-ssh-command'
+		);
+		const runbook = demoFleetOverview.templates.find(
+			(candidate) => candidate.id === 'template-inventory-sync'
+		);
+		const scoredTarget = {
+			...demoFleetOverview.hosts[0],
+			id: 'host-score-only',
+			riskScore: 95,
+			tags: ['production']
+		};
+
+		const review = buildBulkOperationReview(operation, runbook, [scoredTarget]);
+
+		expect(review).toMatchObject({
+			highRiskTargets: 0,
+			canRun: true
+		});
+		expect(review.warnings).not.toContain('1 selected target(s) are high risk.');
+	});
+
 	it('labels fleet status and risk values without leaking enum casing into rendering helpers', () => {
 		expect(
 			(['healthy', 'degraded', 'offline', 'maintenance'] as const).map(fleetStatusLabel)

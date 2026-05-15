@@ -71,6 +71,7 @@ describe('LiveSshManager', () => {
 			ticketId: 'attach-ticket-1',
 			userId: 'user-1',
 			sshLiveSessionId: 'live-session-1',
+			sessionStatus: 'starting',
 			session: testTicket({ ticketId: 'consumed-ticket-1' }),
 			terminalCols: 132,
 			terminalRows: 43
@@ -82,6 +83,55 @@ describe('LiveSshManager', () => {
 		expect(result.sessionId).toBe('live-session-1');
 		expect(manager.get('live-session-1')).toBeDefined();
 		expect(harness.client.shellOptions).toMatchObject({ cols: 132, rows: 43 });
+	});
+
+	it('bootstraps a detached attach ticket when the manager session is missing', () => {
+		const createClient = vi.fn(() => new FakeSshClient());
+		const manager = new LiveSshManager({ createClient });
+		const socket = new FakeWebSocket();
+		const attachTicket: SshAttachTicket = {
+			ticketId: 'attach-ticket-1',
+			userId: 'user-1',
+			sshLiveSessionId: 'live-session-1',
+			sessionStatus: 'detached',
+			session: testTicket({ ticketId: 'consumed-ticket-1' }),
+			terminalCols: 132,
+			terminalRows: 43
+		};
+
+		const result = manager.handle(socket as unknown as WebSocket, attachTicket);
+
+		expect(result.sessionId).toBe('live-session-1');
+		expect(manager.get('live-session-1')).toBeDefined();
+		expect(createClient).toHaveBeenCalledTimes(1);
+	});
+
+	it('reattaches a detached attach ticket only when the manager still has the session', () => {
+		const harness = createHarness();
+		const manager = new LiveSshManager({ createClient: harness.createClient });
+		const firstSocket = new FakeWebSocket();
+		const secondSocket = new FakeWebSocket();
+		const attachTicket: SshAttachTicket = {
+			ticketId: 'attach-ticket-1',
+			userId: 'user-1',
+			sshLiveSessionId: 'live-session-1',
+			sessionStatus: 'starting',
+			session: testTicket({ ticketId: 'consumed-ticket-1' }),
+			terminalCols: 132,
+			terminalRows: 43
+		};
+
+		manager.handle(firstSocket as unknown as WebSocket, attachTicket);
+		firstSocket.emitClose();
+
+		const result = manager.handle(secondSocket as unknown as WebSocket, {
+			...attachTicket,
+			ticketId: 'attach-ticket-2',
+			sessionStatus: 'detached'
+		});
+
+		expect(result.sessionId).toBe('live-session-1');
+		expect(harness.client.connectConfig).toBeDefined();
 	});
 
 	it('keeps the ssh shell alive across websocket detach and replays bounded scrollback', () => {

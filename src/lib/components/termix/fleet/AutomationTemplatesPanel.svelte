@@ -9,22 +9,25 @@
 	import * as Select from '$lib/components/ui/select';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Clock3, Plus, ShieldCheck, Workflow } from '@lucide/svelte';
-	import type { FleetAutomationTemplate } from './fleet-data';
+	import type { FleetAutomationTemplate, FleetWorkspace } from './fleet-data';
 	import { fleetRiskLabel } from './fleet-data';
 
 	let {
 		templates,
+		workspaces = [],
 		selectedTemplateId,
 		onSelectTemplate,
 		onCreateTemplate
 	}: {
 		templates: FleetAutomationTemplate[];
+		workspaces?: FleetWorkspace[];
 		selectedTemplateId: string;
 		onSelectTemplate: (templateId: string) => void;
 		onCreateTemplate: (input: {
 			name: string;
 			kind: string;
 			visibility: string;
+			workspaceId: string | null;
 			body: string;
 			variables: string;
 			dangerous: boolean;
@@ -35,13 +38,72 @@
 	let createName = $state('');
 	let createKind = $state('ssh_command');
 	let createVisibility = $state('private');
+	let createWorkspaceId = $state('');
 	let createVariables = $state('target, reason');
 	let createBody = $state('Run {{target}} for {{reason}}');
 	let createDangerous = $state(false);
 	let createBusy = $state(false);
 	let createError = $state<string | null>(null);
+	let autoSelectedWorkspaceId = $state<string | null>(null);
+	let workspaceCreateBlocked = $derived(
+		createVisibility === 'workspace' && workspaces.length === 0
+	);
+	let selectedWorkspace = $derived(
+		workspaces.find((workspace) => workspace.id === createWorkspaceId) ?? null
+	);
+	let workspaceSelectionMissing = $derived(createVisibility === 'workspace' && !selectedWorkspace);
+	let createDisabled = $derived(createBusy || workspaceCreateBlocked || workspaceSelectionMissing);
+
+	$effect(() => {
+		if (createVisibility !== 'workspace') {
+			autoSelectedWorkspaceId = null;
+			return;
+		}
+
+		if (workspaces.length === 1) {
+			const workspaceId = workspaces[0]?.id ?? '';
+			if (workspaceId && createWorkspaceId !== workspaceId) {
+				createWorkspaceId = workspaceId;
+				autoSelectedWorkspaceId = workspaceId;
+			}
+			return;
+		}
+
+		if (autoSelectedWorkspaceId && createWorkspaceId === autoSelectedWorkspaceId) {
+			createWorkspaceId = '';
+		}
+		autoSelectedWorkspaceId = null;
+	});
+
+	function changeVisibility(value: string) {
+		createVisibility = value;
+		if (value === 'workspace' && workspaces.length === 1) {
+			createWorkspaceId = workspaces[0]?.id ?? '';
+			autoSelectedWorkspaceId = createWorkspaceId || null;
+			return;
+		}
+		createWorkspaceId = '';
+		autoSelectedWorkspaceId = null;
+	}
+
+	function changeWorkspace(workspaceId: string) {
+		createWorkspaceId = workspaceId;
+		autoSelectedWorkspaceId = null;
+	}
+
+	function createWorkspaceInput() {
+		return createVisibility === 'workspace' ? (selectedWorkspace?.id ?? null) : null;
+	}
 
 	async function submitCreate() {
+		if (workspaceCreateBlocked) {
+			createError = 'Create a workspace before saving a workspace runbook.';
+			return;
+		}
+		if (workspaceSelectionMissing) {
+			createError = 'Choose a workspace before saving this runbook.';
+			return;
+		}
 		createBusy = true;
 		createError = null;
 		try {
@@ -49,6 +111,7 @@
 				name: createName,
 				kind: createKind,
 				visibility: createVisibility,
+				workspaceId: createWorkspaceInput(),
 				body: createBody,
 				variables: createVariables,
 				dangerous: createDangerous
@@ -57,6 +120,7 @@
 			createName = '';
 			createKind = 'ssh_command';
 			createVisibility = 'private';
+			createWorkspaceId = '';
 			createVariables = 'target, reason';
 			createBody = 'Run {{target}} for {{reason}}';
 			createDangerous = false;
@@ -150,17 +214,39 @@
 						</div>
 						<div class="grid gap-2">
 							<Label for="fleet-template-visibility">Visibility</Label>
-							<Select.Root type="single" bind:value={createVisibility}>
+							<Select.Root type="single" value={createVisibility} onValueChange={changeVisibility}>
 								<Select.Trigger id="fleet-template-visibility" class="w-full">
 									{createVisibility}
 								</Select.Trigger>
 								<Select.Content>
 									<Select.Item value="private">Private</Select.Item>
-									<Select.Item value="workspace">Workspace</Select.Item>
+									<Select.Item value="workspace" disabled={workspaces.length === 0}
+										>Workspace</Select.Item
+									>
 								</Select.Content>
 							</Select.Root>
 						</div>
 					</div>
+					{#if createVisibility === 'workspace'}
+						<div class="grid gap-2">
+							<Label for="fleet-template-workspace">Workspace</Label>
+							<Select.Root type="single" value={createWorkspaceId} onValueChange={changeWorkspace}>
+								<Select.Trigger id="fleet-template-workspace" class="w-full">
+									{selectedWorkspace?.name ?? 'Choose workspace'}
+								</Select.Trigger>
+								<Select.Content>
+									{#each workspaces as workspace (workspace.id)}
+										<Select.Item value={workspace.id}>{workspace.name}</Select.Item>
+									{/each}
+								</Select.Content>
+							</Select.Root>
+							{#if workspaceSelectionMissing}
+								<p class="text-xs text-destructive">
+									Choose a workspace before creating this runbook.
+								</p>
+							{/if}
+						</div>
+					{/if}
 					<div class="grid gap-2">
 						<Label for="fleet-template-variables">Variables</Label>
 						<Input id="fleet-template-variables" bind:value={createVariables} />
@@ -180,7 +266,7 @@
 						<Button type="button" variant="outline" onclick={() => (createOpen = false)}>
 							Cancel
 						</Button>
-						<Button type="submit" disabled={createBusy}>
+						<Button type="submit" disabled={createDisabled}>
 							{createBusy ? 'Creating...' : 'Create runbook'}
 						</Button>
 					</Dialog.Footer>

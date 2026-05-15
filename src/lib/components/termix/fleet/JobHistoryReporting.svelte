@@ -69,7 +69,7 @@
 										href={job.reportUrl}
 										size="icon"
 										variant="ghost"
-										aria-label={`Open report for ${job.name}`}
+										aria-label={`Open execution details for ${job.name}`}
 									>
 										<FileText class="size-4" />
 									</Button>

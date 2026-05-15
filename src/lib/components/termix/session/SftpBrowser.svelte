@@ -53,6 +53,7 @@
 		joinPath,
 		normalizePath,
 		normalizeTarget,
+		orderedRemoteEntriesForDelete,
 		parentPath,
 		selectedEntries,
 		selectionSummary,
@@ -155,8 +156,12 @@
 	let visibleEntries = $derived(filterRemoteEntries(entries, searchQuery));
 	let selectedEntryList = $derived(selectedEntries(entries, selectedPaths));
 	let selection = $derived(selectionSummary(visibleEntries, selectedPaths));
-	let selectedDirectoryCount = $derived(
-		selectedEntryList.filter((entry) => entry.type === 'directory').length
+	let activeSelectionEntries = $derived(
+		selectedEntryList.length ? selectedEntryList : selected ? [selected] : []
+	);
+	let selectedDeleteEntries = $derived(orderedRemoteEntriesForDelete(activeSelectionEntries));
+	let selectedDeleteDirectoryCount = $derived(
+		selectedDeleteEntries.filter((entry) => entry.type === 'directory').length
 	);
 	let selectedTotalBytes = $derived(
 		selectedEntryList.reduce((total, entry) => total + (entry.type === 'file' ? entry.size : 0), 0)
@@ -387,7 +392,9 @@
 
 	async function renameSelected() {
 		if (!selectedEntryList.length || !renamePath.trim()) return;
-		const entriesToMove = selectedEntryList.length ? selectedEntryList : selected ? [selected] : [];
+		const entriesToMove = minimalRemoteEntries(
+			selectedEntryList.length ? selectedEntryList : selected ? [selected] : []
+		);
 		if (!entriesToMove.length) return;
 		await moveEntries(entriesToMove, renamePath.trim());
 	}
@@ -445,17 +452,20 @@
 	}
 
 	function requestDeleteSelected() {
-		if (!selectedEntryList.length && selected) selectedPaths = [selected.path];
-		if (!selectedEntryList.length && !selected) return;
+		const selectedPathSnapshot = [...selectedPaths];
+		const selectedSnapshot = selected;
+		const explicitEntries = selectedEntries(entries, selectedPathSnapshot);
+		const entriesToDelete = orderedRemoteEntriesForDelete(
+			explicitEntries.length ? explicitEntries : selectedSnapshot ? [selectedSnapshot] : []
+		);
+
+		if (!entriesToDelete.length) return;
+		if (!selectedPathSnapshot.length && selectedSnapshot) selectedPaths = [selectedSnapshot.path];
 		deleteDialogOpen = true;
 	}
 
 	async function deleteSelected() {
-		const entriesToDelete = selectedEntryList.length
-			? selectedEntryList
-			: selected
-				? [selected]
-				: [];
+		const entriesToDelete = selectedDeleteEntries;
 		if (!entriesToDelete.length) return;
 		transferCancelled = false;
 		error = null;
@@ -504,11 +514,9 @@
 	}
 
 	async function downloadSelected() {
-		const entriesToDownload = selectedEntryList.length
-			? selectedEntryList
-			: selected
-				? [selected]
-				: [];
+		const entriesToDownload = minimalRemoteEntries(
+			selectedEntryList.length ? selectedEntryList : selected ? [selected] : []
+		);
 		if (!entriesToDownload.length) return;
 		const directories = entriesToDownload.filter((entry) => entry.type === 'directory');
 		const files = entriesToDownload.filter(isDownloadableFile);
@@ -519,13 +527,14 @@
 			return;
 		}
 
-		await downloadFiles(files);
+		await downloadFiles(uniqueRemoteEntries(files));
 	}
 
 	async function downloadRecursive(entriesToDownload: RemoteEntry[]) {
+		const uniqueEntriesToDownload = minimalRemoteEntries(entriesToDownload);
 		transferCancelled = false;
 		error = null;
-		lastRetry = () => downloadRecursive(entriesToDownload);
+		lastRetry = () => downloadRecursive(uniqueEntriesToDownload);
 		transfer = createTransferProgress({
 			kind: 'download',
 			label: 'Preparing recursive download',
@@ -533,10 +542,11 @@
 		});
 
 		try {
-			const files = entriesToDownload.filter(isDownloadableFile);
-			const queue = entriesToDownload
+			const files = uniqueRemoteEntries(uniqueEntriesToDownload.filter(isDownloadableFile));
+			const queue = uniqueEntriesToDownload
 				.filter((entry) => entry.type === 'directory')
-				.map((entry) => entry.path);
+				.map((entry) => normalizePath(entry.path));
+			const queuedDirectories = [...queue];
 			let scanned = 0;
 
 			while (queue.length) {
@@ -551,9 +561,14 @@
 				const children = await listDirectory(directory);
 				for (const child of children) {
 					scanned += 1;
-					if (child.type === 'directory') queue.push(child.path);
+					const childPath = normalizePath(child.path);
+					if (child.type === 'directory' && !queuedDirectories.includes(childPath)) {
+						queuedDirectories.push(childPath);
+						queue.push(childPath);
+					}
 					if (isDownloadableFile(child)) files.push(child);
-					if (files.length > fileTransferLimits.recursiveMaxFiles) {
+					const uniqueFileCount = uniqueRemoteEntries(files).length;
+					if (uniqueFileCount > fileTransferLimits.recursiveMaxFiles) {
 						throw new Error(
 							`Recursive download is limited to ${fileTransferLimits.recursiveMaxFiles} files`
 						);
@@ -567,7 +582,21 @@
 				}
 			}
 
-			await downloadFiles(files);
+			const uniqueFiles = uniqueRemoteEntries(files);
+			if (!uniqueFiles.length) {
+				if (transfer) {
+					transfer = updateTransferProgress(transfer, {
+						completedItems: 0,
+						currentName: null,
+						status: 'complete',
+						totalItems: 0
+					});
+				}
+				lastRetry = null;
+				return;
+			}
+
+			await downloadFiles(uniqueFiles);
 			lastRetry = null;
 		} catch (caught) {
 			if (isAbortError(caught)) {
@@ -580,11 +609,12 @@
 	}
 
 	async function downloadFiles(files: RemoteEntry[]) {
-		if (!files.length) return;
+		const uniqueFiles = uniqueRemoteEntries(files);
+		if (!uniqueFiles.length) return;
 		transferCancelled = false;
 		error = null;
-		lastRetry = () => downloadFiles(files);
-		const totalBytes = files.reduce((total, entry) => total + Math.max(0, entry.size), 0);
+		lastRetry = () => downloadFiles(uniqueFiles);
+		const totalBytes = uniqueFiles.reduce((total, entry) => total + Math.max(0, entry.size), 0);
 		let completedBytes = 0;
 		let completedItems = 0;
 		const controller = new AbortController();
@@ -594,13 +624,13 @@
 		};
 		transfer = createTransferProgress({
 			kind: 'download',
-			label: `Downloading ${files.length} file${files.length === 1 ? '' : 's'}`,
+			label: `Downloading ${uniqueFiles.length} file${uniqueFiles.length === 1 ? '' : 's'}`,
 			totalBytes,
-			totalItems: files.length
+			totalItems: uniqueFiles.length
 		});
 
 		try {
-			for (const entry of files) {
+			for (const entry of uniqueFiles) {
 				assertTransferActive();
 				transfer = updateTransferProgress(transfer, {
 					completedBytes,
@@ -630,7 +660,7 @@
 			}
 			transfer = updateTransferProgress(transfer, {
 				completedBytes: totalBytes || completedBytes,
-				completedItems: files.length,
+				completedItems: uniqueFiles.length,
 				currentName: null,
 				status: 'complete'
 			});
@@ -645,6 +675,46 @@
 		} finally {
 			activeAbort = null;
 		}
+	}
+
+	function minimalRemoteEntries(entriesToCollapse: RemoteEntry[]): RemoteEntry[] {
+		const uniqueEntries = uniqueRemoteEntries(entriesToCollapse).sort((left, right) => {
+			const leftPath = normalizePath(left.path);
+			const rightPath = normalizePath(right.path);
+			if (leftPath === rightPath) return 0;
+			return leftPath.localeCompare(rightPath);
+		});
+		const keptDirectories: string[] = [];
+		const minimal: RemoteEntry[] = [];
+
+		for (const entry of uniqueEntries) {
+			const normalized = normalizePath(entry.path);
+			if (keptDirectories.some((directory) => isDescendantPath(normalized, directory))) continue;
+			minimal.push(entry);
+			if (entry.type === 'directory') keptDirectories.push(normalized);
+		}
+
+		return minimal;
+	}
+
+	function uniqueRemoteEntries(entriesToDedupe: RemoteEntry[]): RemoteEntry[] {
+		const seen: string[] = [];
+		const unique: RemoteEntry[] = [];
+
+		for (const entry of entriesToDedupe) {
+			const normalized = normalizePath(entry.path);
+			if (seen.includes(normalized)) continue;
+			seen.push(normalized);
+			unique.push(entry);
+		}
+
+		return unique;
+	}
+
+	function isDescendantPath(pathToCheck: string, ancestorPath: string): boolean {
+		const pathWithSlash = `${normalizePath(pathToCheck)}/`;
+		const ancestorWithSlash = `${normalizePath(ancestorPath).replace(/\/$/, '')}/`;
+		return pathWithSlash.startsWith(ancestorWithSlash) && pathWithSlash !== ancestorWithSlash;
 	}
 
 	async function fetchDownloadBlob(
@@ -1601,11 +1671,11 @@
 			<AlertDialog.Header>
 				<AlertDialog.Title>Delete remote paths?</AlertDialog.Title>
 				<AlertDialog.Description>
-					This permanently deletes {selectedEntryList.length || 1} selected path{(selectedEntryList.length ||
-						1) === 1
+					This permanently deletes {selectedDeleteEntries.length} selected path{selectedDeleteEntries.length ===
+					1
 						? ''
 						: 's'} from the remote host.
-					{#if selectedDirectoryCount}
+					{#if selectedDeleteDirectoryCount}
 						Directory removal uses the remote server empty-directory operation; non-empty
 						directories may fail.
 					{/if}

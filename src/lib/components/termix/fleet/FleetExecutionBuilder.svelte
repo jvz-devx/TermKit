@@ -27,6 +27,7 @@
 	let workspaceFilter = $state('all');
 	let regionFilter = $state('all');
 	let patchFilter = $state<FleetHostFilters['patchState']>('all');
+	let preflightRequestToken = 0;
 
 	const selectedRunbook = $derived(
 		overview.templates.find((template) => template.id === selectedRunbookId) ?? null
@@ -37,7 +38,9 @@
 	const selectedHosts = $derived(
 		overview.hosts.filter((host) => selectedHostIds.includes(host.id))
 	);
-	const review = $derived(buildBulkOperationReview(selectedOperation, selectedRunbook, selectedHosts));
+	const review = $derived(
+		buildBulkOperationReview(selectedOperation, selectedRunbook, selectedHosts)
+	);
 	const filters = $derived<FleetHostFilters>({
 		search,
 		status: statusFilter,
@@ -50,7 +53,23 @@
 	const regions = $derived(uniqueFleetValues(overview.hosts.map((host) => host.region)));
 
 	function clearPreflight() {
+		preflightRequestToken += 1;
 		preflight = null;
+	}
+
+	async function reviewPreflight(input: {
+		operationId: string;
+		templateId: string;
+		targetHostIds: string[];
+		reason: string;
+		concurrencyLimit: number;
+	}) {
+		const requestToken = preflightRequestToken + 1;
+		preflightRequestToken = requestToken;
+		const result = await preflightFleetExecution(input);
+		if (requestToken === preflightRequestToken) {
+			preflight = result;
+		}
 	}
 
 	function toggleHost(hostId: string) {
@@ -99,9 +118,8 @@
 		{preflight}
 		onSelectRunbook={(runbookId) => ((selectedRunbookId = runbookId), clearPreflight())}
 		onSelectOperation={(operationId) => ((selectedOperationId = operationId), clearPreflight())}
-		onPreflight={async (input) => {
-			preflight = await preflightFleetExecution(input);
-		}}
+		onPreflight={reviewPreflight}
+		onPayloadChange={clearPreflight}
 		onQueueOperation={async (input) => queueFleetBulkOperation(input).updates(getFleetOverview)}
 	/>
 	<HostHealthInventoryPanel

@@ -19,6 +19,7 @@ import {
 	joinPath,
 	normalizeTarget,
 	normalizePath,
+	orderedRemoteEntriesForDelete,
 	selectedEntries,
 	selectionSummary,
 	setVisibleSelection,
@@ -87,6 +88,35 @@ describe('file manager state helpers', () => {
 		]);
 		expect(setVisibleSelection(selected, entries.slice(0, 2), false)).toEqual(['/outside']);
 		expect(selectedEntries(entries, ['/var/logs/deploy.log', '/missing'])).toEqual([entries[1]]);
+	});
+
+	it('orders selected remote deletes from deepest path to ancestor without collapsing descendants', () => {
+		const ordered = orderedRemoteEntriesForDelete([
+			entries[0],
+			entries[1],
+			{ ...entries[1], path: '/var/logs/./deploy.log' },
+			{
+				name: 'archive',
+				path: '/var/logs/archive',
+				type: 'directory',
+				size: 0,
+				mtime: null
+			},
+			{
+				name: 'old.log',
+				path: '/var/logs/archive/old.log',
+				type: 'file',
+				size: 512,
+				mtime: null
+			}
+		]);
+
+		expect(ordered.map((entry) => normalizePath(entry.path))).toEqual([
+			'/var/logs/archive/old.log',
+			'/var/logs/archive',
+			'/var/logs/deploy.log',
+			'/var/logs'
+		]);
 	});
 
 	it('keeps file listing predicates and labels stable for protocol adapters', () => {

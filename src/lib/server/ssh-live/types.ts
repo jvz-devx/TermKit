@@ -5,6 +5,7 @@ export type SshAttachTicket = {
 	userId: string;
 	sshLiveSessionId: string;
 	consumedAt?: Date;
+	sessionStatus: 'starting' | 'attached' | 'detached';
 	session: ConsumedTicket;
 	terminalCols: number;
 	terminalRows: number;

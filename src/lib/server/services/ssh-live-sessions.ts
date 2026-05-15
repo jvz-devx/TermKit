@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { liveSshManager } from '$lib/server/ssh-live/manager';
 import { hashToken } from './crypto';
 import {
 	ServiceNotFoundError,
@@ -29,6 +30,11 @@ export interface SshLiveSessionServiceOptions {
 	detachedIdleTtlMs?: number;
 	maxLiveSessionsPerUser?: number;
 	terminalStatusVisibleMs?: number;
+	liveManager?: SshLiveSessionManagerLifecycle;
+}
+
+export interface SshLiveSessionManagerLifecycle {
+	close(id: string): boolean;
 }
 
 export interface CreateOrReuseSshLiveSessionInput {
@@ -61,6 +67,7 @@ export class SshLiveSessionService {
 	private readonly detachedIdleTtlMs: number;
 	private readonly maxLiveSessionsPerUser: number;
 	private readonly terminalStatusVisibleMs: number;
+	private readonly liveManager: SshLiveSessionManagerLifecycle | null;
 	private readonly createQueues = new Map<string, Promise<void>>();
 
 	constructor(
@@ -74,6 +81,7 @@ export class SshLiveSessionService {
 		this.maxLiveSessionsPerUser = options.maxLiveSessionsPerUser ?? defaultMaxLiveSessionsPerUser;
 		this.terminalStatusVisibleMs =
 			options.terminalStatusVisibleMs ?? defaultTerminalStatusVisibleMs;
+		this.liveManager = options.liveManager === undefined ? liveSshManager : options.liveManager;
 	}
 
 	list(userId: string): Promise<SshLiveSessionRecord[]> {
@@ -360,8 +368,12 @@ export class SshLiveSessionService {
 		return this.repository.markStaleSshLiveSessions(now);
 	}
 
-	expireIdleDetachedSessions(now = new Date()): Promise<SshLiveSessionRecord[]> {
-		return this.repository.markExpiredDetachedSshLiveSessions(now);
+	async expireIdleDetachedSessions(now = new Date()): Promise<SshLiveSessionRecord[]> {
+		const expired = await this.repository.markExpiredDetachedSshLiveSessions(now);
+		for (const session of expired) {
+			this.liveManager?.close(session.id);
+		}
+		return expired;
 	}
 
 	private async getSshHostForUser(userId: string, hostId: string): Promise<HostRecord> {
@@ -410,12 +422,13 @@ export class SshLiveSessionService {
 		session: SshLiveSessionRecord,
 		now: Date
 	): Promise<void> {
-		await this.repository.updateSshLiveSession(userId, session.id, {
+		const updated = await this.repository.updateSshLiveSession(userId, session.id, {
 			status: 'ended',
 			endedAt: now,
 			expiresAt: null,
 			updatedAt: now
 		});
+		if (updated) this.liveManager?.close(session.id);
 	}
 }
 

@@ -2015,6 +2015,7 @@ function baseSshAttachTicket() {
 		ticketId: 'attach-ticket-1',
 		userId: 'user-1',
 		sshLiveSessionId: 'ssh-live-session-1',
+		sessionStatus: 'starting' as const,
 		session: {
 			...baseConsumedTicket(),
 			ticketId: 'ssh-live-session-1'

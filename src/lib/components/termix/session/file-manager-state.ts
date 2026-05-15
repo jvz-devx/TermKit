@@ -261,6 +261,28 @@ export function selectedEntries(entries: RemoteEntry[], selectedPaths: string[])
 	return entries.filter((entry) => selected.has(entry.path));
 }
 
+export function orderedRemoteEntriesForDelete(entries: RemoteEntry[]): RemoteEntry[] {
+	const uniqueByPath = new Map<string, RemoteEntry>();
+
+	for (const entry of entries) {
+		const normalized = normalizePath(entry.path);
+		if (!uniqueByPath.has(normalized)) uniqueByPath.set(normalized, entry);
+	}
+
+	return [...uniqueByPath.values()].sort((left, right) => {
+		const leftPath = normalizePath(left.path);
+		const rightPath = normalizePath(right.path);
+		const leftDepth = remotePathDepth(leftPath);
+		const rightDepth = remotePathDepth(rightPath);
+		if (leftDepth !== rightDepth) return rightDepth - leftDepth;
+		return leftPath.localeCompare(rightPath);
+	});
+}
+
+function remotePathDepth(path: string): number {
+	return normalizePath(path).split('/').filter(Boolean).length;
+}
+
 export function createTransferProgress(input: {
 	kind: TransferProgress['kind'];
 	label: string;

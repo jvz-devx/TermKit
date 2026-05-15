@@ -129,10 +129,16 @@ export class LiveSshManager {
 			...attachTicket.session,
 			ticketId: attachTicket.sshLiveSessionId
 		};
-		const session = this.startWithSize(sessionTicket, {
-			cols: attachTicket.terminalCols,
-			rows: attachTicket.terminalRows
-		});
+		const existing = this.sessions.get(attachTicket.sshLiveSessionId);
+		const session =
+			existing && existing.status !== 'closed'
+				? existing
+				: attachTicket.sessionStatus === 'starting' || attachTicket.sessionStatus === 'detached'
+					? this.startWithSize(sessionTicket, {
+							cols: attachTicket.terminalCols,
+							rows: attachTicket.terminalRows
+						})
+					: this.getOpenSession(attachTicket.sshLiveSessionId);
 		return session.attach(socket);
 	}
 
