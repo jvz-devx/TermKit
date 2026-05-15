@@ -14,11 +14,14 @@ import {
 import type {
 	FleetApprovalStatus,
 	FleetAutomationTemplate,
+	FleetExecutionPreflight,
+	FleetExecutionSubmitResult,
 	FleetHealthStatus,
 	FleetHost,
 	FleetJob,
 	FleetJobStatus,
-	FleetOverview
+	FleetOverview,
+	FleetTargetHealthSummary
 } from '$lib/components/termix/fleet/fleet-data';
 import type { HostRecord, WorkspaceRecord } from '$lib/server/services/types';
 import type {
@@ -49,13 +52,22 @@ export type QueueFleetBulkOperationInput = {
 	concurrencyLimit?: unknown;
 };
 
+export type PreflightFleetExecutionInput = QueueFleetBulkOperationInput;
+
 export type DecideFleetApprovalInput = {
 	approvalId?: unknown;
 	status?: unknown;
 	reason?: unknown;
 };
 
-export const getFleetOverview = query(async (): Promise<FleetOverview> => {
+export const getFleetOverview = query(loadFleetOverview);
+
+export const getFleetRunbooks = query(async () => (await loadFleetOverview()).templates);
+export const getFleetTargets = query(async () => (await loadFleetOverview()).hosts);
+export const getFleetExecutions = query(async () => (await loadFleetOverview()).jobs);
+export const getFleetApprovals = query(async () => (await loadFleetOverview()).policies);
+
+async function loadFleetOverview(): Promise<FleetOverview> {
 	const user = requireRemoteUser();
 	const [hosts, workspaces] = await Promise.all([
 		hostService.list(user.id),
@@ -102,7 +114,7 @@ export const getFleetOverview = query(async (): Promise<FleetOverview> => {
 			impact: approval.reason ?? 'No reason provided'
 		}))
 	};
-});
+}
 
 export const createFleetAutomationTemplate = command<
 	CreateFleetAutomationTemplateInput,
@@ -133,15 +145,54 @@ export const createFleetAutomationTemplate = command<
 		isDangerous: input.dangerous === true,
 		metadata: { source: 'fleet-ui' }
 	});
-	void getFleetOverview().refresh();
+	refreshFleetQueries();
 	return toFleetTemplate(template);
 });
 
-export const queueFleetBulkOperation = command<QueueFleetBulkOperationInput, FleetJob>(
+export const preflightFleetExecution = command<
+	PreflightFleetExecutionInput,
+	FleetExecutionPreflight
+>('unchecked', async (input) => {
+	const { operation, operationId, templateId, targetHostIds, targetHosts, policy } =
+		await prepareExecutionReview(input);
+	const highRiskTargets = targetHosts.filter((host) => host.tags.includes('critical')).length;
+	const health = await v6ResourcesService.listHostHealth(targetHostIds);
+	const healthByHost = new Map(health.map((record) => [record.hostId, record]));
+	const offlineTargets = targetHosts.filter((host) => {
+		const state = healthByHost.get(host.id)?.state;
+		return state === 'unreachable' || state === 'auth_failed';
+	}).length;
+	const blockers: string[] = [];
+	const warnings: string[] = [];
+
+	if (offlineTargets > 0) blockers.push('Remove offline targets before running.');
+	if (highRiskTargets > 0) warnings.push(`${highRiskTargets} selected target(s) are high risk.`);
+	if (policy.blockedReason) blockers.push(policy.blockedReason);
+
+	return {
+		runbookId: templateId,
+		operationId,
+		targetHostIds,
+		targetCount: targetHostIds.length,
+		highRiskTargets,
+		offlineTargets,
+		approvalRequired: policy.approvalRequired || operation.approvalRequired,
+		canRun: blockers.length === 0,
+		ctaLabel: policy.approvalRequired || operation.approvalRequired ? 'Submit for approval' : 'Queue execution',
+		blockers,
+		warnings
+	};
+});
+
+export const queueFleetBulkOperation = command<
+	QueueFleetBulkOperationInput,
+	FleetExecutionSubmitResult
+>(
 	'unchecked',
 	async (input) => {
 		const user = requireRemoteUser();
-		const operationId = asTrimmedString(input.operationId) ?? 'bulk-ssh-command';
+		const operationId = requireId(input.operationId, 'operationId');
+		const templateId = requireId(input.templateId, 'templateId');
 		const operation = resolveFleetBulkOperationContract(operationId);
 		if (!operation) {
 			throw new ServiceValidationError(['operationId must be a supported fleet bulk operation']);
@@ -154,20 +205,39 @@ export const queueFleetBulkOperation = command<QueueFleetBulkOperationInput, Fle
 			throw new ServiceValidationError(['targetHostIds must only include visible hosts']);
 		}
 		const targetHosts = visibleHosts.filter((host) => targetHostIds.includes(host.id));
-		await enforceBulkJobPolicies(user.id, targetHosts, {
-			reason: asTrimmedString(input.reason),
-			operationId
-		});
+		const policy = await evaluateBulkJobPolicies(
+			user.id,
+			targetHosts,
+			{
+				reason: asTrimmedString(input.reason),
+				operationId
+			},
+			{ recordReason: true }
+		);
+		if (policy.blockedReason) {
+			throw new ServiceValidationError([policy.blockedReason]);
+		}
+		if (policy.approvalRequired || operation.approvalRequired) {
+			await requestBulkJobApprovals(user.id, targetHosts, {
+				reason: asTrimmedString(input.reason),
+				operationId
+			});
+			refreshFleetQueries();
+			return {
+				status: 'approval_requested',
+				message: 'Approval request submitted before this execution can run.'
+			};
+		}
 
 		const result = await v6ResourcesService.createBackgroundJob(user.id, {
 			workspaceId: targetHosts[0]?.workspaceId ?? null,
-			templateId: asTrimmedString(input.templateId),
+			templateId,
 			templateVersion: 1,
 			kind: operation.jobKind,
 			title: operation.jobTitle,
 			request: {
 				operationId,
-				templateId: asTrimmedString(input.templateId),
+				templateId,
 				reviewedHostIds: targetHostIds,
 				secretPolicy: operation.secretPolicy
 			},
@@ -175,8 +245,12 @@ export const queueFleetBulkOperation = command<QueueFleetBulkOperationInput, Fle
 			concurrencyLimit: normalizeConcurrency(input.concurrencyLimit),
 			reason: asTrimmedString(input.reason) ?? 'Reviewed from fleet operations'
 		});
-		void getFleetOverview().refresh();
-		return toFleetJob(result.job);
+			refreshFleetQueries();
+		return {
+			status: 'queued',
+			job: toFleetJob(result.job),
+			message: 'Execution queued.'
+		};
 	}
 );
 
@@ -195,9 +269,17 @@ export const decideFleetApproval = command<DecideFleetApprovalInput, void>(
 			status,
 			asTrimmedString(input.reason) ?? `${status} from fleet operations`
 		);
-		void getFleetOverview().refresh();
+	refreshFleetQueries();
 	}
 );
+
+function refreshFleetQueries() {
+	void getFleetOverview().refresh();
+	void getFleetRunbooks().refresh();
+	void getFleetTargets().refresh();
+	void getFleetExecutions().refresh();
+	void getFleetApprovals().refresh();
+}
 
 function requireRemoteUser(): { id: string; username: string } {
 	const user = getRequestEvent().locals.user;
@@ -236,15 +318,48 @@ function toFleetHost(
 		lastSeenMinutes: minutesSince(health?.checkedAt),
 		patchState: status === 'healthy' ? 'current' : status === 'offline' ? 'overdue' : 'due',
 		protocols: [host.protocol, ...(host.protocol === 'ssh' ? ['sftp'] : [])],
-		tags: host.tags
-	};
+			tags: host.tags,
+			health: toFleetTargetHealth(health)
+		};
+	}
+	
+async function prepareExecutionReview(input: PreflightFleetExecutionInput): Promise<{
+	operation: NonNullable<ReturnType<typeof resolveFleetBulkOperationContract>>;
+	operationId: string;
+	templateId: string;
+	targetHostIds: string[];
+	targetHosts: HostRecord[];
+	policy: { approvalRequired: boolean; blockedReason: string | null };
+}> {
+	const user = requireRemoteUser();
+	const operationId = requireId(input.operationId, 'operationId');
+	const templateId = requireId(input.templateId, 'templateId');
+	const operation = resolveFleetBulkOperationContract(operationId);
+	if (!operation) {
+		throw new ServiceValidationError(['operationId must be a supported fleet bulk operation']);
+	}
+	const targetHostIds = requireTargetHostIds(input.targetHostIds);
+	const visibleHosts = await hostService.list(user.id);
+	const visibleHostIds = new Set(visibleHosts.map((host) => host.id));
+	const hiddenHostIds = targetHostIds.filter((hostId) => !visibleHostIds.has(hostId));
+	if (hiddenHostIds.length > 0) {
+		throw new ServiceValidationError(['targetHostIds must only include visible hosts']);
+	}
+	const targetHosts = visibleHosts.filter((host) => targetHostIds.includes(host.id));
+	const policy = await evaluateBulkJobPolicies(user.id, targetHosts, {
+		reason: asTrimmedString(input.reason),
+		operationId
+	});
+	return { operation, operationId, templateId, targetHostIds, targetHosts, policy };
 }
 
-async function enforceBulkJobPolicies(
+async function evaluateBulkJobPolicies(
 	userId: string,
 	targetHosts: HostRecord[],
-	input: { reason: string | null; operationId: string }
-): Promise<void> {
+	input: { reason: string | null; operationId: string },
+	options: { recordReason?: boolean } = {}
+): Promise<{ approvalRequired: boolean; blockedReason: string | null }> {
+	let approvalRequired = false;
 	const workspaceIds = [
 		...new Set(
 			targetHosts.map((host) => host.workspaceId).filter((id): id is string => Boolean(id))
@@ -261,17 +376,16 @@ async function enforceBulkJobPolicies(
 			reason: input.reason
 		});
 		if (decision.approvalRequired) {
-			await v6ResourcesService.requestApproval(userId, {
-				workspaceId,
-				capability: 'bulk_job',
-				reason: input.reason ?? `${input.operationId} requires approval`
-			});
-			throw new ServiceValidationError(['bulk job approval is required']);
+			approvalRequired = true;
+			continue;
 		}
 		if (!decision.allowed) {
-			throw new ServiceValidationError([decision.blockedReason ?? 'bulk job is blocked by policy']);
+			return {
+				approvalRequired,
+				blockedReason: decision.blockedReason ?? 'bulk job is blocked by policy'
+			};
 		}
-		if (input.reason) {
+		if (options.recordReason && input.reason) {
 			await v6ResourcesService.recordOperationReason(userId, {
 				workspaceId,
 				capability: 'bulk_job',
@@ -279,13 +393,113 @@ async function enforceBulkJobPolicies(
 			});
 		}
 	}
-	if (workspaceIds.length === 0 && input.reason) {
+	if (options.recordReason && workspaceIds.length === 0 && input.reason) {
 		await v6ResourcesService.recordOperationReason(userId, {
 			workspaceId: null,
 			capability: 'bulk_job',
 			reason: input.reason
 		});
 	}
+	return { approvalRequired, blockedReason: null };
+}
+
+async function requestBulkJobApprovals(
+	userId: string,
+	targetHosts: HostRecord[],
+	input: { reason: string | null; operationId: string }
+) {
+	const workspaceIds = [
+		...new Set(
+			targetHosts.map((host) => host.workspaceId).filter((id): id is string => Boolean(id))
+		)
+	];
+	if (workspaceIds.length === 0) {
+		throw new ServiceValidationError(['approval-required executions need a workspace target']);
+	}
+	await Promise.all(
+		workspaceIds.map((workspaceId) =>
+			v6ResourcesService.requestApproval(userId, {
+				workspaceId,
+				capability: 'bulk_job',
+				reason: input.reason ?? `${input.operationId} requires approval`
+			})
+		)
+	);
+}
+
+function toFleetTargetHealth(health: HostHealthRecord | undefined): FleetTargetHealthSummary {
+	if (!health) {
+		return {
+			status: 'not_checked',
+			label: 'Not checked',
+			reason: 'No health check has been recorded for this target.',
+			sourceState: 'missing',
+			lastCheckedAt: null,
+			nextCheckAt: null,
+			lastSuccessfulConnectionAt: null,
+			lastFailedConnectionAt: null,
+			consecutiveFailures: 0,
+			credentialSignal: 'unknown',
+			reachabilitySignal: 'unknown'
+		};
+	}
+	const lastCheckedAt = health.checkedAt?.toISOString() ?? null;
+	const base = {
+		sourceState: health.state,
+		lastCheckedAt,
+		nextCheckAt: health.nextCheckAt?.toISOString() ?? null,
+		lastSuccessfulConnectionAt: health.lastSuccessfulConnectionAt?.toISOString() ?? null,
+		lastFailedConnectionAt: health.lastFailedConnectionAt?.toISOString() ?? null,
+		consecutiveFailures: health.consecutiveFailures ?? 0
+	};
+	if (health.state === 'healthy') {
+		return {
+			...base,
+			status: 'healthy',
+			label: 'Healthy',
+			reason: 'Recent successful activity and no blocking health signals.',
+			credentialSignal: 'ok',
+			reachabilitySignal: 'reachable'
+		};
+	}
+	if (health.state === 'unreachable') {
+		return {
+			...base,
+			status: 'offline',
+			label: 'Offline',
+			reason: health.failureReason ?? 'The target could not be reached during the last check.',
+			credentialSignal: 'unknown',
+			reachabilitySignal: 'unreachable'
+		};
+	}
+	if (health.state === 'auth_failed') {
+		return {
+			...base,
+			status: 'offline',
+			label: 'Credential failed',
+			reason: health.failureReason ?? 'The assigned credential failed during the last check.',
+			credentialSignal: 'failed',
+			reachabilitySignal: 'reachable'
+		};
+	}
+	if (health.state === 'never_used' || health.state === 'unknown') {
+		return {
+			...base,
+			status: 'not_checked',
+			label: 'Not checked',
+			reason: 'No successful connection or reliable health check has been recorded yet.',
+			credentialSignal: 'unknown',
+			reachabilitySignal: 'unknown'
+		};
+	}
+	return {
+		...base,
+		status: 'needs_attention',
+		label: health.state === 'stale' ? 'Stale check' : 'Needs attention',
+		reason: health.failureReason ?? 'The latest health signal needs operator review.',
+		credentialSignal: 'unknown',
+		reachabilitySignal: 'unknown'
+	};
 }
 
 function toBuiltInFleetTemplate(
@@ -332,7 +546,7 @@ function toFleetJob(job: BackgroundJobRecord): FleetJob {
 		successful: job.completedCount,
 		failed: job.failedCount,
 		requestedBy: job.userId,
-		reportUrl: `/fleet/reports/${job.id}`
+		reportUrl: `/fleet/executions/${job.id}`
 	};
 }
 

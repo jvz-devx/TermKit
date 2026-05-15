@@ -30,13 +30,14 @@ describe('fleet operations helpers', () => {
 
 	it('blocks bulk operations with offline targets before execution', () => {
 		const operation = demoFleetOverview.bulkOperations.find(
-			(candidate) => candidate.id === 'bulk-restart-service'
+			(candidate) => candidate.id === 'bulk-file-transfer'
 		);
+		const runbook = demoFleetOverview.templates[0];
 		const targets = demoFleetOverview.hosts.filter((host) =>
 			['host-ams-api-01', 'host-sfo-edge-03'].includes(host.id)
 		);
 
-		const review = buildBulkOperationReview(operation, targets);
+		const review = buildBulkOperationReview(operation, runbook, targets);
 
 		expect(review).toMatchObject({
 			targetCount: 2,

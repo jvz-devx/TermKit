@@ -25,9 +25,9 @@
 	<Card.Header>
 		<Card.Title class="flex items-center gap-2 text-base">
 			<BarChart3 class="size-4" />
-			Job history and reporting
+			Executions
 		</Card.Title>
-		<Card.Description>Recent fleet executions with evidence links.</Card.Description>
+		<Card.Description>Queued, running, and completed fleet executions.</Card.Description>
 	</Card.Header>
 	<Card.Content>
 		<div class="overflow-hidden rounded-md border">
@@ -39,7 +39,7 @@
 						<Table.Head>Targets</Table.Head>
 						<Table.Head>Success</Table.Head>
 						<Table.Head>Requested</Table.Head>
-						<Table.Head class="w-20 text-right">Report</Table.Head>
+						<Table.Head class="w-20 text-right">Details</Table.Head>
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>

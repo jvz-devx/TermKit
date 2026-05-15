@@ -14,6 +14,9 @@ import {
 } from '$lib/server/services/v6-resources';
 
 const dashboardSource = readFixture('../components/termix/fleet/FleetDashboard.svelte');
+const runbooksSource = readFixture('../components/termix/fleet/FleetRunbooksPage.svelte');
+const executionBuilderSource = readFixture('../components/termix/fleet/FleetExecutionBuilder.svelte');
+const approvalsSource = readFixture('../components/termix/fleet/FleetApprovalsPage.svelte');
 const routeSource = readFixture('../../routes/(app)/fleet/+page.svelte');
 
 describe('V6 fleet UI and remote contract wiring', () => {
@@ -65,37 +68,25 @@ describe('V6 fleet UI and remote contract wiring', () => {
 		);
 	});
 
-	it('keeps dashboard mutation controls wired to remote commands and overview refreshes', () => {
-		const controls = [
-			{
-				component: 'AutomationTemplatesPanel',
-				prop: 'onCreateTemplate={createTemplate}',
-				handler: 'createTemplate',
-				remote: 'createFleetAutomationTemplate'
-			},
-			{
-				component: 'BulkOperationsPanel',
-				prop: 'onQueueOperation={queueOperation}',
-				handler: 'queueOperation',
-				remote: 'queueFleetBulkOperation'
-			},
-			{
-				component: 'PolicyApprovalsPanel',
-				prop: 'onDecideApproval={decideApproval}',
-				handler: 'decideApproval',
-				remote: 'decideFleetApproval'
-			}
-		];
+	it('keeps routed mutation controls wired to remote commands and query refreshes', () => {
+		expect(runbooksSource).toContain('AutomationTemplatesPanel');
+		expect(runbooksSource).toContain('onCreateTemplate={createRunbook}');
+		expect(runbooksSource).toMatch(
+			/createFleetAutomationTemplate[\s\S]+\.updates\(getFleetRunbooks\)/
+		);
 
-		for (const control of controls) {
-			expect(dashboardSource).toContain(control.component);
-			expect(dashboardSource).toContain(control.prop);
-			expect(dashboardSource).toMatch(
-				new RegExp(
-					`async function ${control.handler}[\\s\\S]+${control.remote}[\\s\\S]+\\.updates\\(getFleetOverview\\)`
-				)
-			);
-		}
+		expect(executionBuilderSource).toContain('BulkOperationsPanel');
+		expect(executionBuilderSource).toContain('preflightFleetExecution');
+		expect(executionBuilderSource).toContain('queueFleetBulkOperation');
+		expect(executionBuilderSource).toContain('.updates(getFleetOverview)');
+
+		expect(approvalsSource).toContain('PolicyApprovalsPanel');
+		expect(approvalsSource).toMatch(/decideFleetApproval[\s\S]+\.updates\(getFleetApprovals\)/);
+	});
+
+	it('keeps fleet overview routed to concrete operator sections', () => {
+		expect(dashboardSource).toContain('/fleet/executions/new');
+		expect(dashboardSource).toContain('/fleet/targets');
 	});
 });
 

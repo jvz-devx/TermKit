@@ -57,7 +57,13 @@
 				title: 'Fleet operations',
 				url: '/fleet',
 				icon: WorkflowIcon,
-				items: [{ title: 'Fleet console', url: '/fleet' }]
+				items: [
+					{ title: 'Overview', url: '/fleet' },
+					{ title: 'Runbooks', url: '/fleet/runbooks' },
+					{ title: 'Targets', url: '/fleet/targets' },
+					{ title: 'Executions', url: '/fleet/executions' },
+					{ title: 'Approvals', url: '/fleet/approvals' }
+				]
 			},
 			{
 				title: 'Administration',

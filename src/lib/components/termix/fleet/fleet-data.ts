@@ -1,9 +1,24 @@
 import { fleetBulkOperations } from '$lib/termix/fleet-contracts';
 
 export type FleetHealthStatus = 'healthy' | 'degraded' | 'offline' | 'maintenance';
+export type FleetTargetStatus = 'healthy' | 'needs_attention' | 'offline' | 'not_checked';
 export type FleetRiskLevel = 'low' | 'medium' | 'high';
 export type FleetJobStatus = 'queued' | 'running' | 'blocked' | 'completed' | 'failed';
 export type FleetApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export type FleetTargetHealthSummary = {
+	status: FleetTargetStatus;
+	label: string;
+	reason: string;
+	sourceState: string;
+	lastCheckedAt: string | null;
+	nextCheckAt: string | null;
+	lastSuccessfulConnectionAt: string | null;
+	lastFailedConnectionAt: string | null;
+	consecutiveFailures: number;
+	credentialSignal: 'ok' | 'failed' | 'unknown';
+	reachabilitySignal: 'reachable' | 'unreachable' | 'unknown';
+};
 
 export type FleetHost = {
 	id: string;
@@ -22,6 +37,7 @@ export type FleetHost = {
 	patchState: 'current' | 'due' | 'overdue';
 	protocols: string[];
 	tags: string[];
+	health?: FleetTargetHealthSummary;
 };
 
 export type FleetAutomationTemplate = {
@@ -71,6 +87,11 @@ export type FleetPolicy = {
 	impact: string;
 };
 
+export type FleetRunbook = FleetAutomationTemplate;
+export type FleetTarget = FleetHost;
+export type FleetExecution = FleetJob;
+export type FleetApprovalRequest = FleetPolicy;
+
 export type FleetOverview = {
 	hosts: FleetHost[];
 	templates: FleetAutomationTemplate[];
@@ -93,8 +114,20 @@ export type FleetTargetReview = {
 	offlineTargets: number;
 	approvalRequired: boolean;
 	canRun: boolean;
+	ctaLabel: string;
 	blockers: string[];
+	warnings: string[];
 };
+
+export type FleetExecutionPreflight = FleetTargetReview & {
+	runbookId: string | null;
+	operationId: string | null;
+	targetHostIds: string[];
+};
+
+export type FleetExecutionSubmitResult =
+	| { status: 'queued'; job: FleetJob; message: string }
+	| { status: 'approval_requested'; job?: null; message: string };
 
 export const demoFleetOverview: FleetOverview = {
 	hosts: [
@@ -337,6 +370,8 @@ export function filterFleetHosts(hosts: FleetHost[], filters: FleetHostFilters) 
 			host.region,
 			host.os,
 			host.patchState,
+			host.health?.label,
+			host.health?.reason,
 			...host.protocols,
 			...host.tags
 		]
@@ -352,16 +387,24 @@ export function uniqueFleetValues<T extends string>(values: T[]) {
 
 export function buildBulkOperationReview(
 	operation: FleetBulkOperation | null | undefined,
+	runbook: FleetAutomationTemplate | null | undefined,
 	targets: FleetHost[]
 ): FleetTargetReview {
 	const highRiskTargets = targets.filter((host) => host.riskScore >= 70).length;
-	const offlineTargets = targets.filter((host) => host.status === 'offline').length;
-	const approvalRequired = Boolean(operation?.approvalRequired || highRiskTargets > 0);
+	const offlineTargets = targets.filter((host) => explainFleetTargetHealth(host).status === 'offline').length;
+	const attentionTargets = targets.filter(
+		(host) => explainFleetTargetHealth(host).status === 'needs_attention'
+	).length;
+	const approvalRequired = Boolean(operation?.approvalRequired || runbook?.approvalRequired || highRiskTargets > 0);
 	const blockers: string[] = [];
+	const warnings: string[] = [];
 
+	if (!runbook) blockers.push('Choose a runbook.');
 	if (!operation) blockers.push('Choose an operation.');
 	if (!targets.length) blockers.push('Select at least one target.');
 	if (offlineTargets > 0) blockers.push('Remove offline targets before running.');
+	if (attentionTargets > 0) warnings.push(`${attentionTargets} selected target(s) need attention.`);
+	if (highRiskTargets > 0) warnings.push(`${highRiskTargets} selected target(s) are high risk.`);
 
 	return {
 		targetCount: targets.length,
@@ -369,7 +412,71 @@ export function buildBulkOperationReview(
 		offlineTargets,
 		approvalRequired,
 		canRun: blockers.length === 0,
-		blockers
+		ctaLabel: approvalRequired ? 'Submit for approval' : 'Queue execution',
+		blockers,
+		warnings
+	};
+}
+
+export function explainFleetTargetHealth(host: FleetHost): FleetTargetHealthSummary {
+	if (host.health) return host.health;
+	if (host.status === 'healthy') {
+		return {
+			status: 'healthy',
+			label: 'Healthy',
+			reason: 'Recent successful activity and no blocking health signals.',
+			sourceState: 'healthy',
+			lastCheckedAt: null,
+			nextCheckAt: null,
+			lastSuccessfulConnectionAt: null,
+			lastFailedConnectionAt: null,
+			consecutiveFailures: 0,
+			credentialSignal: 'ok',
+			reachabilitySignal: 'reachable'
+		};
+	}
+	if (host.status === 'offline') {
+		return {
+			status: 'offline',
+			label: 'Offline',
+			reason: 'The last health check could not reach or authenticate to this target.',
+			sourceState: 'offline',
+			lastCheckedAt: null,
+			nextCheckAt: null,
+			lastSuccessfulConnectionAt: null,
+			lastFailedConnectionAt: null,
+			consecutiveFailures: 1,
+			credentialSignal: 'unknown',
+			reachabilitySignal: 'unreachable'
+		};
+	}
+	if (host.status === 'maintenance') {
+		return {
+			status: 'not_checked',
+			label: 'Not checked',
+			reason: 'No reliable health check has been recorded yet.',
+			sourceState: 'unknown',
+			lastCheckedAt: null,
+			nextCheckAt: null,
+			lastSuccessfulConnectionAt: null,
+			lastFailedConnectionAt: null,
+			consecutiveFailures: 0,
+			credentialSignal: 'unknown',
+			reachabilitySignal: 'unknown'
+		};
+	}
+	return {
+		status: 'needs_attention',
+		label: 'Needs attention',
+		reason: 'The target has a degraded or stale health signal.',
+		sourceState: 'degraded',
+		lastCheckedAt: null,
+		nextCheckAt: null,
+		lastSuccessfulConnectionAt: null,
+		lastFailedConnectionAt: null,
+		consecutiveFailures: 0,
+		credentialSignal: 'unknown',
+		reachabilitySignal: 'unknown'
 	};
 }
 

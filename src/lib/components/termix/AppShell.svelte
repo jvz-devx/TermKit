@@ -19,7 +19,12 @@
 		'/history': 'History',
 		'/credentials': 'Credentials',
 		'/import': 'Import',
-		'/fleet': 'Fleet Operations',
+		'/fleet': 'Fleet Overview',
+		'/fleet/runbooks': 'Fleet Runbooks',
+		'/fleet/targets': 'Fleet Targets',
+		'/fleet/executions': 'Fleet Executions',
+		'/fleet/executions/new': 'New Fleet Execution',
+		'/fleet/approvals': 'Fleet Approvals',
 		'/admin': 'Admin',
 		'/settings': 'Settings'
 	};

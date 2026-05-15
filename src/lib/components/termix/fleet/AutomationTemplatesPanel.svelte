@@ -72,9 +72,9 @@
 	<Card.Header>
 		<Card.Title class="flex items-center gap-2 text-base">
 			<Workflow class="size-4" />
-			Automation templates
+			Runbooks
 		</Card.Title>
-		<Card.Description>Reusable runbooks prepared for remote-function execution.</Card.Description>
+		<Card.Description>Reusable operator workflows prepared for fleet execution.</Card.Description>
 	</Card.Header>
 	<Card.Content class="space-y-3">
 		{#each templates as template (template.id)}
@@ -122,9 +122,9 @@
 			</Dialog.Trigger>
 			<Dialog.Content class="max-w-lg">
 				<Dialog.Header>
-					<Dialog.Title>Create automation template</Dialog.Title>
+					<Dialog.Title>Create runbook</Dialog.Title>
 					<Dialog.Description>
-						Save a private or workspace-ready template with typed placeholders.
+						Save a private or workspace-ready runbook with typed placeholders.
 					</Dialog.Description>
 				</Dialog.Header>
 				<form class="space-y-4" onsubmit={(event) => (event.preventDefault(), submitCreate())}>
@@ -181,7 +181,7 @@
 							Cancel
 						</Button>
 						<Button type="submit" disabled={createBusy}>
-							{createBusy ? 'Creating...' : 'Create template'}
+							{createBusy ? 'Creating...' : 'Create runbook'}
 						</Button>
 					</Dialog.Footer>
 				</form>

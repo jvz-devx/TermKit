@@ -7,6 +7,7 @@ import {
 	createFleetAutomationTemplate,
 	decideFleetApproval,
 	getFleetOverview,
+	preflightFleetExecution,
 	queueFleetBulkOperation
 } from './fleet.remote';
 
@@ -316,12 +317,12 @@ describe('fleet remote functions', () => {
 		expect(overview.jobs).toEqual([
 			expect.objectContaining({ id: 'job-running', status: 'running' }),
 			expect.objectContaining({ id: 'job-blocked', status: 'blocked', duration: '65s' }),
-			expect.objectContaining({
-				id: 'job-failed',
-				status: 'failed',
-				reportUrl: '/fleet/reports/job-failed'
-			})
-		]);
+				expect.objectContaining({
+					id: 'job-failed',
+					status: 'failed',
+					reportUrl: '/fleet/executions/job-failed'
+				})
+			]);
 		expect(overview.policies).toEqual([
 			expect.objectContaining({
 				id: 'approval-1',
@@ -403,7 +404,7 @@ describe('fleet remote functions', () => {
 				definition: { body: 'systemctl restart termix' }
 			})
 		);
-		expect(appServer.refresh).toHaveBeenCalledOnce();
+		expect(appServer.refresh).toHaveBeenCalledTimes(5);
 	});
 
 	it('creates workspace templates with fallback workspace, normalized variables, and default body', async () => {
@@ -460,22 +461,31 @@ describe('fleet remote functions', () => {
 
 	it('validates bulk operation inputs before queueing jobs', async () => {
 		await expect(
-			queueFleetBulkOperation({ operationId: 'unknown', targetHostIds: ['host-1'] })
+			queueFleetBulkOperation({
+				operationId: 'unknown',
+				templateId: 'template-1',
+				targetHostIds: ['host-1']
+			})
 		).rejects.toBeInstanceOf(ServiceValidationError);
-		await expect(
-			queueFleetBulkOperation({ operationId: 'bulk-ssh-command', targetHostIds: [' ', ''] })
-		).rejects.toBeInstanceOf(ServiceValidationError);
-		vi.mocked(hostService.list).mockResolvedValueOnce([host({ id: 'host-visible' })] as never);
 		await expect(
 			queueFleetBulkOperation({
 				operationId: 'bulk-ssh-command',
-				targetHostIds: ['host-visible', 'host-hidden']
+				templateId: 'template-1',
+				targetHostIds: [' ', '']
 			})
+		).rejects.toBeInstanceOf(ServiceValidationError);
+		vi.mocked(hostService.list).mockResolvedValueOnce([host({ id: 'host-visible' })] as never);
+		await expect(
+				queueFleetBulkOperation({
+					operationId: 'bulk-ssh-command',
+					templateId: 'template-1',
+					targetHostIds: ['host-visible', 'host-hidden']
+				})
 		).rejects.toBeInstanceOf(ServiceValidationError);
 		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
 	});
 
-	it('queues bulk jobs with deduped targets, bounded concurrency, and recorded workspace reasons', async () => {
+	it('queues bulk jobs with explicit operation, runbook, deduped targets, and recorded reasons', async () => {
 		vi.mocked(hostService.list).mockResolvedValueOnce([
 			host({ id: 'host-1', workspaceId: 'workspace-1' }),
 			host({ id: 'host-2', workspaceId: 'workspace-1' })
@@ -490,8 +500,8 @@ describe('fleet remote functions', () => {
 				id: 'job-file',
 				workspaceId: 'workspace-1',
 				templateId: 'template-1',
-				kind: 'bulk_file_transfer',
-				title: 'Bulk file transfer',
+				kind: 'bulk_ssh_command',
+				title: 'Bulk SSH command',
 				status: 'running',
 				startedAt: now,
 				targetCount: 2,
@@ -501,7 +511,7 @@ describe('fleet remote functions', () => {
 		} as never);
 
 		const queued = await queueFleetBulkOperation({
-			operationId: 'bulk-file-transfer',
+			operationId: 'bulk-ssh-command',
 			templateId: ' template-1 ',
 			targetHostIds: ['host-1', 'host-2', 'host-1'],
 			reason: '  maintenance window  ',
@@ -524,33 +534,36 @@ describe('fleet remote functions', () => {
 		expect(v6ResourcesService.createBackgroundJob).toHaveBeenCalledWith(
 			'user-1',
 			expect.objectContaining({
-				workspaceId: 'workspace-1',
-				templateId: 'template-1',
-				kind: 'bulk_file_transfer',
-				title: 'Bulk file transfer',
+					workspaceId: 'workspace-1',
+					templateId: 'template-1',
+					kind: 'bulk_ssh_command',
+					title: 'Bulk SSH command',
 				targetHostIds: ['host-1', 'host-2'],
 				concurrencyLimit: 10,
 				reason: 'maintenance window',
-				request: {
-					operationId: 'bulk-file-transfer',
-					templateId: 'template-1',
+					request: {
+						operationId: 'bulk-ssh-command',
+						templateId: 'template-1',
 					reviewedHostIds: ['host-1', 'host-2'],
 					secretPolicy: 'redacted'
 				}
 			})
 		);
 		expect(queued).toMatchObject({
-			id: 'job-file',
-			name: 'Bulk file transfer',
-			status: 'running',
-			targets: 2,
-			successful: 1,
-			reportUrl: '/fleet/reports/job-file'
+			status: 'queued',
+			job: expect.objectContaining({
+				id: 'job-file',
+				name: 'Bulk SSH command',
+				status: 'running',
+				targets: 2,
+				successful: 1,
+				reportUrl: '/fleet/executions/job-file'
+			})
 		});
-		expect(appServer.refresh).toHaveBeenCalledOnce();
+		expect(appServer.refresh).toHaveBeenCalledTimes(5);
 	});
 
-	it('queues personal bulk jobs with default operation and lower concurrency bound', async () => {
+	it('queues personal bulk jobs with explicit operation and lower concurrency bound', async () => {
 		vi.mocked(hostService.list).mockResolvedValueOnce([host({ workspaceId: null })] as never);
 		vi.mocked(v6ResourcesService.createBackgroundJob).mockResolvedValueOnce({
 			job: job({ concurrencyLimit: 1 }),
@@ -558,6 +571,8 @@ describe('fleet remote functions', () => {
 		} as never);
 
 		await queueFleetBulkOperation({
+			operationId: 'bulk-ssh-command',
+			templateId: 'template-1',
 			targetHostIds: ['host-1'],
 			reason: ' operator reviewed ',
 			concurrencyLimit: 0
@@ -591,6 +606,7 @@ describe('fleet remote functions', () => {
 
 		await queueFleetBulkOperation({
 			operationId: 'bulk-ssh-command',
+			templateId: 'template-1',
 			targetHostIds: ['host-1']
 		});
 
@@ -603,7 +619,7 @@ describe('fleet remote functions', () => {
 		);
 	});
 
-	it('requests approval and rejects queueing when workspace policy requires approval', async () => {
+	it('requests approval and returns an approval result when policy requires approval', async () => {
 		vi.mocked(hostService.list).mockResolvedValueOnce([
 			host({ id: 'host-1', workspaceId: 'workspace-1' })
 		] as never);
@@ -615,9 +631,12 @@ describe('fleet remote functions', () => {
 		await expect(
 			queueFleetBulkOperation({
 				operationId: 'bulk-file-transfer',
+				templateId: 'template-1',
 				targetHostIds: ['host-1']
 			})
-		).rejects.toBeInstanceOf(ServiceValidationError);
+		).resolves.toMatchObject({
+			status: 'approval_requested'
+		});
 
 		expect(v6ResourcesService.requestApproval).toHaveBeenCalledWith('user-1', {
 			workspaceId: 'workspace-1',
@@ -640,6 +659,7 @@ describe('fleet remote functions', () => {
 		await expect(
 			queueFleetBulkOperation({
 				operationId: 'bulk-ssh-command',
+				templateId: 'template-1',
 				targetHostIds: ['host-1'],
 				reason: 'reviewed'
 			})
@@ -666,7 +686,33 @@ describe('fleet remote functions', () => {
 			'approved',
 			'reviewed'
 		);
-		expect(appServer.refresh).toHaveBeenCalledOnce();
+		expect(appServer.refresh).toHaveBeenCalledTimes(5);
+	});
+
+	it('preflights explicit executions before queueing', async () => {
+		vi.mocked(hostService.list).mockResolvedValueOnce([
+			host({ id: 'host-1', workspaceId: 'workspace-1', tags: ['critical'] })
+		] as never);
+		vi.mocked(v6ResourcesService.listHostHealth).mockResolvedValueOnce([
+			{ hostId: 'host-1', state: 'auth_failed', checkedAt: now }
+		] as never);
+
+		const preflight = await preflightFleetExecution({
+			operationId: 'bulk-ssh-command',
+			templateId: 'template-1',
+			targetHostIds: ['host-1'],
+			reason: 'reviewed'
+		});
+
+		expect(preflight).toMatchObject({
+			runbookId: 'template-1',
+			operationId: 'bulk-ssh-command',
+			targetCount: 1,
+			highRiskTargets: 1,
+			offlineTargets: 1,
+			canRun: false
+		});
+		expect(preflight.blockers).toContain('Remove offline targets before running.');
 	});
 
 	it('validates approval decisions before service calls', async () => {

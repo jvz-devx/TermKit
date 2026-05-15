@@ -39,9 +39,9 @@
 	<Card.Header>
 		<Card.Title class="flex items-center gap-2 text-base">
 			<ShieldCheck class="size-4" />
-			Workspace policies and approvals
+			Approvals
 		</Card.Title>
-		<Card.Description>Approval posture for scoped fleet actions.</Card.Description>
+		<Card.Description>Requests that need a decision before execution can continue.</Card.Description>
 	</Card.Header>
 	<Card.Content class="space-y-3">
 		{#if error}

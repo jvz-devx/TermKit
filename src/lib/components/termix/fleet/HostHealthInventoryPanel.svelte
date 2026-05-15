@@ -7,7 +7,7 @@
 	import * as Table from '$lib/components/ui/table';
 	import { Filter, Search, ServerCog, X } from '@lucide/svelte';
 	import type { FleetHealthStatus, FleetHost, FleetHostFilters } from './fleet-data';
-	import { fleetStatusLabel } from './fleet-data';
+	import { explainFleetTargetHealth, fleetStatusLabel } from './fleet-data';
 
 	let {
 		hosts,
@@ -84,10 +84,10 @@
 		<div>
 			<h2 class="flex items-center gap-2 text-base font-semibold">
 				<ServerCog class="size-4" />
-				Host health and inventory
+				Targets
 			</h2>
 			<p class="text-sm text-muted-foreground">
-				{filteredHosts.length} of {hosts.length} hosts match the current review.
+				{filteredHosts.length} of {hosts.length} targets match the current filters.
 			</p>
 		</div>
 		<div class="flex flex-wrap gap-2">
@@ -169,17 +169,18 @@
 		<Table.Root>
 			<Table.Header>
 				<Table.Row>
-					<Table.Head class="w-10">Target</Table.Head>
-					<Table.Head>Host</Table.Head>
-					<Table.Head>Health</Table.Head>
+					<Table.Head class="w-10">Use</Table.Head>
+					<Table.Head>Target</Table.Head>
+					<Table.Head>Status</Table.Head>
 					<Table.Head>Workspace</Table.Head>
 					<Table.Head>Load</Table.Head>
-					<Table.Head>Patch</Table.Head>
-					<Table.Head>Last seen</Table.Head>
+					<Table.Head>Action state</Table.Head>
+					<Table.Head>Last check</Table.Head>
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>
 				{#each filteredHosts as host (host.id)}
+					{@const health = explainFleetTargetHealth(host)}
 					<Table.Row data-state={selectedHostIds.includes(host.id) ? 'selected' : undefined}>
 						<Table.Cell>
 							<Checkbox
@@ -204,9 +205,17 @@
 						<Table.Cell>
 							<div class="flex items-center gap-2">
 								<span class={`size-2 rounded-full ${statusTone(host.status)}`}></span>
-								<span>{fleetStatusLabel(host.status)}</span>
+								<span>{health.label}</span>
 							</div>
-							<div class="text-xs text-muted-foreground">Risk {host.riskScore}</div>
+							<div class="max-w-56 text-xs text-muted-foreground">{health.reason}</div>
+							<div class="mt-1 flex flex-wrap gap-1">
+								<Badge variant={host.riskScore >= 70 ? 'destructive' : 'outline'} class="h-4 px-1.5 text-[10px]">
+									Risk {host.riskScore}
+								</Badge>
+								<Badge variant="outline" class="h-4 px-1.5 text-[10px]">
+									{health.credentialSignal === 'failed' ? 'Credential failed' : `Credential ${health.credentialSignal}`}
+								</Badge>
+							</div>
 						</Table.Cell>
 						<Table.Cell>
 							<div>{host.workspace}</div>
@@ -223,11 +232,12 @@
 						</Table.Cell>
 						<Table.Cell>
 							<Badge variant={host.patchState === 'overdue' ? 'destructive' : 'outline'}>
-								{host.patchState}
+								Inferred {host.patchState}
 							</Badge>
 						</Table.Cell>
 						<Table.Cell class="text-sm text-muted-foreground">
-							{host.lastSeenMinutes}m ago
+							<div>{health.lastCheckedAt ?? `${host.lastSeenMinutes}m ago`}</div>
+							<div class="text-xs">Next {health.nextCheckAt ?? 'not scheduled'}</div>
 						</Table.Cell>
 					</Table.Row>
 				{:else}
