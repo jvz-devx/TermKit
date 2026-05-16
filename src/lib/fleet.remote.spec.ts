@@ -463,6 +463,39 @@ describe('fleet remote functions', () => {
 		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
 	});
 
+	it('rejects operation and runbook kind mismatches before queueing jobs', async () => {
+		vi.mocked(hostService.list).mockResolvedValueOnce([host({ id: 'host-1' })] as never);
+
+		await expect(
+			queueFleetBulkOperation({
+				operationId: 'bulk-file-transfer',
+				templateId: 'template-1',
+				targetHostIds: ['host-1']
+			})
+		).rejects.toMatchObject({
+			issues: ['operationId must match the selected action']
+		});
+		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
+	});
+
+	it('rejects runbooks that are not runnable fleet actions before queueing jobs', async () => {
+		vi.mocked(hostService.list).mockResolvedValueOnce([host({ id: 'host-1' })] as never);
+		vi.mocked(v6ResourcesService.listAutomationTemplates).mockResolvedValueOnce([
+			templateRecord({ id: 'template-note', kind: 'operator_note' })
+		] as never);
+
+		await expect(
+			queueFleetBulkOperation({
+				operationId: 'bulk-ssh-command',
+				templateId: 'template-note',
+				targetHostIds: ['host-1']
+			})
+		).rejects.toMatchObject({
+			issues: ['templateId must reference a runnable fleet action']
+		});
+		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
+	});
+
 	it('queues bulk jobs directly with explicit operation, runbook, deduped targets, and recorded reasons', async () => {
 		vi.mocked(hostService.list).mockResolvedValueOnce([
 			host({ id: 'host-1', workspaceId: 'workspace-1' }),
@@ -542,7 +575,7 @@ describe('fleet remote functions', () => {
 		await expect(
 			queueFleetBulkOperation({
 				operationId: 'bulk-file-transfer',
-				templateId: 'template-1',
+				templateId: 'builtin:file-transfer',
 				targetHostIds: ['host-1', 'host-2'],
 				reason: 'run it'
 			})

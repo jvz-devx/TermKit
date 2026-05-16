@@ -358,8 +358,8 @@ export function buildBulkOperationSummary(
 ): FleetExecutionSummary {
 	const missingInputs: string[] = [];
 
-	if (!runbook) missingInputs.push('Choose a runbook.');
-	if (!operation) missingInputs.push('Choose an operation.');
+	if (!runbook) missingInputs.push('Choose an action.');
+	if (runbook && !operation) missingInputs.push('Choose a runnable action.');
 	if (!targets.length) missingInputs.push('Select at least one target.');
 
 	return {
@@ -372,6 +372,23 @@ export function buildBulkOperationSummary(
 				? 'This will run on 1 host.'
 				: `This will run on ${targets.length} hosts.`
 	};
+}
+
+export function fleetOperationIdForRunbook(runbook: FleetAutomationTemplate) {
+	const category = runbook.category.toLowerCase().trim();
+	if (category === 'ssh command') return 'bulk-ssh-command';
+	if (category === 'file transfer') return 'bulk-file-transfer';
+	return null;
+}
+
+export function resolveFleetOperationForRunbook(
+	runbook: FleetAutomationTemplate | null | undefined,
+	operations: FleetBulkOperation[]
+) {
+	if (!runbook) return null;
+	const operationId = fleetOperationIdForRunbook(runbook);
+	if (!operationId) return null;
+	return operations.find((operation) => operation.id === operationId) ?? null;
 }
 
 export function explainFleetTargetHealth(host: FleetHost): FleetTargetHealthSummary {

@@ -18,22 +18,18 @@
 	let {
 		runbooks,
 		selectedRunbookId,
-		operations,
-		selectedOperationId,
+		selectedOperation,
 		targets,
 		summary,
 		onSelectRunbook,
-		onSelectOperation,
 		onQueueOperation
 	}: {
 		runbooks: FleetAutomationTemplate[];
 		selectedRunbookId: string;
-		operations: FleetBulkOperation[];
-		selectedOperationId: string;
+		selectedOperation: FleetBulkOperation | null;
 		targets: FleetHost[];
 		summary: FleetExecutionSummary;
 		onSelectRunbook: (runbookId: string) => void;
-		onSelectOperation: (operationId: string) => void;
 		onQueueOperation: (input: {
 			operationId: string;
 			templateId: string;
@@ -45,9 +41,6 @@
 
 	const selectedRunbook = $derived(
 		runbooks.find((runbook) => runbook.id === selectedRunbookId) ?? null
-	);
-	const selectedOperation = $derived(
-		operations.find((operation) => operation.id === selectedOperationId) ?? null
 	);
 	let reason = $state('Fleet operation');
 	let concurrencyLimit = $state(2);
@@ -92,11 +85,11 @@
 			<ClipboardCheck class="size-4" />
 			New execution
 		</Card.Title>
-		<Card.Description>Pick what to run, pick hosts, then run the operation.</Card.Description>
+		<Card.Description>Pick one action, pick hosts, then run the operation.</Card.Description>
 	</Card.Header>
-	<Card.Content class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_340px]">
+	<Card.Content class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
 		<div class="space-y-3">
-			<div class="text-sm font-medium">1. Runbook</div>
+			<div class="text-sm font-medium">1. Action</div>
 			{#each runbooks as runbook (runbook.id)}
 				<button
 					type="button"
@@ -117,42 +110,19 @@
 						{runbook.category} · Operator runnable
 					</div>
 				</button>
-			{/each}
-		</div>
-
-		<div class="space-y-3">
-			<div class="text-sm font-medium">2. Operation</div>
-			{#each operations as operation (operation.id)}
-				<button
-					type="button"
-					class="w-full rounded-md border p-3 text-left transition-colors hover:bg-accent/50 data-[active=true]:border-primary data-[active=true]:bg-primary/5"
-					data-active={operation.id === selectedOperationId}
-					onclick={() => onSelectOperation(operation.id)}
-				>
-					<div class="flex flex-wrap items-start justify-between gap-2">
-						<div>
-							<div class="font-medium">{operation.name}</div>
-							<div class="mt-1 text-xs text-muted-foreground">{operation.description}</div>
-						</div>
-						<Badge variant={operation.risk === 'high' ? 'destructive' : 'outline'}>
-							{fleetRiskLabel(operation.risk)}
-						</Badge>
-					</div>
-					<div class="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-						<span>{operation.category}</span>
-						<span>{operation.estimatedDuration}</span>
-						<span>Operator runnable</span>
-					</div>
-				</button>
+			{:else}
+				<div class="rounded-md border p-4 text-sm text-muted-foreground">
+					No runnable fleet actions are available.
+				</div>
 			{/each}
 		</div>
 
 		<div class="rounded-md border bg-muted/20 p-3">
 			<div class="flex items-center justify-between gap-2">
 				<div>
-					<div class="text-sm font-medium">3. Run</div>
+					<div class="text-sm font-medium">2. Run</div>
 					<div class="text-xs text-muted-foreground">
-						{selectedRunbook?.name ?? 'No runbook'} · {selectedOperation?.name ?? 'No operation'}
+						{selectedRunbook?.name ?? 'No action'} · {selectedOperation?.name ?? 'Not runnable'}
 					</div>
 				</div>
 				<Badge variant={summary.canRun ? 'outline' : 'destructive'}>

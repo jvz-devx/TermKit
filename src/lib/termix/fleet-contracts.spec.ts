@@ -92,6 +92,7 @@ describe('V6 fleet UI and remote contract wiring', () => {
 		expect(runbooksPanelSource).toContain('onValueChange={changeVisibility}');
 
 		expect(executionBuilderSource).toContain('BulkOperationsPanel');
+		expect(executionBuilderSource).toContain('resolveFleetOperationForRunbook');
 		expect(executionBuilderSource).not.toContain('preflightFleetExecution');
 		expect(executionBuilderSource).toContain('queueFleetBulkOperation');
 		expect(executionBuilderSource).toContain('.updates(getFleetOverview)');
@@ -101,6 +102,8 @@ describe('V6 fleet UI and remote contract wiring', () => {
 		expect(bulkOperationsPanelSource).toMatch(
 			/const canRunOperation = \$derived\(\s*Boolean\(selectedOperation && selectedRunbook && targets\.length > 0\)\s*\)/
 		);
+		expect(bulkOperationsPanelSource).toContain('1. Action');
+		expect(bulkOperationsPanelSource).toContain('2. Run');
 		expect(bulkOperationsPanelSource).toContain('{summary.targetCount}');
 		expect(bulkOperationsPanelSource).toContain('{summary.warning}');
 		expect(bulkOperationsPanelSource).toContain('{#each summary.missingInputs as missingInput');
@@ -115,6 +118,7 @@ describe('V6 fleet UI and remote contract wiring', () => {
 		expect(bulkOperationsPanelSource).not.toContain('Submit for approval');
 		expect(bulkOperationsPanelSource).not.toContain('approvalRequired');
 		expect(bulkOperationsPanelSource).not.toContain('executionReview');
+		expect(bulkOperationsPanelSource).not.toContain('2. Operation');
 	});
 
 	it('keeps fleet overview routed to concrete operator sections', () => {

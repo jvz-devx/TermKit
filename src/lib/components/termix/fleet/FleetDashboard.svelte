@@ -128,10 +128,9 @@
 				<Card.Description>No hidden runbook, operation, or target defaults.</Card.Description>
 			</Card.Header>
 			<Card.Content class="space-y-2 text-sm">
-				<div class="rounded-md border p-3">1. Choose a runbook</div>
-				<div class="rounded-md border p-3">2. Choose an operation</div>
-				<div class="rounded-md border p-3">3. Select hosts</div>
-				<div class="rounded-md border p-3">4. Run after checking the host count</div>
+				<div class="rounded-md border p-3">1. Choose one action</div>
+				<div class="rounded-md border p-3">2. Select hosts</div>
+				<div class="rounded-md border p-3">3. Run after checking the host count</div>
 			</Card.Content>
 		</Card.Root>
 	</div>

@@ -220,7 +220,7 @@ async function prepareExecution(input: QueueFleetBulkOperationInput): Promise<{
 	user: { id: string; username: string };
 	operation: NonNullable<ReturnType<typeof resolveFleetBulkOperationContract>>;
 	operationId: string;
-	template: { id: string; version: number };
+	template: { id: string; version: number; kind: AutomationTemplateKind };
 	templateId: string;
 	targetHostIds: string[];
 	targetHosts: HostRecord[];
@@ -245,6 +245,13 @@ async function prepareExecution(input: QueueFleetBulkOperationInput): Promise<{
 		workspaces.map((workspace) => workspace.id),
 		templateId
 	);
+	const expectedOperationId = operationIdForTemplateKind(template.kind);
+	if (!expectedOperationId) {
+		throw new ServiceValidationError(['templateId must reference a runnable fleet action']);
+	}
+	if (operation.id !== expectedOperationId) {
+		throw new ServiceValidationError(['operationId must match the selected action']);
+	}
 	const targetHosts = visibleHosts.filter((host) => targetHostIds.includes(host.id));
 	return { user, operation, operationId, template, templateId, targetHostIds, targetHosts };
 }
@@ -253,12 +260,13 @@ async function resolveExecutionTemplate(
 	userId: string,
 	workspaceIds: string[],
 	templateId: string
-): Promise<{ id: string; version: number }> {
+): Promise<{ id: string; version: number; kind: AutomationTemplateKind }> {
 	const builtInTemplate = builtInAutomationTemplates.find((template) => template.id === templateId);
 	if (builtInTemplate) {
 		return {
 			id: builtInTemplate.id,
-			version: 1
+			version: 1,
+			kind: builtInTemplate.kind
 		};
 	}
 
@@ -269,8 +277,15 @@ async function resolveExecutionTemplate(
 	}
 	return {
 		id: template.id,
-		version: template.version
+		version: template.version,
+		kind: template.kind
 	};
+}
+
+function operationIdForTemplateKind(kind: AutomationTemplateKind) {
+	if (kind === 'ssh_command') return 'bulk-ssh-command';
+	if (kind === 'file_transfer') return 'bulk-file-transfer';
+	return null;
 }
 
 function targetWorkspaceIds(targetHosts: HostRecord[]): string[] {

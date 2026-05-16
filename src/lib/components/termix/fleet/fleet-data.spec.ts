@@ -6,6 +6,7 @@ import {
 	fleetRiskLabel,
 	fleetStatusLabel,
 	filterFleetHosts,
+	resolveFleetOperationForRunbook,
 	uniqueFleetValues
 } from './fleet-data';
 
@@ -59,7 +60,23 @@ describe('fleet operations helpers', () => {
 			canRun: false,
 			warning: 'This will run on 0 hosts.'
 		});
-		expect(summary.missingInputs).toEqual(['Choose a runbook.', 'Select at least one target.']);
+		expect(summary.missingInputs).toEqual(['Choose an action.', 'Select at least one target.']);
+	});
+
+	it('maps runnable runbooks to the matching backend operation', () => {
+		const sshRunbook = { ...demoFleetOverview.templates[0], category: 'ssh command' };
+		const fileRunbook = { ...demoFleetOverview.templates[0], category: 'file transfer' };
+		const noteRunbook = { ...demoFleetOverview.templates[0], category: 'operator note' };
+
+		expect(resolveFleetOperationForRunbook(sshRunbook, demoFleetOverview.bulkOperations)?.id).toBe(
+			'bulk-ssh-command'
+		);
+		expect(resolveFleetOperationForRunbook(fileRunbook, demoFleetOverview.bulkOperations)?.id).toBe(
+			'bulk-file-transfer'
+		);
+		expect(
+			resolveFleetOperationForRunbook(noteRunbook, demoFleetOverview.bulkOperations)
+		).toBeNull();
 	});
 
 	it('allows mixed workspace, personal, and high-risk targets once inputs exist', () => {

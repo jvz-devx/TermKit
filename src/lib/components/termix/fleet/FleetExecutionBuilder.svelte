@@ -4,6 +4,7 @@
 	import {
 		buildBulkOperationSummary,
 		filterFleetHosts,
+		resolveFleetOperationForRunbook,
 		type FleetHealthStatus,
 		type FleetHostFilters,
 		type FleetOverview,
@@ -14,7 +15,6 @@
 	let { overview }: { overview: FleetOverview } = $props();
 
 	let selectedRunbookId = $state('');
-	let selectedOperationId = $state('');
 	let selectedHostIds = $state<string[]>([]);
 	let search = $state('');
 	let statusFilter = $state<FleetHostFilters['status']>('all');
@@ -25,8 +25,13 @@
 	const selectedRunbook = $derived(
 		overview.templates.find((template) => template.id === selectedRunbookId) ?? null
 	);
+	const executableRunbooks = $derived(
+		overview.templates.filter((template) =>
+			Boolean(resolveFleetOperationForRunbook(template, overview.bulkOperations))
+		)
+	);
 	const selectedOperation = $derived(
-		overview.bulkOperations.find((operation) => operation.id === selectedOperationId) ?? null
+		resolveFleetOperationForRunbook(selectedRunbook, overview.bulkOperations)
 	);
 	const selectedHosts = $derived(
 		overview.hosts.filter((host) => selectedHostIds.includes(host.id))
@@ -76,18 +81,16 @@
 	<div>
 		<h1 class="text-lg font-semibold">New execution</h1>
 		<p class="text-sm text-muted-foreground">
-			Pick an action, pick hosts, confirm the target count, and run.
+			Pick one action, pick hosts, confirm the target count, and run.
 		</p>
 	</div>
 	<BulkOperationsPanel
-		runbooks={overview.templates}
+		runbooks={executableRunbooks}
 		{selectedRunbookId}
-		operations={overview.bulkOperations}
-		{selectedOperationId}
+		{selectedOperation}
 		targets={selectedHosts}
 		{summary}
 		onSelectRunbook={(runbookId) => (selectedRunbookId = runbookId)}
-		onSelectOperation={(operationId) => (selectedOperationId = operationId)}
 		onQueueOperation={async (input) => queueFleetBulkOperation(input).updates(getFleetOverview)}
 	/>
 	<HostHealthInventoryPanel
