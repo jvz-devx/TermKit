@@ -20,7 +20,11 @@
 			<Card.Header>
 				<Card.Title class="flex items-center justify-between gap-2 text-base">
 					<span>{execution.id}</span>
-					<Badge variant={execution.status === 'failed' || execution.status === 'blocked' ? 'destructive' : 'outline'}>
+					<Badge
+						variant={execution.status === 'failed' || execution.status === 'blocked'
+							? 'destructive'
+							: 'outline'}
+					>
 						{execution.status}
 					</Badge>
 				</Card.Title>
@@ -47,9 +51,7 @@
 		</Card.Root>
 	{:else}
 		<Card.Root size="sm">
-			<Card.Content class="p-6 text-sm text-muted-foreground">
-				Execution not found.
-			</Card.Content>
+			<Card.Content class="p-6 text-sm text-muted-foreground">Execution not found.</Card.Content>
 		</Card.Root>
 	{/if}
 </section>

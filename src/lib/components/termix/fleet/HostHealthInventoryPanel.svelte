@@ -209,11 +209,16 @@
 							</div>
 							<div class="max-w-56 text-xs text-muted-foreground">{health.reason}</div>
 							<div class="mt-1 flex flex-wrap gap-1">
-								<Badge variant={host.riskScore >= 70 ? 'destructive' : 'outline'} class="h-4 px-1.5 text-[10px]">
+								<Badge
+									variant={host.riskScore >= 70 ? 'destructive' : 'outline'}
+									class="h-4 px-1.5 text-[10px]"
+								>
 									Risk {host.riskScore}
 								</Badge>
 								<Badge variant="outline" class="h-4 px-1.5 text-[10px]">
-									{health.credentialSignal === 'failed' ? 'Credential failed' : `Credential ${health.credentialSignal}`}
+									{health.credentialSignal === 'failed'
+										? 'Credential failed'
+										: `Credential ${health.credentialSignal}`}
 								</Badge>
 							</div>
 						</Table.Cell>

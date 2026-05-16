@@ -110,9 +110,7 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(
 			page.getByText('0 of 3 targets match the current filters.', { exact: true })
 		).toBeVisible();
-		await expect(
-			page.getByText('No hosts match these filters.', { exact: true })
-		).toBeVisible();
+		await expect(page.getByText('No hosts match these filters.', { exact: true })).toBeVisible();
 
 		await expandSidebarGroup(page, 'Administration');
 		await page.getByRole('link', { name: 'Application' }).click();

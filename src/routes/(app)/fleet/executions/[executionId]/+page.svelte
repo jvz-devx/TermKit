@@ -4,7 +4,8 @@
 	import { getFleetExecutions } from '$lib/fleet.remote';
 
 	const executions = await getFleetExecutions();
-	const execution = executions.find((candidate) => candidate.id === page.params.executionId) ?? null;
+	const execution =
+		executions.find((candidate) => candidate.id === page.params.executionId) ?? null;
 </script>
 
 <FleetExecutionDetailPage {execution} />

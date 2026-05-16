@@ -261,6 +261,46 @@ export function selectedEntries(entries: RemoteEntry[], selectedPaths: string[])
 	return entries.filter((entry) => selected.has(entry.path));
 }
 
+export function minimalRemoteEntries(entriesToCollapse: RemoteEntry[]): RemoteEntry[] {
+	const uniqueEntries = uniqueRemoteEntries(entriesToCollapse).sort((left, right) => {
+		const leftPath = normalizePath(left.path);
+		const rightPath = normalizePath(right.path);
+		return leftPath.localeCompare(rightPath);
+	});
+
+	const keptDirectories: string[] = [];
+	const minimal: RemoteEntry[] = [];
+
+	for (const entry of uniqueEntries) {
+		const normalized = normalizePath(entry.path);
+		if (keptDirectories.some((directory) => isDescendantPath(normalized, directory))) continue;
+		minimal.push(entry);
+		if (entry.type === 'directory') keptDirectories.push(normalized);
+	}
+
+	return minimal;
+}
+
+export function uniqueRemoteEntries(entriesToDedupe: RemoteEntry[]): RemoteEntry[] {
+	const seen: string[] = [];
+	const unique: RemoteEntry[] = [];
+
+	for (const entry of entriesToDedupe) {
+		const normalized = normalizePath(entry.path);
+		if (seen.includes(normalized)) continue;
+		seen.push(normalized);
+		unique.push(entry);
+	}
+
+	return unique;
+}
+
+export function isDescendantPath(pathToCheck: string, ancestorPath: string): boolean {
+	const pathWithSlash = `${normalizePath(pathToCheck)}/`;
+	const ancestorWithSlash = `${normalizePath(ancestorPath).replace(/\/$/, '')}/`;
+	return pathWithSlash.startsWith(ancestorWithSlash) && pathWithSlash !== ancestorWithSlash;
+}
+
 export function orderedRemoteEntriesForDelete(entries: RemoteEntry[]): RemoteEntry[] {
 	const uniqueByPath = new Map<string, RemoteEntry>();
 

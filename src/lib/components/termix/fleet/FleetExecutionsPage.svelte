@@ -35,7 +35,10 @@
 				</div>
 				<div class="flex justify-between">
 					<span class="text-muted-foreground">Active</span>
-					<span>{executions.filter((job) => job.status === 'queued' || job.status === 'running').length}</span>
+					<span
+						>{executions.filter((job) => job.status === 'queued' || job.status === 'running')
+							.length}</span
+					>
 				</div>
 				<div class="flex justify-between">
 					<span class="text-muted-foreground">Failed targets</span>

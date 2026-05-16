@@ -4,7 +4,6 @@
 		BadgeCheck,
 		Ban,
 		Cable,
-		Clock3,
 		FolderKanban,
 		Server,
 		Settings2,
@@ -21,8 +20,6 @@
 		promoteAdminUser,
 		terminateAdminLiveSshSession,
 		terminateAdminSshTunnelSession,
-		type AdminConnectionHistoryEntry,
-		type AdminFileTransferActivitySummary,
 		type AdminLiveSshSessionSummary,
 		type AdminOverview,
 		type AdminSshTunnelSummary,
@@ -38,13 +35,13 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import * as Table from '$lib/components/ui/table';
 	import * as Tabs from '$lib/components/ui/tabs';
-	import type { Component } from 'svelte';
-	import {
-		adminFailureDetail,
-		adminFailureTitle,
-		adminProtocolLabel,
-		formatAdminDuration
-	} from './admin-visibility';
+	import AdminConnectionHistoryTable from './AdminConnectionHistoryTable.svelte';
+	import AdminFileTransferActivityTable from './AdminFileTransferActivityTable.svelte';
+	import AdminLiveSessionsTable from './AdminLiveSessionsTable.svelte';
+	import AdminMetricCard from './AdminMetricCard.svelte';
+	import AdminSshTunnelsTable from './AdminSshTunnelsTable.svelte';
+	import AdminSettingsSummary from './AdminSettingsSummary.svelte';
+	import AdminTabsList from './AdminTabsList.svelte';
 
 	const overviewQuery = getAdminOverview();
 	const initialOverview = await overviewQuery;
@@ -156,42 +153,27 @@
 	</div>
 
 	<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-		{@render MetricCard({
-			icon: Users,
-			label: 'Users',
-			value: overview.users.length,
-			detail: 'Accounts'
-		})}
-		{@render MetricCard({
-			icon: FolderKanban,
-			label: 'Workspaces',
-			value: overview.workspaces.length,
-			detail: 'Host folders'
-		})}
-		{@render MetricCard({
-			icon: SquareTerminal,
-			label: 'Live SSH',
-			value: activeLiveSessions,
-			detail: 'Attachable'
-		})}
-		{@render MetricCard({
-			icon: Cable,
-			label: 'SSH tunnels',
-			value: activeSshTunnels,
-			detail: 'Active'
-		})}
-		{@render MetricCard({
-			icon: Server,
-			label: 'FTP/FTPS',
-			value: activeFileTransfers,
-			detail: 'Running'
-		})}
-		{@render MetricCard({
-			icon: Activity,
-			label: 'Failures',
-			value: failedConnections,
-			detail: 'Recent history'
-		})}
+		<AdminMetricCard icon={Users} label="Users" value={overview.users.length} detail="Accounts" />
+		<AdminMetricCard
+			icon={FolderKanban}
+			label="Workspaces"
+			value={overview.workspaces.length}
+			detail="Host folders"
+		/>
+		<AdminMetricCard
+			icon={SquareTerminal}
+			label="Live SSH"
+			value={activeLiveSessions}
+			detail="Attachable"
+		/>
+		<AdminMetricCard icon={Cable} label="SSH tunnels" value={activeSshTunnels} detail="Active" />
+		<AdminMetricCard icon={Server} label="FTP/FTPS" value={activeFileTransfers} detail="Running" />
+		<AdminMetricCard
+			icon={Activity}
+			label="Failures"
+			value={failedConnections}
+			detail="Recent history"
+		/>
 	</div>
 
 	{#if notice}
@@ -211,15 +193,7 @@
 	{/if}
 
 	<Tabs.Root bind:value={activeTab} class="min-h-0">
-		<Tabs.List class="max-w-full flex-wrap justify-start">
-			<Tabs.Trigger value="users"><Users class="size-4" />Users</Tabs.Trigger>
-			<Tabs.Trigger value="workspaces"><FolderKanban class="size-4" />Workspaces</Tabs.Trigger>
-			<Tabs.Trigger value="live"><SquareTerminal class="size-4" />Live sessions</Tabs.Trigger>
-			<Tabs.Trigger value="tunnels"><Cable class="size-4" />Tunnels</Tabs.Trigger>
-			<Tabs.Trigger value="transfers"><Server class="size-4" />FTP/FTPS</Tabs.Trigger>
-			<Tabs.Trigger value="history"><Clock3 class="size-4" />History</Tabs.Trigger>
-			<Tabs.Trigger value="settings"><Settings2 class="size-4" />Settings</Tabs.Trigger>
-		</Tabs.List>
+		<AdminTabsList />
 
 		<Tabs.Content value="users">
 			{@render UsersTable({ overview, pendingAction, promoteUser, disableUser })}
@@ -230,61 +204,50 @@
 		</Tabs.Content>
 
 		<Tabs.Content value="live">
-			{@render LiveSessionsTable({
-				sessions: overview.liveSshSessions,
-				pendingAction,
-				terminateSession
-			})}
+			<AdminLiveSessionsTable
+				sessions={overview.liveSshSessions}
+				{pendingAction}
+				{terminateSession}
+				{statusVariant}
+				{formatDate}
+				{shortId}
+			/>
 		</Tabs.Content>
 
 		<Tabs.Content value="tunnels">
-			{@render SshTunnelsTable({
-				sessions: overview.sshTunnels,
-				pendingAction,
-				terminateTunnel
-			})}
+			<AdminSshTunnelsTable
+				sessions={overview.sshTunnels}
+				{pendingAction}
+				{terminateTunnel}
+				{statusVariant}
+				{formatDate}
+				{shortId}
+			/>
 		</Tabs.Content>
 
 		<Tabs.Content value="transfers">
-			{@render FileTransferActivityTable({ sessions: overview.fileTransferActivity })}
+			<AdminFileTransferActivityTable
+				sessions={overview.fileTransferActivity}
+				{statusVariant}
+				{formatDate}
+				{shortId}
+			/>
 		</Tabs.Content>
 
 		<Tabs.Content value="history">
-			{@render ConnectionHistoryTable({ sessions: overview.connectionHistory })}
+			<AdminConnectionHistoryTable
+				sessions={overview.connectionHistory}
+				{statusVariant}
+				{formatDate}
+				{shortId}
+			/>
 		</Tabs.Content>
 
 		<Tabs.Content value="settings">
-			{@render SettingsSummary({ overview })}
+			<AdminSettingsSummary {overview} />
 		</Tabs.Content>
 	</Tabs.Root>
 </section>
-
-{#snippet MetricCard({
-	icon: Icon,
-	label,
-	value,
-	detail
-}: {
-	icon: Component;
-	label: string;
-	value: number;
-	detail: string;
-})}
-	<Card.Root>
-		<Card.Content class="flex items-center justify-between gap-3 p-4">
-			<div class="min-w-0">
-				<p class="text-sm text-muted-foreground">{label}</p>
-				<p class="text-2xl font-semibold tabular-nums">{value}</p>
-				<p class="text-xs text-muted-foreground">{detail}</p>
-			</div>
-			<span
-				class="grid size-10 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground"
-			>
-				<Icon class="size-5" />
-			</span>
-		</Card.Content>
-	</Card.Root>
-{/snippet}
 
 {#snippet UsersTable({
 	overview,
@@ -423,7 +386,6 @@
 		</Card.Content>
 	</Card.Root>
 {/snippet}
-
 {#snippet WorkspacesTable({ workspaces }: { workspaces: AdminWorkspaceSummary[] })}
 	<Card.Root>
 		<Card.Header>
@@ -470,293 +432,4 @@
 			</Table.Root>
 		</Card.Content>
 	</Card.Root>
-{/snippet}
-
-{#snippet LiveSessionsTable({
-	sessions,
-	pendingAction,
-	terminateSession
-}: {
-	sessions: AdminLiveSshSessionSummary[];
-	pendingAction: string | null;
-	terminateSession: (session: AdminLiveSshSessionSummary) => Promise<void>;
-})}
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>Live SSH sessions</Card.Title>
-			<Card.Description>{sessions.length} visible terminal sessions</Card.Description>
-		</Card.Header>
-		<Card.Content class="overflow-x-auto">
-			<Table.Root>
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Session</Table.Head>
-						<Table.Head>User</Table.Head>
-						<Table.Head>Host</Table.Head>
-						<Table.Head>Status</Table.Head>
-						<Table.Head>Updated</Table.Head>
-						<Table.Head class="text-right">Actions</Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each sessions as session (session.id)}
-						<Table.Row>
-							<Table.Cell>
-								<div class="font-medium">{session.title}</div>
-								<div class="text-xs text-muted-foreground">{shortId(session.id)}</div>
-							</Table.Cell>
-							<Table.Cell>{session.username}</Table.Cell>
-							<Table.Cell>
-								<div>{session.hostName}</div>
-								<div class="text-xs text-muted-foreground">{session.hostname}</div>
-							</Table.Cell>
-							<Table.Cell>
-								<Badge variant={statusVariant(session.status)}>{session.status}</Badge>
-							</Table.Cell>
-							<Table.Cell>{formatDate(session.updatedAt)}</Table.Cell>
-							<Table.Cell>
-								<div class="flex justify-end">
-									<Button
-										size="sm"
-										variant="destructive"
-										disabled={!session.canTerminate || pendingAction === `terminate:${session.id}`}
-										onclick={() => terminateSession(session)}
-									>
-										<SquareTerminal class="size-4" />
-										Terminate
-									</Button>
-								</div>
-							</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-		</Card.Content>
-	</Card.Root>
-{/snippet}
-
-{#snippet SshTunnelsTable({
-	sessions,
-	pendingAction,
-	terminateTunnel
-}: {
-	sessions: AdminSshTunnelSummary[];
-	pendingAction: string | null;
-	terminateTunnel: (session: AdminSshTunnelSummary) => Promise<void>;
-})}
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>SSH tunnels</Card.Title>
-			<Card.Description>{sessions.length} active tunnel sessions</Card.Description>
-		</Card.Header>
-		<Card.Content class="overflow-x-auto">
-			<Table.Root>
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Tunnel</Table.Head>
-						<Table.Head>User</Table.Head>
-						<Table.Head>Status</Table.Head>
-						<Table.Head>Runtime</Table.Head>
-						<Table.Head>Updated</Table.Head>
-						<Table.Head class="text-right">Actions</Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each sessions as session (session.id)}
-						<Table.Row>
-							<Table.Cell>
-								<div class="font-medium">{session.hostName ?? 'Direct tunnel'}</div>
-								<div class="text-xs text-muted-foreground">
-									{session.hostname ?? shortId(session.id)}
-								</div>
-							</Table.Cell>
-							<Table.Cell>{session.username}</Table.Cell>
-							<Table.Cell>
-								<Badge variant={statusVariant(session.status)}>{session.status}</Badge>
-							</Table.Cell>
-							<Table.Cell>{formatAdminDuration(session.durationMs)}</Table.Cell>
-							<Table.Cell>{formatDate(session.updatedAt)}</Table.Cell>
-							<Table.Cell>
-								<div class="flex justify-end">
-									<Button
-										size="sm"
-										variant="destructive"
-										disabled={!session.canTerminate ||
-											pendingAction === `terminate:tunnel:${session.id}`}
-										onclick={() => terminateTunnel(session)}
-									>
-										<Cable class="size-4" />
-										Terminate
-									</Button>
-								</div>
-							</Table.Cell>
-						</Table.Row>
-					{:else}
-						<Table.Row>
-							<Table.Cell colspan={6} class="text-sm text-muted-foreground">
-								No active SSH tunnels.
-							</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-		</Card.Content>
-	</Card.Root>
-{/snippet}
-
-{#snippet FileTransferActivityTable({ sessions }: { sessions: AdminFileTransferActivitySummary[] })}
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>FTP/FTPS activity</Card.Title>
-			<Card.Description>{sessions.length} active transfer sessions</Card.Description>
-		</Card.Header>
-		<Card.Content class="overflow-x-auto">
-			<Table.Root>
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Session</Table.Head>
-						<Table.Head>User</Table.Head>
-						<Table.Head>Protocol</Table.Head>
-						<Table.Head>Status</Table.Head>
-						<Table.Head>Runtime</Table.Head>
-						<Table.Head>Updated</Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each sessions as session (session.id)}
-						<Table.Row>
-							<Table.Cell>
-								<div class="font-medium">{session.hostName ?? 'Direct transfer'}</div>
-								<div class="text-xs text-muted-foreground">
-									{session.hostname ?? shortId(session.id)}
-								</div>
-							</Table.Cell>
-							<Table.Cell>{session.username}</Table.Cell>
-							<Table.Cell>
-								<Badge variant="outline"
-									><Server class="size-3" />{adminProtocolLabel(session.protocol)}</Badge
-								>
-							</Table.Cell>
-							<Table.Cell>
-								<Badge variant={statusVariant(session.status)}>{session.status}</Badge>
-							</Table.Cell>
-							<Table.Cell>{formatAdminDuration(session.durationMs)}</Table.Cell>
-							<Table.Cell>{formatDate(session.updatedAt)}</Table.Cell>
-						</Table.Row>
-					{:else}
-						<Table.Row>
-							<Table.Cell colspan={6} class="text-sm text-muted-foreground">
-								No active FTP or FTPS sessions.
-							</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-		</Card.Content>
-	</Card.Root>
-{/snippet}
-
-{#snippet ConnectionHistoryTable({ sessions }: { sessions: AdminConnectionHistoryEntry[] })}
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>Connection history</Card.Title>
-			<Card.Description>{sessions.length} recent connection records</Card.Description>
-		</Card.Header>
-		<Card.Content class="overflow-x-auto">
-			<Table.Root>
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Connection</Table.Head>
-						<Table.Head>User</Table.Head>
-						<Table.Head>Protocol</Table.Head>
-						<Table.Head>Status</Table.Head>
-						<Table.Head>Started</Table.Head>
-						<Table.Head>Ended</Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each sessions as session (session.id)}
-						<Table.Row>
-							<Table.Cell>
-								<div class="font-medium">{session.hostName ?? 'Direct launch'}</div>
-								<div class="text-xs text-muted-foreground">
-									{session.hostname ?? shortId(session.id)}
-								</div>
-							</Table.Cell>
-							<Table.Cell>{session.username}</Table.Cell>
-							<Table.Cell>
-								<Badge variant="outline"
-									><Cable class="size-3" />{adminProtocolLabel(session.protocol)}</Badge
-								>
-							</Table.Cell>
-							<Table.Cell>
-								<Badge variant={statusVariant(session.status)}>{session.status}</Badge>
-								{#if session.failureReason || session.errorCode}
-									<div class="mt-1 text-xs text-destructive">
-										{adminFailureTitle(session.failureReason, session.errorCode)}
-									</div>
-									{#if adminFailureDetail(session.failureReason, session.errorCode)}
-										<div class="text-xs text-muted-foreground">
-											{adminFailureDetail(session.failureReason, session.errorCode)}
-										</div>
-									{/if}
-								{/if}
-							</Table.Cell>
-							<Table.Cell>{formatDate(session.startedAt)}</Table.Cell>
-							<Table.Cell>{formatDate(session.endedAt)}</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-		</Card.Content>
-	</Card.Root>
-{/snippet}
-
-{#snippet SettingsSummary({ overview }: { overview: AdminOverview })}
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>Application settings</Card.Title>
-			<Card.Description>Current session defaults</Card.Description>
-		</Card.Header>
-		<Card.Content class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-			{@render SettingTile({
-				icon: Clock3,
-				label: 'Ticket TTL',
-				value: `${overview.settings.ticketTtlSeconds}s`
-			})}
-			{@render SettingTile({
-				icon: SquareTerminal,
-				label: 'Terminal font',
-				value: `${overview.settings.terminalFontSize}px`
-			})}
-			{@render SettingTile({
-				icon: Cable,
-				label: 'Clipboard sync',
-				value: overview.settings.clipboardSync ? 'Enabled' : 'Disabled'
-			})}
-			{@render SettingTile({
-				icon: Server,
-				label: 'Last tab',
-				value: overview.settings.rememberLastActiveTab ? 'Remembered' : 'Default'
-			})}
-		</Card.Content>
-	</Card.Root>
-{/snippet}
-
-{#snippet SettingTile({
-	icon: Icon,
-	label,
-	value
-}: {
-	icon: Component;
-	label: string;
-	value: string;
-})}
-	<div class="rounded-md border p-3">
-		<div class="flex items-center gap-2 text-sm text-muted-foreground">
-			<Icon class="size-4" />
-			{label}
-		</div>
-		<div class="mt-2 text-lg font-semibold">{value}</div>
-	</div>
 {/snippet}

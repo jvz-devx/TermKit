@@ -631,18 +631,22 @@ describe('SshLiveSessionService', () => {
 		const repository = new InMemoryTermixServicesRepository();
 		const hosts = new HostService(repository);
 		const closedSessionIds: string[] = [];
-		let service: SshLiveSessionService;
-		service = new SshLiveSessionService(repository, hosts, repository, {
-			liveManager: {
-				close(id) {
-					closedSessionIds.push(id);
-					void service
-						.end('user-1', id, new Date('2026-05-13T12:00:02.000Z'))
-						.catch(() => undefined);
-					return true;
+		const service: SshLiveSessionService = new SshLiveSessionService(
+			repository,
+			hosts,
+			repository,
+			{
+				liveManager: {
+					close(id) {
+						closedSessionIds.push(id);
+						void service
+							.end('user-1', id, new Date('2026-05-13T12:00:02.000Z'))
+							.catch(() => undefined);
+						return true;
+					}
 				}
 			}
-		});
+		);
 		const host = await hosts.create('user-1', {
 			name: 'Shell',
 			protocol: 'ssh',
