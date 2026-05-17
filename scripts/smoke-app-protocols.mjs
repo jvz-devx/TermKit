@@ -3,7 +3,6 @@ import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createServer as createHttpServer } from 'node:http';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +10,7 @@ import { promisify } from 'node:util';
 import { chromium } from 'playwright';
 import postgres from 'postgres';
 import { WebSocket } from 'ws';
-import { createFileFixtureHelpers } from './smoke-app-file-fixtures.mjs';
+import { createFtpFixtureServer, createSshFixtureServer } from './smoke-app-protocol-fixtures.mjs';
 import {
 	createTelnetFixtureServer,
 	createVncFixtureServer,
@@ -39,12 +38,7 @@ import {
 	writeText
 } from './smoke-app-runtime.mjs';
 
-const require = createRequire(import.meta.url);
-const { Server: SshServer, utils } = require('ssh2');
 const execFile = promisify(execFileCallback);
-const { createFtpFixtureServer, installSftpFixtureServer } = createFileFixtureHelpers(
-	utils.sftp.STATUS_CODE
-);
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const builtServerEntry = resolve(root, 'build/server.js');
@@ -1570,56 +1564,6 @@ async function startProtocolFixtures() {
 			]);
 		}
 	};
-}
-
-function createSshFixtureServer() {
-	const files = new Map([['/smoke.txt', Buffer.from('hello-from-sftp\n')]]);
-	const directories = new Set(['/']);
-	const clients = new Set();
-	const hostKeys = [utils.generateKeyPairSync('ed25519').private];
-	const server = new SshServer({ hostKeys }, (client) => {
-		clients.add(client);
-		client.once('close', () => clients.delete(client));
-		client
-			.on('error', () => clients.delete(client))
-			.on('authentication', (context) => {
-				if (
-					context.method === 'password' &&
-					context.username === 'smoke' &&
-					context.password === 'smoke-password'
-				) {
-					context.accept();
-					return;
-				}
-				context.reject();
-			})
-			.on('ready', () => {
-				client.on('session', (accept) => {
-					const session = accept();
-					session.on('pty', (acceptPty) => acceptPty?.());
-					session.on('shell', (acceptShell) => {
-						const stream = acceptShell();
-						stream.write('ssh-ready\n');
-						stream.on('data', (chunk) => {
-							if (chunk.includes(Buffer.from('smoke-shell'))) {
-								stream.write('ssh-echo:smoke-shell\n');
-								stream.exit(0);
-								stream.end();
-							}
-						});
-					});
-					session.on('sftp', (acceptSftp) =>
-						installSftpFixtureServer(acceptSftp(), { files, directories })
-					);
-				});
-			});
-	});
-
-	server.closeAllClients = () => {
-		for (const client of clients) client.end();
-		clients.clear();
-	};
-	return server;
 }
 
 async function createTemporaryTlsIdentity() {
