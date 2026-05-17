@@ -5,7 +5,6 @@ import { resolve } from '$app/paths';
 import { page } from '$app/state';
 import { onMount } from 'svelte';
 import { SvelteURLSearchParams } from 'svelte/reactivity';
-import type { BadgeVariant } from '$lib/components/ui/badge';
 import { getAppSettings, type BasicAppSettings } from '$lib/remotes/settings.remote';
 import { terminalFontSize } from '$lib/termix/host-metadata';
 import { listHosts, type HostSummary } from '$lib/remotes/hosts.remote';
@@ -63,6 +62,17 @@ import {
 	rememberedWorkspaceProtocol,
 	rememberWorkspaceProtocol
 } from './session-workspace-persistence';
+import {
+	hostForWorkspacePane,
+	preferredLiveSshPaneId as getPreferredLiveSshPaneId
+} from './session-workspace-pane-hosts';
+import {
+	workspaceLayoutLabels,
+	workspacePaneKinds as getWorkspacePaneKinds,
+	workspacePaneSummary as getWorkspacePaneSummary,
+	workspaceStatus as getWorkspaceStatus,
+	workspaceStatusVariant as getWorkspaceStatusVariant
+} from './session-workspace-status';
 
 type LauncherProtocolFilter = WorkspaceProtocol | 'all';
 type SessionLayoutQuery = {
@@ -94,13 +104,6 @@ export function createSessionWorkspaceController() {
 		rdpPerformancePreset: 'balanced',
 		rdpAudioRedirection: false,
 		rememberLastActiveTab: true
-	};
-	const layoutLabels: Record<SessionLayoutKind, string> = {
-		single: 'Single pane',
-		'two-columns': 'Two columns',
-		'two-rows': 'Two rows',
-		three: 'Three panes',
-		quad: '2x2 grid'
 	};
 	let reconnectNonce = $state(0);
 	let pausedSessionKey = $state<string | null>(null);
@@ -223,38 +226,39 @@ export function createSessionWorkspaceController() {
 		activeWorkspaceLayout.panes.some((pane) => pane.kind === 'ssh')
 	);
 	const isSinglePaneLayout = $derived(activeWorkspaceLayout.layout === 'single');
-	const workspaceLayoutLabel = $derived(layoutLabels[activeWorkspaceLayout.layout]);
+	const workspaceLayoutLabel = $derived(workspaceLayoutLabels[activeWorkspaceLayout.layout]);
 	const workspacePaneSummary = $derived(
-		isSinglePaneLayout
-			? `${activeProtocol.toUpperCase()} session`
-			: `${workspaceLayoutLabel} workspace`
+		getWorkspacePaneSummary({
+			isSinglePaneLayout,
+			activeProtocol,
+			workspaceLayoutLabel
+		})
 	);
 	const workspacePaneKinds = $derived(
-		[
-			...new Set(
-				activeWorkspaceLayout.panes.map((pane) =>
-					pane.kind === 'ssh-tunnel' ? 'SSH tunnel' : pane.kind.toUpperCase()
-				)
-			)
-		].join(' + ')
+		getWorkspacePaneKinds(activeWorkspaceLayout.panes.map((pane) => pane.kind))
 	);
 	const detachedSshCount = $derived(
 		selectedHostLiveSshSessions.filter((session) => session.status === 'detached').length
 	);
-	const workspaceStatus = $derived.by(() => {
-		if (!selectedHost) return 'No host';
-		if (liveSshError) return 'Failure';
-		if (sessionPaused) return 'Closed';
-		if (activeProtocol === 'ssh' && Object.keys(liveSshAttachByPaneId).length) return 'Attached';
-		if (activeProtocol === 'ssh' && detachedSshCount) return `${detachedSshCount} detached`;
-		return 'Ready';
-	});
-	const workspaceStatusVariant = $derived.by<BadgeVariant>(() => {
-		if (liveSshError) return 'destructive';
-		if (sessionPaused) return 'outline';
-		if (activeProtocol === 'ssh' && Object.keys(liveSshAttachByPaneId).length) return 'secondary';
-		return 'outline';
-	});
+	const attachedLiveSshPaneCount = $derived(Object.keys(liveSshAttachByPaneId).length);
+	const workspaceStatus = $derived(
+		getWorkspaceStatus({
+			hasSelectedHost: Boolean(selectedHost),
+			hasLiveSshError: Boolean(liveSshError),
+			sessionPaused,
+			activeProtocol,
+			attachedLiveSshPaneCount,
+			detachedSshCount
+		})
+	);
+	const workspaceStatusVariant = $derived(
+		getWorkspaceStatusVariant({
+			hasLiveSshError: Boolean(liveSshError),
+			sessionPaused,
+			activeProtocol,
+			attachedLiveSshPaneCount
+		})
+	);
 	onMount(() => {
 		const refreshTimer = window.setInterval(
 			() => void listLiveSshSessions().refresh(),
@@ -667,24 +671,17 @@ export function createSessionWorkspaceController() {
 	}
 
 	function hostForPane(pane: { hostId: string | null }) {
-		return hosts.find((host) => host.id === pane.hostId) ?? selectedHost;
+		return hostForWorkspacePane({ hosts, selectedHost, pane });
 	}
 
 	function preferredLiveSshPaneId(hostId: string) {
-		const matchingPane = activeWorkspaceLayout.panes.find((pane) => {
-			if (pane.kind !== 'ssh') return false;
-			if (liveSshAttachByPaneId[pane.id]) return false;
-			return hostForPane(pane)?.id === hostId;
+		return getPreferredLiveSshPaneId({
+			panes: activeWorkspaceLayout.panes,
+			hosts,
+			selectedHost,
+			liveSshAttachByPaneId,
+			hostId
 		});
-		if (matchingPane) return matchingPane.id;
-
-		return (
-			activeWorkspaceLayout.panes.find(
-				(pane) => pane.kind === 'ssh' && !liveSshAttachByPaneId[pane.id]
-			)?.id ??
-			activeWorkspaceLayout.panes.find((pane) => pane.kind === 'ssh')?.id ??
-			null
-		);
 	}
 
 	function attachableLiveSshSessionsForHost(hostId: string) {

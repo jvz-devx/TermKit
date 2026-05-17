@@ -1,6 +1,5 @@
 import { onMount } from 'svelte';
 import type { UserInteraction } from '@devolutions/iron-remote-desktop';
-import type { BadgeVariant } from '$lib/components/ui/badge';
 import type { RdpClipboardPolicy, RdpPerformancePreset } from '$lib/remotes/settings.remote';
 import { type SessionLaunch } from '$lib/remotes/sessions.remote';
 import {
@@ -40,9 +39,26 @@ import {
 	scaleFocusDetail
 } from './rdp-display-sizing';
 import { createRdpFocusHost } from './rdp-focus-host';
+import {
+	canCopyFileToRemoteClipboard,
+	canSaveRemoteClipboardLocally,
+	canStartRdpConnection,
+	rdpAudioStatusLabel,
+	rdpClipboardStatusLabel,
+	rdpClipboardStatusVariant,
+	rdpFileTransferBusy,
+	rdpMultiMonitorLabel,
+	rdpReconnectLabel,
+	rdpSavedPasswordAvailable,
+	rdpStatusLabel,
+	rdpStatusTitle,
+	rdpStatusVariant,
+	rdpTargetCredentialState,
+	type RdpBootstrapWithFeatures,
+	type RdpConnectionState
+} from './rdp-pane-state';
 
 type RdpBackendModule = typeof import('@devolutions/iron-remote-desktop-rdp');
-type ConnectionState = 'loading' | 'ready' | 'connecting' | 'connected' | 'error' | 'disconnected';
 type IronReadyDetail = { irgUserInteraction?: UserInteraction };
 type RdpClipboardData = {
 	addBinary(mimeType: string, binary: Uint8Array): void;
@@ -51,14 +67,6 @@ type RdpClipboardData = {
 };
 type RdpSessionClipboardBridge = {
 	onClipboardPaste(content: RdpClipboardData): Promise<void>;
-};
-type RdpGatewayFeatures = {
-	audioRedirection?: boolean;
-	audioRedirectionDisabledByEnv?: boolean;
-	multiMonitor?: boolean;
-};
-type RdpBootstrapWithFeatures = NonNullable<SessionLaunch['rdp']> & {
-	features?: RdpGatewayFeatures;
 };
 
 export type RdpPaneControllerProps = {
@@ -86,7 +94,7 @@ export function createRdpPaneController({
 	let api = $state<UserInteraction | null>(null);
 	let rdpModule = $state<RdpBackendModule | null>(null);
 	let webComponentReady = $state(false);
-	let connectionState = $state<ConnectionState>('loading');
+	let connectionState = $state<RdpConnectionState>('loading');
 	let detail = $state('Loading IronRDP client.');
 	let sessionUsername = $state('');
 	let sessionPassword = $state('');
@@ -113,31 +121,11 @@ export function createRdpPaneController({
 	let lifecycleFinalized = false;
 	let disposed = false;
 
-	const statusLabel = $derived(
-		error
-			? 'Launch failed'
-			: connectionState === 'connected'
-				? 'Connected'
-				: connectionState === 'connecting'
-					? 'Connecting'
-					: connectionState === 'ready'
-						? 'Gateway ready'
-						: connectionState === 'disconnected'
-							? 'Disconnected'
-							: connectionState === 'error'
-								? 'Client error'
-								: 'Loading client'
-	);
-	const statusTitle = $derived(lastFailure?.title ?? statusLabel);
-	const reconnectLabel = $derived(lastFailure?.reconnectLabel ?? 'Retry');
+	const statusLabel = $derived(rdpStatusLabel(error, connectionState));
+	const statusTitle = $derived(rdpStatusTitle(lastFailure, statusLabel));
+	const reconnectLabel = $derived(rdpReconnectLabel(lastFailure));
 	const launchFailure = $derived(error ? classifyRdpFailure(error, { phase: 'connect' }) : null);
-	const statusVariant: BadgeVariant = $derived(
-		error || connectionState === 'error'
-			? 'destructive'
-			: connectionState === 'connected' || connectionState === 'ready'
-				? 'secondary'
-				: 'outline'
-	);
+	const statusVariant = $derived(rdpStatusVariant(error, connectionState));
 	const rdpCredentials = $derived(launch?.rdpCredentials ?? null);
 	const gatewayFeatures = $derived((bootstrap as RdpBootstrapWithFeatures | null)?.features);
 	const effectiveClipboardPolicy = $derived(
@@ -154,83 +142,48 @@ export function createRdpPaneController({
 			(remoteDesktopElement && activeElement === remoteDesktopElement)
 		)
 	);
-	const audioStatusLabel = $derived(
-		gatewayFeatures?.audioRedirectionDisabledByEnv
-			? 'Audio disabled by deployment'
-			: audioRedirection && gatewayFeatures?.audioRedirection
-				? 'Audio requested'
-				: audioRedirection
-					? 'Audio unavailable'
-					: 'Audio off'
-	);
-	const multiMonitorLabel = $derived(
-		gatewayFeatures?.multiMonitor ? 'Multi-monitor ready' : 'Single monitor fallback'
-	);
+	const audioStatusLabel = $derived(rdpAudioStatusLabel(audioRedirection, gatewayFeatures));
+	const multiMonitorLabel = $derived(rdpMultiMonitorLabel(gatewayFeatures));
 	const clipboardStatusLabel = $derived(
-		automaticClipboardEnabled
-			? 'Clipboard on'
-			: effectiveClipboardPolicy.text || effectiveClipboardPolicy.files
-				? 'Clipboard restricted'
-				: 'Clipboard off'
+		rdpClipboardStatusLabel(automaticClipboardEnabled, effectiveClipboardPolicy)
 	);
-	const clipboardStatusVariant: BadgeVariant = $derived(
-		automaticClipboardEnabled
-			? 'secondary'
-			: effectiveClipboardPolicy.text || effectiveClipboardPolicy.files
-				? 'outline'
-				: 'destructive'
+	const clipboardStatusVariant = $derived(
+		rdpClipboardStatusVariant(automaticClipboardEnabled, effectiveClipboardPolicy)
 	);
 	const clipboardPolicyDetail = $derived(formatClipboardPolicyDetail(effectiveClipboardPolicy));
 	const savedPasswordAvailable = $derived(
-		rdpCredentials?.source === 'saved-password' &&
-			Boolean(stagedSavedPassword) &&
-			!savedPasswordCleared
+		rdpSavedPasswordAvailable(rdpCredentials, stagedSavedPassword, savedPasswordCleared)
 	);
-	const targetCredentialState = $derived.by(() => {
-		if (savedPasswordAvailable) {
-			return 'Saved RDP password is staged for this tab and will be cleared after connect.';
-		}
-
-		if (rdpCredentials?.unavailableReason) return rdpCredentials.unavailableReason;
-		if (rdpCredentials?.source === 'saved-password') {
-			return 'Saved RDP password is no longer staged; enter it locally to reconnect.';
-		}
-
-		return bootstrap?.credentialHint
-			? 'Saved password is held server-side; enter it locally to connect.'
-			: 'Enter the target RDP password locally to connect.';
-	});
+	const targetCredentialState = $derived(
+		rdpTargetCredentialState({ bootstrap, rdpCredentials, savedPasswordAvailable })
+	);
 	const canConnect = $derived(
-		Boolean(
-			bootstrap &&
-			api &&
-			rdpModule &&
-			(sessionPassword || stagedSavedPassword) &&
-			connectionState !== 'connecting' &&
-			connectionState !== 'connected'
-		)
+		canStartRdpConnection({
+			bootstrap,
+			api,
+			rdpModule,
+			sessionPassword,
+			stagedSavedPassword,
+			connectionState
+		})
 	);
-	const fileTransferBusy = $derived(
-		fileTransferState === 'copying' || fileTransferState === 'saving'
-	);
+	const fileTransferBusy = $derived(rdpFileTransferBusy(fileTransferState));
 	const canCopyFileToRemote = $derived(
-		Boolean(
-			effectiveClipboardPolicy.files &&
-			effectiveClipboardPolicy.clientToRemote &&
-			connectionState === 'connected' &&
-			rdpModule &&
-			activeClipboardSession &&
-			!fileTransferBusy
-		)
+		canCopyFileToRemoteClipboard({
+			effectiveClipboardPolicy,
+			connectionState,
+			rdpModule,
+			activeClipboardSession,
+			fileTransferBusy
+		})
 	);
 	const canSaveRemoteClipboard = $derived(
-		Boolean(
-			effectiveClipboardPolicy.files &&
-			effectiveClipboardPolicy.remoteToClient &&
-			connectionState === 'connected' &&
-			api &&
-			!fileTransferBusy
-		)
+		canSaveRemoteClipboardLocally({
+			effectiveClipboardPolicy,
+			connectionState,
+			api,
+			fileTransferBusy
+		})
 	);
 
 	onMount(() => {

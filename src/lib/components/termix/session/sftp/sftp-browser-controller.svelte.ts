@@ -41,6 +41,7 @@ import { createSftpClient, type ApiBase } from './sftp-client';
 import { formatModified, modeLabel, symlinkTarget } from './sftp-entry-format';
 import { searchRemoteEntries } from './sftp-remote-search';
 import { collectRecursiveDownloadFiles } from './sftp-recursive-download';
+import { createSftpTextEditor } from './sftp-text-editor.svelte';
 import { fetchDownloadBlob, saveDownloadedBlob, uploadFile } from './sftp-transfer-io';
 import { droppedUploadItems, type UploadItem } from './sftp-upload-drop';
 
@@ -73,9 +74,6 @@ export function createSftpBrowserController({
 	let remoteSearching = $state(false);
 	let bookmarks = $state<BookmarkEntry[]>([]);
 	let bookmarksOpen = $state(true);
-	let textPath = $state<string | null>(null);
-	let textValue = $state('');
-	let textDirty = $state(false);
 	let dragging = $state(false);
 	let transfer = $state<TransferProgress | null>(null);
 	let lastRetry = $state<(() => Promise<void>) | null>(null);
@@ -86,6 +84,15 @@ export function createSftpBrowserController({
 	let managerElement = $state<HTMLElement | null>(null);
 	let wideLayout = $state(false);
 	const client = createSftpClient(apiBase, hostId);
+	const editor = createSftpTextEditor({
+		client,
+		request,
+		getCurrentPath: () => path,
+		loadDirectory,
+		setLoading: (nextLoading) => (loading = nextLoading),
+		setError: (message) => (error = message),
+		setLastRetry: (retry) => (lastRetry = retry)
+	});
 
 	const visibleEntries = $derived(filterRemoteEntries(entries, searchQuery));
 	const selectedEntryList = $derived(selectedEntries(entries, selectedPaths));
@@ -527,40 +534,6 @@ export function createSftpBrowserController({
 		}
 	}
 
-	async function openText(entry = selected) {
-		if (!entry || entry.type !== 'file') return;
-		loading = true;
-		error = null;
-		lastRetry = () => openText(entry);
-		try {
-			textPath = entry.path;
-			textValue = await client.readText(entry);
-			textDirty = false;
-			lastRetry = null;
-		} catch (caught) {
-			error = caught instanceof Error ? caught.message : 'Could not read text file';
-		} finally {
-			loading = false;
-		}
-	}
-
-	async function saveText() {
-		if (!textPath) return;
-		const saved = await request(
-			'/text',
-			{
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ path: textPath, text: textValue })
-			},
-			'Could not save text file'
-		);
-		if (saved) {
-			textDirty = false;
-			await loadDirectory(path);
-		}
-	}
-
 	async function mutate(route: string, body: Record<string, unknown>, fallback: string) {
 		const succeeded = await request(
 			route,
@@ -627,7 +600,7 @@ export function createSftpBrowserController({
 			void loadDirectory(entry.path);
 			return;
 		}
-		if (entry.type === 'file') void openText(entry);
+		if (entry.type === 'file') void editor.openText(entry);
 	}
 
 	function downloadUrl(entry: RemoteEntry) {
@@ -875,22 +848,22 @@ export function createSftpBrowserController({
 			bookmarksOpen = value;
 		},
 		get textPath() {
-			return textPath;
+			return editor.textPath;
 		},
 		set textPath(value) {
-			textPath = value;
+			editor.textPath = value;
 		},
 		get textValue() {
-			return textValue;
+			return editor.textValue;
 		},
 		set textValue(value) {
-			textValue = value;
+			editor.textValue = value;
 		},
 		get textDirty() {
-			return textDirty;
+			return editor.textDirty;
 		},
 		set textDirty(value) {
-			textDirty = value;
+			editor.textDirty = value;
 		},
 		get dragging() {
 			return dragging;
@@ -992,7 +965,7 @@ export function createSftpBrowserController({
 			return downloadUrl;
 		},
 		get saveText() {
-			return saveText;
+			return editor.saveText;
 		},
 		get handleDrop() {
 			return handleDrop;
@@ -1019,7 +992,7 @@ export function createSftpBrowserController({
 			return renameSelected;
 		},
 		get openText() {
-			return openText;
+			return (entry = selected) => editor.openText(entry);
 		},
 		get downloadSelected() {
 			return downloadSelected;
