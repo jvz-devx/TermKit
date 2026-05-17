@@ -16,12 +16,14 @@ import {
 	type RdpScaleMode
 } from './rdp-operator-controls';
 import {
+	copyLocalFileToRemoteClipboard,
 	createClipboardTelemetry,
-	fileExceedsClipboardPolicy,
-	formatBytes,
 	nextClipboardTelemetry,
+	saveRemoteClipboardToBrowser,
 	type ClipboardTelemetry,
-	type FileTransferState
+	type FileTransferState,
+	type RdpClipboardData,
+	type RdpFileTransferUpdate
 } from './rdp-clipboard-transfer';
 import {
 	isGatewayExpired as isRdpGatewayExpired,
@@ -60,11 +62,6 @@ import {
 
 type RdpBackendModule = typeof import('@devolutions/iron-remote-desktop-rdp');
 type IronReadyDetail = { irgUserInteraction?: UserInteraction };
-type RdpClipboardData = {
-	addBinary(mimeType: string, binary: Uint8Array): void;
-	addText(mimeType: string, text: string): void;
-	free?(): void;
-};
 type RdpSessionClipboardBridge = {
 	onClipboardPaste(content: RdpClipboardData): Promise<void>;
 };
@@ -549,6 +546,12 @@ export function createRdpPaneController({
 		clipboardTelemetry = nextClipboardTelemetry(clipboardTelemetry, entry);
 	}
 
+	function applyFileTransferUpdate(update: RdpFileTransferUpdate) {
+		fileTransferState = update.state;
+		fileTransferDetail = update.detail;
+		pushClipboardTelemetry(update.telemetry);
+	}
+
 	function isGatewayExpired() {
 		return isRdpGatewayExpired(bootstrap?.expiresAt);
 	}
@@ -587,102 +590,25 @@ export function createRdpPaneController({
 			return;
 		}
 
-		if (fileExceedsClipboardPolicy(file, effectiveClipboardPolicy.fileTransferSizeLimitMiB)) {
-			fileTransferState = 'failed';
-			fileTransferDetail = `Selected file exceeds the ${effectiveClipboardPolicy.fileTransferSizeLimitMiB} MiB policy limit.`;
-			pushClipboardTelemetry(
-				createClipboardTelemetry({
-					direction: 'client-to-remote',
-					kind: 'file',
-					status: 'failed',
-					detail: `Rejected local file of ${formatBytes(file.size)} before clipboard transfer.`
-				})
-			);
-			return;
-		}
-
-		fileTransferState = 'copying';
-		fileTransferDetail = `Copying local file payload (${formatBytes(file.size)}) to the remote clipboard.`;
-		pushClipboardTelemetry(
-			createClipboardTelemetry({
-				direction: 'client-to-remote',
-				kind: 'file',
-				status: 'copying',
-				detail: `Copying local file payload (${formatBytes(file.size)}) to the remote clipboard.`
-			})
-		);
-
-		const clipboardData = new rdpModule.Backend.ClipboardData();
-		try {
-			clipboardData.addText('text/plain', file.name);
-			clipboardData.addBinary(
-				file.type || 'application/octet-stream',
-				new Uint8Array(await file.arrayBuffer())
-			);
-			await activeClipboardSession.onClipboardPaste(clipboardData);
-			fileTransferState = 'complete';
-			fileTransferDetail = `Local file payload (${formatBytes(file.size)}) is available through the RDP clipboard.`;
-			pushClipboardTelemetry(
-				createClipboardTelemetry({
-					direction: 'client-to-remote',
-					kind: 'file',
-					status: 'complete',
-					detail: `Local file payload (${formatBytes(file.size)}) reached the RDP clipboard.`
-				})
-			);
-		} catch (caught) {
-			fileTransferState = 'failed';
-			fileTransferDetail = `Could not copy local file payload: ${errorMessage(caught)}`;
-			pushClipboardTelemetry(
-				createClipboardTelemetry({
-					direction: 'client-to-remote',
-					kind: 'file',
-					status: 'failed',
-					detail: `Local file clipboard transfer failed: ${errorMessage(caught)}`
-				})
-			);
-		} finally {
-			clipboardData.free?.();
-		}
+		const currentRdpModule = rdpModule;
+		const clipboardSession = activeClipboardSession;
+		await copyLocalFileToRemoteClipboard({
+			file,
+			limitMiB: effectiveClipboardPolicy.fileTransferSizeLimitMiB,
+			createClipboardData: () => new currentRdpModule.Backend.ClipboardData(),
+			paste: (content) => clipboardSession.onClipboardPaste(content),
+			onUpdate: applyFileTransferUpdate
+		});
 	}
 
 	async function saveRemoteClipboardLocally() {
 		if (!api) return;
 
-		fileTransferState = 'saving';
-		fileTransferDetail = 'Saving the remote clipboard payload to the browser clipboard.';
-		pushClipboardTelemetry(
-			createClipboardTelemetry({
-				direction: 'remote-to-client',
-				kind: 'unknown',
-				status: 'saving',
-				detail: 'Saving remote clipboard payload without inspecting contents.'
-			})
-		);
-		try {
-			await api.saveRemoteClipboardData();
-			fileTransferState = 'complete';
-			fileTransferDetail = 'Remote clipboard payload was copied to the browser clipboard.';
-			pushClipboardTelemetry(
-				createClipboardTelemetry({
-					direction: 'remote-to-client',
-					kind: 'unknown',
-					status: 'complete',
-					detail: 'Remote clipboard payload was copied to the browser clipboard.'
-				})
-			);
-		} catch (caught) {
-			fileTransferState = 'failed';
-			fileTransferDetail = `Could not save remote clipboard data: ${errorMessage(caught)}`;
-			pushClipboardTelemetry(
-				createClipboardTelemetry({
-					direction: 'remote-to-client',
-					kind: 'unknown',
-					status: 'failed',
-					detail: `Remote clipboard save failed: ${errorMessage(caught)}`
-				})
-			);
-		}
+		const currentApi = api;
+		await saveRemoteClipboardToBrowser({
+			save: () => currentApi.saveRemoteClipboardData(),
+			onUpdate: applyFileTransferUpdate
+		});
 	}
 
 	return {
