@@ -23,10 +23,7 @@ import {
 	actionEntries,
 	deleteEntriesForSelection,
 	isAbortError,
-	moveTargetForEntry,
 	recursiveUploadLimitItems,
-	transferItemLabel,
-	uploadDirectoryPaths,
 	uploadQueuePlan,
 	type PendingRecursive
 } from './sftp-browser-actions';
@@ -40,9 +37,15 @@ import {
 import { createSftpClient, type ApiBase } from './sftp-client';
 import { formatModified, modeLabel, symlinkTarget } from './sftp-entry-format';
 import { searchRemoteEntries } from './sftp-remote-search';
-import { collectRecursiveDownloadFiles } from './sftp-recursive-download';
 import { createSftpTextEditor } from './sftp-text-editor.svelte';
-import { fetchDownloadBlob, saveDownloadedBlob, uploadFile } from './sftp-transfer-io';
+import {
+	assertUploadItemsWithinLimits,
+	runDeleteEntries,
+	runDownloadFiles,
+	runDownloadRecursive,
+	runMoveEntries,
+	runUploadItems
+} from './sftp-transfer-operations';
 import { droppedUploadItems, type UploadItem } from './sftp-upload-drop';
 
 export type SftpBrowserControllerProps = {
@@ -84,6 +87,18 @@ export function createSftpBrowserController({
 	let managerElement = $state<HTMLElement | null>(null);
 	let wideLayout = $state(false);
 	const client = createSftpClient(apiBase, hostId);
+	const transferRuntime = {
+		getCurrentPath: () => path,
+		getTransfer: () => transfer,
+		setTransfer: (nextTransfer: TransferProgress | null) => (transfer = nextTransfer),
+		setActiveAbort: (abort: (() => void) | null) => (activeAbort = abort),
+		markTransferCancelled: () => (transferCancelled = true),
+		assertTransferActive,
+		request,
+		loadDirectory,
+		listDirectory,
+		client
+	};
 	const editor = createSftpTextEditor({
 		client,
 		request,
@@ -168,102 +183,22 @@ export function createSftpBrowserController({
 	}
 
 	async function uploadItems(items: UploadItem[]) {
-		const hasRecursivePayload = items.some((item) => item.directories.length > 0);
-		if (hasRecursivePayload) {
-			try {
-				assertRecursiveUploadItemsWithinLimits(recursiveUploadLimitItems(items));
-			} catch (caught) {
-				error = caught instanceof Error ? caught.message : 'Recursive upload exceeds limits';
-				lastRetry = null;
-				return;
-			}
+		try {
+			assertUploadItemsWithinLimits(items);
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Recursive upload exceeds limits';
+			lastRetry = null;
+			return;
 		}
 
 		transferCancelled = false;
 		error = null;
 		lastRetry = () => uploadItems(items);
-		const totalBytes = items.reduce((total, item) => total + item.file.size, 0);
-		let completedBytes = 0;
-		let completedItems = 0;
-		transfer = createTransferProgress({
-			kind: 'upload',
-			label: transferItemLabel('Uploading', items.length),
-			totalBytes,
-			totalItems: items.length
-		});
-
-		try {
-			await ensureUploadDirectories(items);
-			for (const item of items) {
-				assertTransferActive();
-				transfer = updateTransferProgress(transfer, {
-					currentName: item.relativePath,
-					completedBytes,
-					completedItems
-				});
-				await uploadOne(item, (loaded) => {
-					if (!transfer) return;
-					transfer = updateTransferProgress(transfer, {
-						completedBytes: completedBytes + loaded,
-						completedItems,
-						currentName: item.relativePath
-					});
-				});
-				completedBytes += item.file.size;
-				completedItems += 1;
-				transfer = updateTransferProgress(transfer, {
-					completedBytes,
-					completedItems,
-					currentName: item.relativePath
-				});
-			}
-			if (transfer) transfer = updateTransferProgress(transfer, { status: 'complete' });
+		const result = await runUploadItems(transferRuntime, items);
+		if (result.error) error = result.error;
+		if (!result.cancelled && !result.error) {
 			lastRetry = null;
-			await loadDirectory(path);
-		} catch (caught) {
-			if (isAbortError(caught)) {
-				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
-				return;
-			}
-			error = caught instanceof Error ? caught.message : 'Could not upload file';
-			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
-		} finally {
-			activeAbort = null;
 		}
-	}
-
-	async function ensureUploadDirectories(items: UploadItem[]) {
-		for (const directory of uploadDirectoryPaths(items)) {
-			assertTransferActive();
-			await request(
-				'/mkdir',
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ path: joinPath(path, directory) })
-				},
-				'Could not create upload directory',
-				true
-			).catch(() => null);
-		}
-	}
-
-	function uploadOne(item: UploadItem, onProgress: (loaded: number) => void): Promise<void> {
-		const remotePath = joinPath(path, item.relativePath);
-		return uploadFile({
-			url: client.uploadUrl(remotePath),
-			file: item.file,
-			onProgress,
-			onAbortReady: (abort) => {
-				activeAbort = () => {
-					transferCancelled = true;
-					abort();
-				};
-			},
-			onAbortClear: () => {
-				activeAbort = null;
-			}
-		});
 	}
 
 	async function createFolder() {
@@ -287,48 +222,10 @@ export function createSftpBrowserController({
 		transferCancelled = false;
 		error = null;
 		lastRetry = () => moveEntries(entriesToMove, target);
-		transfer = createTransferProgress({
-			kind: 'move',
-			label: transferItemLabel('Moving', entriesToMove.length),
-			totalItems: entriesToMove.length
-		});
-
-		try {
-			for (let index = 0; index < entriesToMove.length; index += 1) {
-				assertTransferActive();
-				const entry = entriesToMove[index];
-				const to = moveTargetForEntry({ entry, entriesToMove, target, currentPath: path });
-				if (transfer) {
-					transfer = updateTransferProgress(transfer, {
-						currentName: entry.name,
-						completedItems: index
-					});
-				}
-				await request(
-					'/rename',
-					{
-						method: 'POST',
-						headers: { 'content-type': 'application/json' },
-						body: JSON.stringify({ from: entry.path, to })
-					},
-					'Could not rename path'
-				);
-			}
-			if (transfer) {
-				transfer = updateTransferProgress(transfer, {
-					completedItems: entriesToMove.length,
-					status: 'complete'
-				});
-			}
+		const result = await runMoveEntries(transferRuntime, entriesToMove, target);
+		if (result.error) error = result.error;
+		if (!result.cancelled && !result.error) {
 			lastRetry = null;
-			await loadDirectory(path);
-		} catch (caught) {
-			if (isAbortError(caught)) {
-				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
-				return;
-			}
-			error = caught instanceof Error ? caught.message : 'Could not rename path';
-			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
 		}
 	}
 
@@ -352,46 +249,13 @@ export function createSftpBrowserController({
 		transferCancelled = false;
 		error = null;
 		lastRetry = () => deleteSelected();
-		transfer = createTransferProgress({
-			kind: 'delete',
-			label: transferItemLabel('Deleting', entriesToDelete.length),
-			totalItems: entriesToDelete.length
-		});
-
-		try {
-			for (let index = 0; index < entriesToDelete.length; index += 1) {
-				assertTransferActive();
-				const entry = entriesToDelete[index];
-				if (transfer) {
-					transfer = updateTransferProgress(transfer, {
-						currentName: entry.name,
-						completedItems: index
-					});
-				}
-				await request(
-					`/delete?path=${encodeURIComponent(entry.path)}`,
-					{ method: 'DELETE' },
-					'Could not delete path'
-				);
-			}
+		const result = await runDeleteEntries(transferRuntime, entriesToDelete);
+		if (result.error) error = result.error;
+		if (!result.cancelled && !result.error) {
 			deleteDialogOpen = false;
 			selectedPaths = [];
 			selected = null;
-			if (transfer) {
-				transfer = updateTransferProgress(transfer, {
-					completedItems: entriesToDelete.length,
-					status: 'complete'
-				});
-			}
 			lastRetry = null;
-			await loadDirectory(path);
-		} catch (caught) {
-			if (isAbortError(caught)) {
-				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
-				return;
-			}
-			error = caught instanceof Error ? caught.message : 'Could not delete path';
-			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
 		}
 	}
 
@@ -415,48 +279,10 @@ export function createSftpBrowserController({
 		transferCancelled = false;
 		error = null;
 		lastRetry = () => downloadRecursive(uniqueEntriesToDownload);
-		transfer = createTransferProgress({
-			kind: 'download',
-			label: 'Preparing recursive download',
-			totalItems: fileTransferLimits.recursiveMaxFiles
-		});
-
-		try {
-			const uniqueFiles = await collectRecursiveDownloadFiles({
-				entries: uniqueEntriesToDownload,
-				listDirectory,
-				assertActive: assertTransferActive,
-				onProgress: ({ directory, scanned }) => {
-					if (transfer) {
-						transfer = updateTransferProgress(transfer, {
-							completedItems: Math.min(scanned, fileTransferLimits.recursiveMaxFiles),
-							currentName: directory
-						});
-					}
-				}
-			});
-			if (!uniqueFiles.length) {
-				if (transfer) {
-					transfer = updateTransferProgress(transfer, {
-						completedItems: 0,
-						currentName: null,
-						status: 'complete',
-						totalItems: 0
-					});
-				}
-				lastRetry = null;
-				return;
-			}
-
-			await downloadFiles(uniqueFiles);
+		const result = await runDownloadRecursive(transferRuntime, uniqueEntriesToDownload);
+		if (result.error) error = result.error;
+		if (!result.cancelled && !result.error) {
 			lastRetry = null;
-		} catch (caught) {
-			if (isAbortError(caught)) {
-				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
-				return;
-			}
-			error = caught instanceof Error ? caught.message : 'Could not prepare recursive download';
-			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
 		}
 	}
 
@@ -466,71 +292,10 @@ export function createSftpBrowserController({
 		transferCancelled = false;
 		error = null;
 		lastRetry = () => downloadFiles(uniqueFiles);
-		const totalBytes = uniqueFiles.reduce((total, entry) => total + Math.max(0, entry.size), 0);
-		let completedBytes = 0;
-		let completedItems = 0;
-		const controller = new AbortController();
-		activeAbort = () => {
-			transferCancelled = true;
-			controller.abort();
-		};
-		transfer = createTransferProgress({
-			kind: 'download',
-			label: transferItemLabel('Downloading', uniqueFiles.length, 'file'),
-			totalBytes,
-			totalItems: uniqueFiles.length
-		});
-
-		try {
-			for (const entry of uniqueFiles) {
-				assertTransferActive();
-				transfer = updateTransferProgress(transfer, {
-					completedBytes,
-					completedItems,
-					currentName: entry.name
-				});
-				const blob = await fetchDownloadBlob(
-					entry,
-					client.downloadUrl(entry),
-					controller.signal,
-					(bytes) => {
-						completedBytes += bytes;
-						if (transfer) {
-							transfer = updateTransferProgress(transfer, {
-								completedBytes,
-								completedItems,
-								currentName: entry.name
-							});
-						}
-					}
-				);
-				saveDownloadedBlob(entry, blob);
-				completedItems += 1;
-				if (entry.size > 0 && completedBytes < totalBytes) {
-					completedBytes = Math.max(completedBytes, Math.min(totalBytes, completedBytes));
-				}
-				transfer = updateTransferProgress(transfer, {
-					completedBytes,
-					completedItems,
-					currentName: entry.name
-				});
-			}
-			transfer = updateTransferProgress(transfer, {
-				completedBytes: totalBytes || completedBytes,
-				completedItems: uniqueFiles.length,
-				currentName: null,
-				status: 'complete'
-			});
+		const result = await runDownloadFiles(transferRuntime, uniqueFiles);
+		if (result.error) error = result.error;
+		if (!result.cancelled && !result.error) {
 			lastRetry = null;
-		} catch (caught) {
-			if (isAbortError(caught)) {
-				if (transfer) transfer = updateTransferProgress(transfer, { status: 'cancelled' });
-				return;
-			}
-			error = caught instanceof Error ? caught.message : 'Could not download file';
-			if (transfer) transfer = updateTransferProgress(transfer, { status: 'failed' });
-		} finally {
-			activeAbort = null;
 		}
 	}
 
