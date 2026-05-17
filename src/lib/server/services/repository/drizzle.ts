@@ -73,6 +73,7 @@ import {
 	type SshLiveSessionRow,
 	type WorkspaceRow
 } from './mappers';
+import { workspaceScopedUserFilter } from './drizzle-scope';
 
 type UserRow = typeof usersTable.$inferSelect;
 type ReturningInsert = {
@@ -243,26 +244,14 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 
 	async listHosts(userId: string): Promise<HostRecord[]> {
 		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
-		const scopeFilter =
-			workspaceIds.length > 0
-				? or(
-						and(eq(hosts.userId, userId), isNull(hosts.workspaceId)),
-						inArray(hosts.workspaceId, workspaceIds)
-					)
-				: and(eq(hosts.userId, userId), isNull(hosts.workspaceId));
+		const scopeFilter = workspaceScopedUserFilter(hosts, userId, workspaceIds);
 		const rows = await this.database.select().from(hosts).where(scopeFilter);
 		return rows.map(toHostRecord);
 	}
 
 	async getHost(userId: string, id: string): Promise<HostRecord | null> {
 		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
-		const scopeFilter =
-			workspaceIds.length > 0
-				? or(
-						and(eq(hosts.userId, userId), isNull(hosts.workspaceId)),
-						inArray(hosts.workspaceId, workspaceIds)
-					)
-				: and(eq(hosts.userId, userId), isNull(hosts.workspaceId));
+		const scopeFilter = workspaceScopedUserFilter(hosts, userId, workspaceIds);
 		const [row] = await this.database
 			.select()
 			.from(hosts)
@@ -327,13 +316,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 
 	async listCredentials(userId: string): Promise<CredentialRecord[]> {
 		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
-		const scopeFilter =
-			workspaceIds.length > 0
-				? or(
-						and(eq(credentials.userId, userId), isNull(credentials.workspaceId)),
-						inArray(credentials.workspaceId, workspaceIds)
-					)
-				: and(eq(credentials.userId, userId), isNull(credentials.workspaceId));
+		const scopeFilter = workspaceScopedUserFilter(credentials, userId, workspaceIds);
 		const rows = await this.database.select().from(credentials).where(scopeFilter);
 
 		return rows.map(toCredentialRecord);
@@ -341,13 +324,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 
 	async getCredential(userId: string, id: string): Promise<CredentialRecord | null> {
 		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
-		const scopeFilter =
-			workspaceIds.length > 0
-				? or(
-						and(eq(credentials.userId, userId), isNull(credentials.workspaceId)),
-						inArray(credentials.workspaceId, workspaceIds)
-					)
-				: and(eq(credentials.userId, userId), isNull(credentials.workspaceId));
+		const scopeFilter = workspaceScopedUserFilter(credentials, userId, workspaceIds);
 		const [row] = await this.database
 			.select()
 			.from(credentials)
@@ -499,13 +476,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 		filters: ConnectionHistoryFilters = {}
 	): Promise<ConnectionHistoryRecord[]> {
 		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
-		const scopeFilter =
-			workspaceIds.length > 0
-				? or(
-						and(eq(connectionSessions.userId, userId), isNull(connectionSessions.workspaceId)),
-						inArray(connectionSessions.workspaceId, workspaceIds)
-					)
-				: and(eq(connectionSessions.userId, userId), isNull(connectionSessions.workspaceId));
+		const scopeFilter = workspaceScopedUserFilter(connectionSessions, userId, workspaceIds);
 		const rows = await this.database.select().from(connectionSessions).where(scopeFilter);
 		const filteredRows = rows.filter((row) => matchesConnectionHistoryFilters(row, filters));
 		const hostMap = await this.getHostMap(
@@ -533,13 +504,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 		filters: SshTunnelProfileFilters = {}
 	): Promise<SshTunnelProfileRecord[]> {
 		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
-		const scopeFilter =
-			workspaceIds.length > 0
-				? or(
-						and(eq(sshTunnelProfiles.userId, userId), isNull(sshTunnelProfiles.workspaceId)),
-						inArray(sshTunnelProfiles.workspaceId, workspaceIds)
-					)
-				: and(eq(sshTunnelProfiles.userId, userId), isNull(sshTunnelProfiles.workspaceId));
+		const scopeFilter = workspaceScopedUserFilter(sshTunnelProfiles, userId, workspaceIds);
 		const rows = await this.database.select().from(sshTunnelProfiles).where(scopeFilter);
 
 		return rows
@@ -605,13 +570,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 		filters: SshTunnelSessionFilters = {}
 	): Promise<SshTunnelSessionRecord[]> {
 		const workspaceIds = await this.getAccessibleWorkspaceIds(userId);
-		const scopeFilter =
-			workspaceIds.length > 0
-				? or(
-						and(eq(sshTunnelSessions.userId, userId), isNull(sshTunnelSessions.workspaceId)),
-						inArray(sshTunnelSessions.workspaceId, workspaceIds)
-					)
-				: and(eq(sshTunnelSessions.userId, userId), isNull(sshTunnelSessions.workspaceId));
+		const scopeFilter = workspaceScopedUserFilter(sshTunnelSessions, userId, workspaceIds);
 		const rows = await this.database.select().from(sshTunnelSessions).where(scopeFilter);
 
 		return rows
