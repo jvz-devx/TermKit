@@ -1,2 +1,2 @@
-export type { CredentialMutationInput, CredentialSummary } from './termix-core.remote';
-export { deleteCredential, listCredentials, saveCredential } from './termix-core.remote';
+export type { CredentialMutationInput, CredentialSummary } from './credentials.impl.remote';
+export { deleteCredential, listCredentials, saveCredential } from './credentials.impl.remote';

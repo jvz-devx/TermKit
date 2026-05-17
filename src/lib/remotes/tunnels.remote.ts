@@ -4,7 +4,7 @@ export type {
 	SshTunnelProfileSummary,
 	SshTunnelSessionSummary,
 	StartSshTunnelInput
-} from './termix-core.remote';
+} from './tunnels.impl.remote';
 export {
 	deleteSshTunnelProfile,
 	inspectSshTunnelSession,
@@ -13,4 +13,4 @@ export {
 	saveSshTunnelProfile,
 	startSshTunnelSession,
 	terminateSshTunnelSession
-} from './termix-core.remote';
+} from './tunnels.impl.remote';

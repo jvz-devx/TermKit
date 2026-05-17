@@ -1,4 +1,3 @@
-/* eslint-disable svelte/prefer-svelte-reactivity */
 import { browser } from '$app/environment';
 import { onMount } from 'svelte';
 import {
@@ -7,12 +6,9 @@ import {
 	dirname,
 	fileTransferLimits,
 	filterRemoteEntries,
-	formatSize,
 	isDownloadableFile,
 	joinPath,
-	minimalRemoteEntries,
 	normalizePath,
-	normalizeTarget,
 	orderedRemoteEntriesForDelete,
 	selectedEntries,
 	selectionSummary,
@@ -23,6 +19,17 @@ import {
 	type RemoteEntry,
 	type TransferProgress
 } from './file-manager-state';
+import {
+	actionEntries,
+	deleteEntriesForSelection,
+	isAbortError,
+	moveTargetForEntry,
+	recursiveUploadLimitItems,
+	transferItemLabel,
+	uploadDirectoryPaths,
+	uploadQueuePlan,
+	type PendingRecursive
+} from './sftp-browser-actions';
 import {
 	addBookmarkEntry,
 	bookmarkStorageKey,
@@ -36,18 +43,6 @@ import { searchRemoteEntries } from './sftp-remote-search';
 import { collectRecursiveDownloadFiles } from './sftp-recursive-download';
 import { fetchDownloadBlob, saveDownloadedBlob, uploadFile } from './sftp-transfer-io';
 import { droppedUploadItems, type UploadItem } from './sftp-upload-drop';
-
-type PendingRecursive =
-	| {
-			kind: 'upload';
-			items: UploadItem[];
-			directoryCount: number;
-			totalBytes: number;
-	  }
-	| {
-			kind: 'download';
-			entries: RemoteEntry[];
-	  };
 
 export type SftpBrowserControllerProps = {
 	hostId: string;
@@ -142,53 +137,34 @@ export function createSftpBrowserController({
 	}
 
 	async function queueUploads(items: UploadItem[]) {
-		if (!items.length) return;
-		const oversized = items.find((item) => item.file.size > fileTransferLimits.uploadMaxBytes);
-		if (oversized) {
-			error = `${oversized.relativePath} exceeds the ${formatSize(fileTransferLimits.uploadMaxBytes)} upload limit`;
+		const plan = uploadQueuePlan(items);
+		if (plan.kind === 'empty') return;
+		if (plan.kind === 'error') {
+			error = plan.message;
 			lastRetry = null;
 			return;
 		}
-
-		const totalBytes = items.reduce((total, item) => total + item.file.size, 0);
-		const directories = new Set(items.flatMap((item) => item.directories));
-		const hasRecursivePayload = directories.size > 0;
-		if (hasRecursivePayload) {
+		if (plan.kind === 'recursive') {
 			try {
-				assertRecursiveUploadItemsWithinLimits(
-					items.map((item) => ({
-						size: item.file.size,
-						directories: item.directories
-					}))
-				);
+				assertRecursiveUploadItemsWithinLimits(recursiveUploadLimitItems(plan.pending.items));
 			} catch (caught) {
 				error = caught instanceof Error ? caught.message : 'Recursive upload exceeds limits';
 				lastRetry = null;
 				return;
 			}
-			pendingRecursive = {
-				kind: 'upload',
-				items,
-				directoryCount: directories.size,
-				totalBytes
-			};
+			pendingRecursive = plan.pending;
 			recursiveDialogOpen = true;
 			return;
 		}
 
-		await uploadItems(items);
+		await uploadItems(plan.items);
 	}
 
 	async function uploadItems(items: UploadItem[]) {
 		const hasRecursivePayload = items.some((item) => item.directories.length > 0);
 		if (hasRecursivePayload) {
 			try {
-				assertRecursiveUploadItemsWithinLimits(
-					items.map((item) => ({
-						size: item.file.size,
-						directories: item.directories
-					}))
-				);
+				assertRecursiveUploadItemsWithinLimits(recursiveUploadLimitItems(items));
 			} catch (caught) {
 				error = caught instanceof Error ? caught.message : 'Recursive upload exceeds limits';
 				lastRetry = null;
@@ -204,7 +180,7 @@ export function createSftpBrowserController({
 		let completedItems = 0;
 		transfer = createTransferProgress({
 			kind: 'upload',
-			label: `Uploading ${items.length} item${items.length === 1 ? '' : 's'}`,
+			label: transferItemLabel('Uploading', items.length),
 			totalBytes,
 			totalItems: items.length
 		});
@@ -250,11 +226,7 @@ export function createSftpBrowserController({
 	}
 
 	async function ensureUploadDirectories(items: UploadItem[]) {
-		const directories = [...new Set(items.flatMap((item) => item.directories))].sort(
-			(left, right) => left.split('/').length - right.split('/').length
-		);
-
-		for (const directory of directories) {
+		for (const directory of uploadDirectoryPaths(items)) {
 			assertTransferActive();
 			await request(
 				'/mkdir',
@@ -299,9 +271,7 @@ export function createSftpBrowserController({
 
 	async function renameSelected() {
 		if (!selectedEntryList.length || !renamePath.trim()) return;
-		const entriesToMove = minimalRemoteEntries(
-			selectedEntryList.length ? selectedEntryList : selected ? [selected] : []
-		);
+		const entriesToMove = actionEntries(selectedEntryList, selected);
 		if (!entriesToMove.length) return;
 		await moveEntries(entriesToMove, renamePath.trim());
 	}
@@ -312,7 +282,7 @@ export function createSftpBrowserController({
 		lastRetry = () => moveEntries(entriesToMove, target);
 		transfer = createTransferProgress({
 			kind: 'move',
-			label: `Moving ${entriesToMove.length} item${entriesToMove.length === 1 ? '' : 's'}`,
+			label: transferItemLabel('Moving', entriesToMove.length),
 			totalItems: entriesToMove.length
 		});
 
@@ -320,10 +290,7 @@ export function createSftpBrowserController({
 			for (let index = 0; index < entriesToMove.length; index += 1) {
 				assertTransferActive();
 				const entry = entriesToMove[index];
-				const to =
-					entriesToMove.length === 1
-						? normalizeTarget(target, path)
-						: joinPath(normalizeTarget(target, path), entry.name);
+				const to = moveTargetForEntry({ entry, entriesToMove, target, currentPath: path });
 				if (transfer) {
 					transfer = updateTransferProgress(transfer, {
 						currentName: entry.name,
@@ -361,10 +328,11 @@ export function createSftpBrowserController({
 	function requestDeleteSelected() {
 		const selectedPathSnapshot = [...selectedPaths];
 		const selectedSnapshot = selected;
-		const explicitEntries = selectedEntries(entries, selectedPathSnapshot);
-		const entriesToDelete = orderedRemoteEntriesForDelete(
-			explicitEntries.length ? explicitEntries : selectedSnapshot ? [selectedSnapshot] : []
-		);
+		const entriesToDelete = deleteEntriesForSelection({
+			entries,
+			selectedPaths: selectedPathSnapshot,
+			selected: selectedSnapshot
+		});
 
 		if (!entriesToDelete.length) return;
 		if (!selectedPathSnapshot.length && selectedSnapshot) selectedPaths = [selectedSnapshot.path];
@@ -379,7 +347,7 @@ export function createSftpBrowserController({
 		lastRetry = () => deleteSelected();
 		transfer = createTransferProgress({
 			kind: 'delete',
-			label: `Deleting ${entriesToDelete.length} item${entriesToDelete.length === 1 ? '' : 's'}`,
+			label: transferItemLabel('Deleting', entriesToDelete.length),
 			totalItems: entriesToDelete.length
 		});
 
@@ -421,9 +389,7 @@ export function createSftpBrowserController({
 	}
 
 	async function downloadSelected() {
-		const entriesToDownload = minimalRemoteEntries(
-			selectedEntryList.length ? selectedEntryList : selected ? [selected] : []
-		);
+		const entriesToDownload = actionEntries(selectedEntryList, selected);
 		if (!entriesToDownload.length) return;
 		const directories = entriesToDownload.filter((entry) => entry.type === 'directory');
 		const files = entriesToDownload.filter(isDownloadableFile);
@@ -438,7 +404,7 @@ export function createSftpBrowserController({
 	}
 
 	async function downloadRecursive(entriesToDownload: RemoteEntry[]) {
-		const uniqueEntriesToDownload = minimalRemoteEntries(entriesToDownload);
+		const uniqueEntriesToDownload = actionEntries(entriesToDownload, null);
 		transferCancelled = false;
 		error = null;
 		lastRetry = () => downloadRecursive(uniqueEntriesToDownload);
@@ -503,7 +469,7 @@ export function createSftpBrowserController({
 		};
 		transfer = createTransferProgress({
 			kind: 'download',
-			label: `Downloading ${uniqueFiles.length} file${uniqueFiles.length === 1 ? '' : 's'}`,
+			label: transferItemLabel('Downloading', uniqueFiles.length, 'file'),
 			totalBytes,
 			totalItems: uniqueFiles.length
 		});
@@ -782,10 +748,6 @@ export function createSftpBrowserController({
 
 	function assertTransferActive() {
 		if (transferCancelled) throw new DOMException('Transfer cancelled', 'AbortError');
-	}
-
-	function isAbortError(caught: unknown) {
-		return caught instanceof DOMException && caught.name === 'AbortError';
 	}
 
 	onMount(() => {

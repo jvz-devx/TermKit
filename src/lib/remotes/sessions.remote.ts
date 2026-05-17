@@ -6,7 +6,7 @@ export type {
 	LiveSshSessionSummary,
 	RdpLaunchCredentials,
 	SessionLaunch
-} from './termix-core.remote';
+} from './sessions.impl.remote';
 export {
 	attachLiveSshSession,
 	closeLiveSshSession,
@@ -17,4 +17,4 @@ export {
 	recordConnectionSessionLifecycle,
 	recordRdpSessionLifecycle,
 	renameLiveSshSession
-} from './termix-core.remote';
+} from './sessions.impl.remote';

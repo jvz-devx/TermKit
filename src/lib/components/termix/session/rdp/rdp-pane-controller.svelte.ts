@@ -30,6 +30,11 @@ import {
 	recordRdpLifecycleEvent
 } from './rdp-lifecycle';
 import {
+	installRdpSessionCapture,
+	setRdpClipboardCapture,
+	type RdpSessionCaptureBackend
+} from './rdp-session-capture';
+import {
 	desktopSizeChanged,
 	preferredDesktopSize as resolvePreferredDesktopSize,
 	scaleFocusDetail
@@ -54,10 +59,6 @@ type RdpGatewayFeatures = {
 };
 type RdpBootstrapWithFeatures = NonNullable<SessionLaunch['rdp']> & {
 	features?: RdpGatewayFeatures;
-};
-type TermixRdpGlobal = typeof globalThis & {
-	__termixRdpClipboardCapture?: (session: RdpSessionClipboardBridge) => void;
-	__termixRdpSessionCaptureInstalled?: boolean;
 };
 
 export type RdpPaneControllerProps = {
@@ -267,10 +268,10 @@ export function createRdpPaneController({
 			await backend.init('INFO');
 			if (disposed) return;
 
-			(globalThis as TermixRdpGlobal).__termixRdpClipboardCapture = (session) => {
+			setRdpClipboardCapture((session) => {
 				if (!disposed) activeClipboardSession = session;
-			};
-			installSessionCapture(backend);
+			});
+			installRdpSessionCapture(backend as RdpSessionCaptureBackend);
 			rdpModule = backend;
 			webComponentReady = true;
 			detail = 'Waiting for IronRDP client readiness.';
@@ -385,28 +386,6 @@ export function createRdpPaneController({
 			detail = lastFailure.detail;
 			void recordRdpLifecycle('failed', lastFailure.code);
 		}
-	}
-
-	function installSessionCapture(backend: RdpBackendModule) {
-		const termixGlobal = globalThis as TermixRdpGlobal;
-		if (termixGlobal.__termixRdpSessionCaptureInstalled) return;
-
-		const sessionBuilder = backend.Backend.SessionBuilder as unknown as {
-			prototype?: {
-				connect?: (...args: unknown[]) => Promise<RdpSessionClipboardBridge>;
-			};
-		};
-		const prototype = sessionBuilder.prototype;
-		const originalConnect = prototype?.connect;
-		if (!prototype || !originalConnect) return;
-
-		const wrappedConnect = async function (this: unknown, ...args: unknown[]) {
-			const session = await originalConnect.apply(this, args);
-			(globalThis as TermixRdpGlobal).__termixRdpClipboardCapture?.(session);
-			return session;
-		};
-		prototype.connect = wrappedConnect;
-		termixGlobal.__termixRdpSessionCaptureInstalled = true;
 	}
 
 	function clearLocalPasswordState() {

@@ -58,6 +58,11 @@ import {
 } from './session-workspace-live-ssh';
 import { sessionUrl, toWebSocketUrl } from './session-workspace-navigation';
 import { estimateWorkspaceTerminalSize as estimateTerminalSize } from './session-workspace-terminal-size';
+import { layoutOverridesFromMetadata } from './session-workspace-layout-overrides';
+import {
+	rememberedWorkspaceProtocol,
+	rememberWorkspaceProtocol
+} from './session-workspace-persistence';
 
 type LauncherProtocolFilter = WorkspaceProtocol | 'all';
 type SessionLayoutQuery = {
@@ -97,8 +102,6 @@ export function createSessionWorkspaceController() {
 		three: 'Three panes',
 		quad: '2x2 grid'
 	};
-	const lastProtocolStoragePrefix = 'termixkit:last-protocol:';
-
 	let reconnectNonce = $state(0);
 	let pausedSessionKey = $state<string | null>(null);
 	let persistedPausedSessionKeys = $state<string[]>(
@@ -386,11 +389,7 @@ export function createSessionWorkspaceController() {
 			primaryPaneKind,
 			primaryPaneHostId
 		);
-		layoutOverride = layout;
-		paneKindOverrides = Object.fromEntries(nextLayout.panes.map((pane) => [pane.id, pane.kind]));
-		paneHostIdOverrides = Object.fromEntries(
-			nextLayout.panes.flatMap((pane) => (pane.hostId ? [[pane.id, pane.hostId]] : []))
-		);
+		applyLayoutOverrides(nextLayout);
 		await persistSessionLayout(nextLayout);
 	}
 
@@ -436,11 +435,7 @@ export function createSessionWorkspaceController() {
 			primaryPaneKind,
 			primaryPaneHostId
 		);
-		layoutOverride = nextLayout.layout;
-		paneKindOverrides = Object.fromEntries(nextLayout.panes.map((pane) => [pane.id, pane.kind]));
-		paneHostIdOverrides = Object.fromEntries(
-			nextLayout.panes.flatMap((pane) => (pane.hostId ? [[pane.id, pane.hostId]] : []))
-		);
+		applyLayoutOverrides(nextLayout);
 		if (previousPane?.kind === 'ssh') clearLiveSshViewState(paneId);
 		await persistSessionLayout(nextLayout);
 	}
@@ -637,6 +632,13 @@ export function createSessionWorkspaceController() {
 		if (attach?.session.id === activeLiveSshSessionId) activeLiveSshSessionId = null;
 	}
 
+	function applyLayoutOverrides(metadata: SessionWorkspaceLayoutMetadata) {
+		const overrides = layoutOverridesFromMetadata(metadata);
+		layoutOverride = overrides.layoutOverride;
+		paneKindOverrides = overrides.paneKindOverrides;
+		paneHostIdOverrides = overrides.paneHostIdOverrides;
+	}
+
 	function protocolForSelectedHost(host: HostSummary): WorkspaceProtocol {
 		const available = protocolsForHost(host);
 		if (requestedProtocol && available.includes(requestedProtocol)) return requestedProtocol;
@@ -648,15 +650,20 @@ export function createSessionWorkspaceController() {
 	}
 
 	function rememberedProtocol(hostId: string): WorkspaceProtocol | null {
-		if (!browser || !appSettings.rememberLastActiveTab) return null;
-
-		const value = window.localStorage.getItem(`${lastProtocolStoragePrefix}${hostId}`);
-		return value && isWorkspaceProtocol(value) ? value : null;
+		return rememberedWorkspaceProtocol({
+			storage: browser ? window.localStorage : null,
+			hostId,
+			enabled: appSettings.rememberLastActiveTab
+		});
 	}
 
 	function rememberProtocol(hostId: string, protocol: WorkspaceProtocol) {
-		if (!browser || !appSettings.rememberLastActiveTab) return;
-		window.localStorage.setItem(`${lastProtocolStoragePrefix}${hostId}`, protocol);
+		rememberWorkspaceProtocol({
+			storage: browser ? window.localStorage : null,
+			hostId,
+			protocol,
+			enabled: appSettings.rememberLastActiveTab
+		});
 	}
 
 	function hostForPane(pane: { hostId: string | null }) {

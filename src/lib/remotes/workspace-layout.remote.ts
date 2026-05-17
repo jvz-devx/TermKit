@@ -1,2 +1,5 @@
-export type { SessionWorkspaceLayoutMetadata } from './termix-core.remote';
-export { getSessionWorkspaceLayout, saveSessionWorkspaceLayout } from './termix-core.remote';
+export type { SessionWorkspaceLayoutMetadata } from './workspace-layout.impl.remote';
+export {
+	getSessionWorkspaceLayout,
+	saveSessionWorkspaceLayout
+} from './workspace-layout.impl.remote';
