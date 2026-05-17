@@ -1,9 +1,9 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import postgres from 'postgres';
@@ -18,12 +18,10 @@ import {
 } from './smoke-app-api-client.mjs';
 import { createAndLoginAdmin } from './smoke-app-browser.mjs';
 import { exerciseBrowserFileManager } from './smoke-app-file-manager-ui.mjs';
-import { createFtpFixtureServer, createSshFixtureServer } from './smoke-app-protocol-fixtures.mjs';
+import { startProtocolFixtures } from './smoke-app-local-fixtures.mjs';
 import { startMockRdpGateway } from './smoke-app-rdp-gateway.mjs';
 import { startOrUseApp } from './smoke-app-server.mjs';
 import {
-	createTelnetFixtureServer,
-	createVncFixtureServer,
 	describeVncState,
 	IAC,
 	NAWS,
@@ -34,10 +32,8 @@ import {
 } from './smoke-app-terminal-fixtures.mjs';
 import {
 	bufferIncludes,
-	closeServer,
 	createSmokeRuntime,
 	formatLogs,
-	listen,
 	runCleanup
 } from './smoke-app-runtime.mjs';
 
@@ -72,7 +68,7 @@ try {
 	tempDir = await mkdtemp(join(tmpdir(), 'termixkit-app-smoke-'));
 	cleanup.push(() => rm(tempDir, { recursive: true, force: true }));
 
-	const fixtures = await startProtocolFixtures();
+	const fixtures = await startProtocolFixtures({ tempDir, execFile });
 	cleanup.push(fixtures.close);
 	pass('local protocol fixtures', fixtures.summary);
 
@@ -989,74 +985,4 @@ function waitForSocketCondition(socket, label, onMessage) {
 		socket.once('close', onClose);
 		socket.once('error', onError);
 	});
-}
-
-async function startProtocolFixtures() {
-	const sshServer = createSshFixtureServer();
-	const ftp = createFtpFixtureServer({
-		label: 'ftp',
-		files: new Map([['/ftp-smoke.txt', Buffer.from('hello-from-ftp\n')]])
-	});
-	const ftpsIdentity = await createTemporaryTlsIdentity();
-	const ftps = createFtpFixtureServer({
-		label: 'ftps',
-		files: new Map([['/ftps-smoke.txt', Buffer.from('hello-from-ftps\n')]]),
-		tls: ftpsIdentity
-	});
-	const telnet = createTelnetFixtureServer();
-	const vnc = createVncFixtureServer();
-
-	await Promise.all([
-		listen(sshServer),
-		listen(ftp.server),
-		listen(ftps.server),
-		listen(telnet.server),
-		listen(vnc.server)
-	]);
-
-	return {
-		sshPort: sshServer.address().port,
-		ftpPort: ftp.server.address().port,
-		ftpsPort: ftps.server.address().port,
-		ftpsState: ftps.state,
-		telnetPort: telnet.server.address().port,
-		vncPort: vnc.server.address().port,
-		telnetState: telnet.state,
-		vncState: vnc.state,
-		closeVncClients: () => vnc.server.closeAllClients?.(),
-		summary: `ssh:${sshServer.address().port} ftp:${ftp.server.address().port} ftps:${ftps.server.address().port} telnet:${telnet.server.address().port} vnc:${vnc.server.address().port}`,
-		close: async () => {
-			await Promise.all([
-				closeServer(sshServer),
-				closeServer(ftp.server),
-				closeServer(ftps.server),
-				closeServer(telnet.server),
-				closeServer(vnc.server)
-			]);
-		}
-	};
-}
-
-async function createTemporaryTlsIdentity() {
-	const keyPath = join(tempDir, 'ftps-key.pem');
-	const certPath = join(tempDir, 'ftps-cert.pem');
-	await execFile('openssl', [
-		'req',
-		'-x509',
-		'-newkey',
-		'rsa:2048',
-		'-keyout',
-		keyPath,
-		'-out',
-		certPath,
-		'-nodes',
-		'-days',
-		'1',
-		'-subj',
-		'/CN=127.0.0.1',
-		'-addext',
-		'subjectAltName=IP:127.0.0.1'
-	]);
-	const [key, cert] = await Promise.all([readFile(keyPath), readFile(certPath)]);
-	return { key, cert };
 }
