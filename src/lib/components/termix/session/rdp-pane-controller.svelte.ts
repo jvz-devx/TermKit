@@ -1,18 +1,15 @@
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import { onMount } from 'svelte';
 import type { UserInteraction } from '@devolutions/iron-remote-desktop';
-import type { Action } from 'svelte/action';
 import type { BadgeVariant } from '$lib/components/ui/badge';
 import type { RdpClipboardPolicy, RdpPerformancePreset } from '$lib/settings.remote';
-import { recordRdpSessionLifecycle, type SessionLaunch } from '$lib/termix.remote';
+import { type SessionLaunch } from '$lib/termix.remote';
 import {
-	applyRdpDisplayPreset,
 	canEnableAutomaticClipboard,
 	classifyRdpFailure,
 	errorMessage,
 	formatClipboardPolicyDetail,
 	isRdpPerformancePreset,
-	normalizeDesktopDimension,
 	normalizeRdpClipboardPolicy,
 	rdpDisplayPresets,
 	rdpScaleValues,
@@ -20,6 +17,25 @@ import {
 	type RdpFailureState,
 	type RdpScaleMode
 } from './rdp-operator-controls';
+import {
+	createClipboardTelemetry,
+	fileExceedsClipboardPolicy,
+	formatBytes,
+	nextClipboardTelemetry,
+	type ClipboardTelemetry,
+	type FileTransferState
+} from './rdp-clipboard-transfer';
+import {
+	isGatewayExpired as isRdpGatewayExpired,
+	lifecycleEventOnDispose,
+	recordRdpLifecycleEvent
+} from './rdp-lifecycle';
+import {
+	desktopSizeChanged,
+	preferredDesktopSize as resolvePreferredDesktopSize,
+	scaleFocusDetail
+} from './rdp-display-sizing';
+import { createRdpFocusHost } from './rdp-focus-host';
 
 type RdpBackendModule = typeof import('@devolutions/iron-remote-desktop-rdp');
 type ConnectionState = 'loading' | 'ready' | 'connecting' | 'connected' | 'error' | 'disconnected';
@@ -44,19 +60,6 @@ type TermixRdpGlobal = typeof globalThis & {
 	__termixRdpClipboardCapture?: (session: RdpSessionClipboardBridge) => void;
 	__termixRdpSessionCaptureInstalled?: boolean;
 };
-type FileTransferState = 'idle' | 'copying' | 'saving' | 'complete' | 'failed';
-type ClipboardTelemetry = {
-	direction: 'client-to-remote' | 'remote-to-client';
-	kind: 'text' | 'file' | 'mixed' | 'unknown';
-	status: 'ready' | 'copying' | 'saving' | 'complete' | 'failed';
-	detail: string;
-	at: string;
-};
-
-const minDesktopWidth = 2;
-const minDesktopHeight = 1;
-const maxDesktopWidth = 7680;
-const maxDesktopHeight = 4320;
 
 export type RdpPaneControllerProps = {
 	launch: SessionLaunch | null;
@@ -296,13 +299,14 @@ export function createRdpPaneController({
 			detail = lastFailure.detail;
 		});
 		api.onClipboardRemoteUpdateCallback(() => {
-			pushClipboardTelemetry({
-				direction: 'remote-to-client',
-				kind: 'unknown',
-				status: 'ready',
-				detail: 'Remote clipboard changed. Payload contents were not inspected.',
-				at: new Date().toISOString()
-			});
+			pushClipboardTelemetry(
+				createClipboardTelemetry({
+					direction: 'remote-to-client',
+					kind: 'unknown',
+					status: 'ready',
+					detail: 'Remote clipboard changed. Payload contents were not inspected.'
+				})
+			);
 		});
 		api.setKeyboardUnicodeMode(true);
 		api.setVisibility(true);
@@ -478,11 +482,7 @@ export function createRdpPaneController({
 		if (!api || connectionState !== 'connected') return;
 
 		const nextSize = preferredDesktopSize();
-		if (
-			!force &&
-			lastDesktopSize?.width === nextSize.width &&
-			lastDesktopSize.height === nextSize.height
-		) {
+		if (!desktopSizeChanged(lastDesktopSize, nextSize, force)) {
 			return;
 		}
 
@@ -499,21 +499,7 @@ export function createRdpPaneController({
 		const rect = viewportElement?.getBoundingClientRect();
 		const fallback = bootstrap?.desktop ?? { width: 1440, height: 900 };
 
-		const rawSize = {
-			width: normalizeDesktopDimension(
-				rect?.width ?? fallback.width,
-				minDesktopWidth,
-				maxDesktopWidth,
-				true
-			),
-			height: normalizeDesktopDimension(
-				rect?.height ?? fallback.height,
-				minDesktopHeight,
-				maxDesktopHeight,
-				false
-			)
-		};
-		return applyRdpDisplayPreset(rawSize, selectedPreset);
+		return resolvePreferredDesktopSize({ viewportRect: rect, fallback, preset: selectedPreset });
 	}
 
 	function focusRemoteDesktop() {
@@ -531,29 +517,16 @@ export function createRdpPaneController({
 		// IronRDP captures keyboard input from the focused canvas wrapper.
 	}
 
-	const rdpFocusHost: Action<HTMLElement> = (node) => {
-		node.addEventListener('pointerdown', handleViewportPointerDown);
-		node.addEventListener('focus', focusRemoteDesktop);
-		node.addEventListener('keydown', handleViewportKeydown);
-
-		return {
-			destroy() {
-				node.removeEventListener('pointerdown', handleViewportPointerDown);
-				node.removeEventListener('focus', focusRemoteDesktop);
-				node.removeEventListener('keydown', handleViewportKeydown);
-			}
-		};
-	};
+	const rdpFocusHost = createRdpFocusHost({
+		onPointerDown: handleViewportPointerDown,
+		onFocus: focusRemoteDesktop,
+		onKeydown: handleViewportKeydown
+	});
 
 	function applyScaleMode(scale: RdpScaleMode) {
 		selectedScale = scale;
 		api?.setScale(rdpScaleValues[scale]);
-		focusDetail =
-			scale === 'fit'
-				? 'Display scale set to fit.'
-				: scale === 'fill'
-					? 'Display scale set to fill.'
-					: 'Display scale set to 100%.';
+		focusDetail = scaleFocusDetail(scale);
 	}
 
 	function changePreset(next: string) {
@@ -620,49 +593,38 @@ export function createRdpPaneController({
 		void api
 			?.sendClipboardData()
 			.then(() => {
-				pushClipboardTelemetry({
-					direction: 'client-to-remote',
-					kind: effectiveClipboardPolicy.text ? 'text' : 'unknown',
-					status: 'complete',
-					detail: 'Browser clipboard sync was requested. Payload contents were not logged.',
-					at: new Date().toISOString()
-				});
+				pushClipboardTelemetry(
+					createClipboardTelemetry({
+						direction: 'client-to-remote',
+						kind: effectiveClipboardPolicy.text ? 'text' : 'unknown',
+						status: 'complete',
+						detail: 'Browser clipboard sync was requested. Payload contents were not logged.'
+					})
+				);
 			})
 			.catch((caught) => {
-				pushClipboardTelemetry({
-					direction: 'client-to-remote',
-					kind: 'unknown',
-					status: 'failed',
-					detail: `Clipboard sync failed: ${errorMessage(caught)}`,
-					at: new Date().toISOString()
-				});
+				pushClipboardTelemetry(
+					createClipboardTelemetry({
+						direction: 'client-to-remote',
+						kind: 'unknown',
+						status: 'failed',
+						detail: `Clipboard sync failed: ${errorMessage(caught)}`
+					})
+				);
 			});
 	}
 
 	function pushClipboardTelemetry(entry: ClipboardTelemetry) {
-		clipboardTelemetry = [entry, ...clipboardTelemetry].slice(0, 4);
+		clipboardTelemetry = nextClipboardTelemetry(clipboardTelemetry, entry);
 	}
 
 	function isGatewayExpired() {
-		if (!bootstrap?.expiresAt) return false;
-		return Date.now() >= new Date(bootstrap.expiresAt).getTime();
+		return isRdpGatewayExpired(bootstrap?.expiresAt);
 	}
 
 	function finalizeRdpLifecycleOnDispose() {
-		if (connectionState === 'error') {
-			void recordRdpLifecycle('failed', 'rdp_client_pane_abandoned_error');
-			return;
-		}
-
-		if (
-			connectionState === 'loading' ||
-			connectionState === 'ready' ||
-			connectionState === 'connecting' ||
-			connectionState === 'connected' ||
-			connectionState === 'disconnected'
-		) {
-			void recordRdpLifecycle('ended');
-		}
+		const lifecycleEvent = lifecycleEventOnDispose(connectionState);
+		if (lifecycleEvent) void recordRdpLifecycle(lifecycleEvent.event, lifecycleEvent.errorCode);
 	}
 
 	async function recordRdpLifecycle(
@@ -676,9 +638,8 @@ export function createRdpPaneController({
 			lifecycleFinalized = true;
 		}
 
-		await recordRdpSessionLifecycle({ connectionSessionId, event, errorCode }).catch((caught) => {
-			console.warn('Could not record RDP lifecycle event', caught);
-		});
+
+		await recordRdpLifecycleEvent({ connectionSessionId, event, errorCode });
 	}
 
 	function pickFileForRemoteClipboard() {
@@ -696,29 +657,30 @@ export function createRdpPaneController({
 			return;
 		}
 
-		const maxBytes = effectiveClipboardPolicy.fileTransferSizeLimitMiB * 1024 * 1024;
-		if (file.size > maxBytes) {
+		if (fileExceedsClipboardPolicy(file, effectiveClipboardPolicy.fileTransferSizeLimitMiB)) {
 			fileTransferState = 'failed';
 			fileTransferDetail = `Selected file exceeds the ${effectiveClipboardPolicy.fileTransferSizeLimitMiB} MiB policy limit.`;
-			pushClipboardTelemetry({
-				direction: 'client-to-remote',
-				kind: 'file',
-				status: 'failed',
-				detail: `Rejected local file of ${formatBytes(file.size)} before clipboard transfer.`,
-				at: new Date().toISOString()
-			});
+			pushClipboardTelemetry(
+				createClipboardTelemetry({
+					direction: 'client-to-remote',
+					kind: 'file',
+					status: 'failed',
+					detail: `Rejected local file of ${formatBytes(file.size)} before clipboard transfer.`
+				})
+			);
 			return;
 		}
 
 		fileTransferState = 'copying';
 		fileTransferDetail = `Copying local file payload (${formatBytes(file.size)}) to the remote clipboard.`;
-		pushClipboardTelemetry({
-			direction: 'client-to-remote',
-			kind: 'file',
-			status: 'copying',
-			detail: `Copying local file payload (${formatBytes(file.size)}) to the remote clipboard.`,
-			at: new Date().toISOString()
-		});
+		pushClipboardTelemetry(
+			createClipboardTelemetry({
+				direction: 'client-to-remote',
+				kind: 'file',
+				status: 'copying',
+				detail: `Copying local file payload (${formatBytes(file.size)}) to the remote clipboard.`
+			})
+		);
 
 		const clipboardData = new rdpModule.Backend.ClipboardData();
 		try {
@@ -730,23 +692,25 @@ export function createRdpPaneController({
 			await activeClipboardSession.onClipboardPaste(clipboardData);
 			fileTransferState = 'complete';
 			fileTransferDetail = `Local file payload (${formatBytes(file.size)}) is available through the RDP clipboard.`;
-			pushClipboardTelemetry({
-				direction: 'client-to-remote',
-				kind: 'file',
-				status: 'complete',
-				detail: `Local file payload (${formatBytes(file.size)}) reached the RDP clipboard.`,
-				at: new Date().toISOString()
-			});
+			pushClipboardTelemetry(
+				createClipboardTelemetry({
+					direction: 'client-to-remote',
+					kind: 'file',
+					status: 'complete',
+					detail: `Local file payload (${formatBytes(file.size)}) reached the RDP clipboard.`
+				})
+			);
 		} catch (caught) {
 			fileTransferState = 'failed';
 			fileTransferDetail = `Could not copy local file payload: ${errorMessage(caught)}`;
-			pushClipboardTelemetry({
-				direction: 'client-to-remote',
-				kind: 'file',
-				status: 'failed',
-				detail: `Local file clipboard transfer failed: ${errorMessage(caught)}`,
-				at: new Date().toISOString()
-			});
+			pushClipboardTelemetry(
+				createClipboardTelemetry({
+					direction: 'client-to-remote',
+					kind: 'file',
+					status: 'failed',
+					detail: `Local file clipboard transfer failed: ${errorMessage(caught)}`
+				})
+			);
 		} finally {
 			clipboardData.free?.();
 		}
@@ -757,42 +721,40 @@ export function createRdpPaneController({
 
 		fileTransferState = 'saving';
 		fileTransferDetail = 'Saving the remote clipboard payload to the browser clipboard.';
-		pushClipboardTelemetry({
-			direction: 'remote-to-client',
-			kind: 'unknown',
-			status: 'saving',
-			detail: 'Saving remote clipboard payload without inspecting contents.',
-			at: new Date().toISOString()
-		});
+		pushClipboardTelemetry(
+			createClipboardTelemetry({
+				direction: 'remote-to-client',
+				kind: 'unknown',
+				status: 'saving',
+				detail: 'Saving remote clipboard payload without inspecting contents.'
+			})
+		);
 		try {
 			await api.saveRemoteClipboardData();
 			fileTransferState = 'complete';
 			fileTransferDetail = 'Remote clipboard payload was copied to the browser clipboard.';
-			pushClipboardTelemetry({
-				direction: 'remote-to-client',
-				kind: 'unknown',
-				status: 'complete',
-				detail: 'Remote clipboard payload was copied to the browser clipboard.',
-				at: new Date().toISOString()
-			});
+			pushClipboardTelemetry(
+				createClipboardTelemetry({
+					direction: 'remote-to-client',
+					kind: 'unknown',
+					status: 'complete',
+					detail: 'Remote clipboard payload was copied to the browser clipboard.'
+				})
+			);
 		} catch (caught) {
 			fileTransferState = 'failed';
 			fileTransferDetail = `Could not save remote clipboard data: ${errorMessage(caught)}`;
-			pushClipboardTelemetry({
-				direction: 'remote-to-client',
-				kind: 'unknown',
-				status: 'failed',
-				detail: `Remote clipboard save failed: ${errorMessage(caught)}`,
-				at: new Date().toISOString()
-			});
+			pushClipboardTelemetry(
+				createClipboardTelemetry({
+					direction: 'remote-to-client',
+					kind: 'unknown',
+					status: 'failed',
+					detail: `Remote clipboard save failed: ${errorMessage(caught)}`
+				})
+			);
 		}
 	}
 
-	function formatBytes(bytes: number): string {
-		if (bytes < 1024) return `${bytes} B`;
-		const mib = bytes / 1024 / 1024;
-		return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
-	}
 	return {
 		get fullscreenElement() {
 			return fullscreenElement;

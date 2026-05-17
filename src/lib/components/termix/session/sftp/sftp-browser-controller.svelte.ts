@@ -3,11 +3,7 @@ import { browser } from '$app/environment';
 import { onMount } from 'svelte';
 import {
 	assertRecursiveUploadItemsWithinLimits,
-	basename,
-	countRecursiveUploadEntry,
-	countRecursiveUploadFile,
 	createTransferProgress,
-	createRecursiveUploadLimitState,
 	dirname,
 	fileTransferLimits,
 	filterRemoteEntries,
@@ -25,25 +21,21 @@ import {
 	uniqueRemoteEntries,
 	updateTransferProgress,
 	type RemoteEntry,
-	type RecursiveUploadLimitState,
 	type TransferProgress
 } from '../file-manager-state';
-
-type ApiBase = 'sftp' | 'ftp';
-type ApiResponseBody = Record<string, unknown>;
-
-type BookmarkEntry = {
-	id: string;
-	path: string;
-	label: string;
-	createdAt: string;
-};
-
-type UploadItem = {
-	file: globalThis.File;
-	relativePath: string;
-	directories: string[];
-};
+import {
+	addBookmarkEntry,
+	bookmarkStorageKey,
+	parseBookmarks,
+	removeBookmarkEntry,
+	type BookmarkEntry
+} from './sftp-bookmarks';
+import { createSftpClient, type ApiBase } from './sftp-client';
+import { formatModified, modeLabel, symlinkTarget } from './sftp-entry-format';
+import { searchRemoteEntries } from './sftp-remote-search';
+import { collectRecursiveDownloadFiles } from './sftp-recursive-download';
+import { fetchDownloadBlob, saveDownloadedBlob, uploadFile } from './sftp-transfer-io';
+import { droppedUploadItems, type UploadItem } from './sftp-upload-drop';
 
 type PendingRecursive =
 	| {
@@ -56,26 +48,6 @@ type PendingRecursive =
 			kind: 'download';
 			entries: RemoteEntry[];
 	  };
-
-type WebKitFileSystemEntry = {
-	name: string;
-	fullPath: string;
-	isFile: boolean;
-	isDirectory: boolean;
-};
-
-type WebKitFileSystemFileEntry = WebKitFileSystemEntry & {
-	file: (success: (file: globalThis.File) => void, failure: (error: DOMException) => void) => void;
-};
-
-type WebKitFileSystemDirectoryEntry = WebKitFileSystemEntry & {
-	createReader: () => {
-		readEntries: (
-			success: (entries: WebKitFileSystemEntry[]) => void,
-			failure: (error: DOMException) => void
-		) => void;
-	};
-};
 
 export type SftpBrowserControllerProps = {
 	hostId: string;
@@ -118,6 +90,7 @@ export function createSftpBrowserController({
 	let desktop = $state(browser ? window.matchMedia('(min-width: 1024px)').matches : false);
 	let managerElement = $state<HTMLElement | null>(null);
 	let wideLayout = $state(false);
+	const client = createSftpClient(apiBase, hostId);
 
 	const visibleEntries = $derived(filterRemoteEntries(entries, searchQuery));
 	const selectedEntryList = $derived(selectedEntries(entries, selectedPaths));
@@ -133,10 +106,6 @@ export function createSftpBrowserController({
 		selectedEntryList.reduce((total, entry) => total + (entry.type === 'file' ? entry.size : 0), 0)
 	);
 
-	function apiUrl(route: string) {
-		return `/api/${apiBase}/${encodeURIComponent(hostId)}${route}`;
-	}
-
 	async function loadDirectory(nextPath = path) {
 		loading = true;
 		error = null;
@@ -145,14 +114,9 @@ export function createSftpBrowserController({
 		activeAbort = () => controller.abort();
 
 		try {
-			const response = await fetch(
-				apiUrl(`/list?path=${encodeURIComponent(normalizePath(nextPath))}`),
-				{ signal: controller.signal }
-			);
-			const body = await readApiBody(response, 'Could not list directory');
-			if (!response.ok) throw new Error(apiErrorMessage(body, 'Could not list directory'));
-			path = typeof body.path === 'string' ? body.path : normalizePath(nextPath);
-			entries = Array.isArray(body.entries) ? (body.entries as RemoteEntry[]) : [];
+			const result = await client.list(nextPath, controller.signal);
+			path = result.path;
+			entries = result.entries;
 			selected = null;
 			selectedPaths = [];
 			renamePath = '';
@@ -167,12 +131,7 @@ export function createSftpBrowserController({
 	}
 
 	async function listDirectory(remotePath: string): Promise<RemoteEntry[]> {
-		const response = await fetch(
-			apiUrl(`/list?path=${encodeURIComponent(normalizePath(remotePath))}`)
-		);
-		const body = await readApiBody(response, 'Could not list directory');
-		if (!response.ok) throw new Error(apiErrorMessage(body, 'Could not list directory'));
-		return Array.isArray(body.entries) ? (body.entries as RemoteEntry[]) : [];
+		return (await client.list(remotePath)).entries;
 	}
 
 	async function uploadFromPicker() {
@@ -311,39 +270,20 @@ export function createSftpBrowserController({
 	}
 
 	function uploadOne(item: UploadItem, onProgress: (loaded: number) => void): Promise<void> {
-		return new Promise((resolve, reject) => {
-			const xhr = new XMLHttpRequest();
-			const remotePath = joinPath(path, item.relativePath);
-			activeAbort = () => {
-				transferCancelled = true;
-				xhr.abort();
-			};
-
-			xhr.upload.onprogress = (event) => {
-				if (event.lengthComputable) onProgress(event.loaded);
-			};
-			xhr.onload = () => {
+		const remotePath = joinPath(path, item.relativePath);
+		return uploadFile({
+			url: client.uploadUrl(remotePath),
+			file: item.file,
+			onProgress,
+			onAbortReady: (abort) => {
+				activeAbort = () => {
+					transferCancelled = true;
+					abort();
+				};
+			},
+			onAbortClear: () => {
 				activeAbort = null;
-				if (xhr.status >= 200 && xhr.status < 300) {
-					onProgress(item.file.size);
-					resolve();
-					return;
-				}
-				reject(new Error(responseError(xhr.responseText, 'Could not upload file')));
-			};
-			xhr.onerror = () => {
-				activeAbort = null;
-				reject(new Error('Could not upload file'));
-			};
-			xhr.onabort = () => {
-				activeAbort = null;
-				reject(new DOMException('Transfer cancelled', 'AbortError'));
-			};
-
-			const form = new FormData();
-			form.append('file', item.file);
-			xhr.open('POST', apiUrl(`/upload?path=${encodeURIComponent(remotePath)}`));
-			xhr.send(form);
+			}
 		});
 	}
 
@@ -509,47 +449,19 @@ export function createSftpBrowserController({
 		});
 
 		try {
-			const files = uniqueRemoteEntries(uniqueEntriesToDownload.filter(isDownloadableFile));
-			const queue = uniqueEntriesToDownload
-				.filter((entry) => entry.type === 'directory')
-				.map((entry) => normalizePath(entry.path));
-			const queuedDirectories = [...queue];
-			let scanned = 0;
-
-			while (queue.length) {
-				assertTransferActive();
-				if (scanned >= fileTransferLimits.recursiveMaxEntries) {
-					throw new Error(
-						`Recursive download is limited to ${fileTransferLimits.recursiveMaxEntries} scanned entries`
-					);
-				}
-				const directory = queue.shift();
-				if (!directory) continue;
-				const children = await listDirectory(directory);
-				for (const child of children) {
-					scanned += 1;
-					const childPath = normalizePath(child.path);
-					if (child.type === 'directory' && !queuedDirectories.includes(childPath)) {
-						queuedDirectories.push(childPath);
-						queue.push(childPath);
-					}
-					if (isDownloadableFile(child)) files.push(child);
-					const uniqueFileCount = uniqueRemoteEntries(files).length;
-					if (uniqueFileCount > fileTransferLimits.recursiveMaxFiles) {
-						throw new Error(
-							`Recursive download is limited to ${fileTransferLimits.recursiveMaxFiles} files`
-						);
+			const uniqueFiles = await collectRecursiveDownloadFiles({
+				entries: uniqueEntriesToDownload,
+				listDirectory,
+				assertActive: assertTransferActive,
+				onProgress: ({ directory, scanned }) => {
+					if (transfer) {
+						transfer = updateTransferProgress(transfer, {
+							completedItems: Math.min(scanned, fileTransferLimits.recursiveMaxFiles),
+							currentName: directory
+						});
 					}
 				}
-				if (transfer) {
-					transfer = updateTransferProgress(transfer, {
-						completedItems: Math.min(scanned, fileTransferLimits.recursiveMaxFiles),
-						currentName: directory
-					});
-				}
-			}
-
-			const uniqueFiles = uniqueRemoteEntries(files);
+			});
 			if (!uniqueFiles.length) {
 				if (transfer) {
 					transfer = updateTransferProgress(transfer, {
@@ -604,7 +516,7 @@ export function createSftpBrowserController({
 					completedItems,
 					currentName: entry.name
 				});
-				const blob = await fetchDownloadBlob(entry, controller.signal, (bytes) => {
+				const blob = await fetchDownloadBlob(entry, client.downloadUrl(entry), controller.signal, (bytes) => {
 					completedBytes += bytes;
 					if (transfer) {
 						transfer = updateTransferProgress(transfer, {
@@ -644,61 +556,14 @@ export function createSftpBrowserController({
 		}
 	}
 
-	async function fetchDownloadBlob(
-		entry: RemoteEntry,
-		signal: AbortSignal,
-		onProgress: (bytes: number) => void
-	): Promise<Blob> {
-		const response = await fetch(downloadUrl(entry), { signal });
-		if (!response.ok) {
-			const body = await readApiBody(response, `Could not download ${entry.name}`);
-			throw new Error(apiErrorMessage(body, `Could not download ${entry.name}`));
-		}
-
-		if (!response.body) {
-			const blob = await response.blob();
-			onProgress(blob.size);
-			return blob;
-		}
-
-		const reader = response.body.getReader();
-		const chunks: ArrayBuffer[] = [];
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (value) {
-				chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
-				onProgress(value.byteLength);
-			}
-		}
-		return new Blob(chunks, {
-			type: response.headers.get('content-type') ?? 'application/octet-stream'
-		});
-	}
-
-	function saveDownloadedBlob(entry: RemoteEntry, blob: Blob) {
-		const url = URL.createObjectURL(blob);
-		const anchor = document.createElement('a');
-		anchor.href = url;
-		anchor.download = entry.name;
-		anchor.rel = 'noopener';
-		document.body.append(anchor);
-		anchor.click();
-		anchor.remove();
-		URL.revokeObjectURL(url);
-	}
-
 	async function openText(entry = selected) {
 		if (!entry || entry.type !== 'file') return;
 		loading = true;
 		error = null;
 		lastRetry = () => openText(entry);
 		try {
-			const response = await fetch(apiUrl(`/text?path=${encodeURIComponent(entry.path)}`));
-			const body = await readApiBody(response, 'Could not read text file');
-			if (!response.ok) throw new Error(apiErrorMessage(body, 'Could not read text file'));
-			textPath = typeof body.path === 'string' ? body.path : entry.path;
-			textValue = typeof body.text === 'string' ? body.text : '';
+			textPath = entry.path;
+			textValue = await client.readText(entry);
 			textDirty = false;
 			lastRetry = null;
 		} catch (caught) {
@@ -753,13 +618,7 @@ export function createSftpBrowserController({
 			controller.abort();
 		};
 		try {
-			const response = await fetch(apiUrl(route), { ...init, signal: controller.signal });
-			const body = await readApiBody(response, fallback);
-			if (!response.ok) {
-				if (ignoreFailure) return false;
-				throw new Error(apiErrorMessage(body, fallback));
-			}
-			return true;
+			return await client.request(route, init, fallback, controller.signal, ignoreFailure);
 		} catch (caught) {
 			if (isAbortError(caught)) throw caught;
 			if (ignoreFailure) return false;
@@ -801,27 +660,11 @@ export function createSftpBrowserController({
 	}
 
 	function downloadUrl(entry: RemoteEntry) {
-		return apiUrl(`/download?path=${encodeURIComponent(entry.path)}`);
+		return client.downloadUrl(entry);
 	}
 
 	function clearRemoteSearchResults() {
 		remoteSearchResults = [];
-	}
-
-	function formatModified(entry: RemoteEntry) {
-		if (!entry.mtime) return entry.rawModifiedAt ?? '-';
-		const date = new Date(entry.mtime);
-		return Number.isNaN(date.getTime()) ? (entry.rawModifiedAt ?? '-') : date.toLocaleString();
-	}
-
-	function modeLabel(entry: RemoteEntry) {
-		if (typeof entry.mode !== 'number') return null;
-		return `0${(entry.mode & 0o777).toString(8)}`;
-	}
-
-	function symlinkTarget(entry: RemoteEntry) {
-		if (entry.type !== 'symlink') return null;
-		return entry.link ?? entry.longname ?? null;
 	}
 
 	async function runRemoteSearch() {
@@ -830,10 +673,6 @@ export function createSftpBrowserController({
 		remoteSearching = true;
 		error = null;
 		lastRetry = () => runRemoteSearch();
-		const matches: RemoteEntry[] = [];
-		const queue = [path];
-		let scannedEntries = 0;
-		let scannedDirectories = 0;
 		transferCancelled = false;
 		transfer = createTransferProgress({
 			kind: 'search',
@@ -842,27 +681,20 @@ export function createSftpBrowserController({
 		});
 
 		try {
-			while (queue.length) {
-				assertTransferActive();
-				if (scannedDirectories >= fileTransferLimits.remoteSearchMaxDirectories) break;
-				const directory = queue.shift();
-				if (!directory) continue;
-				scannedDirectories += 1;
-				const children = await listDirectory(directory);
-				for (const child of children) {
-					scannedEntries += 1;
-					if (filterRemoteEntries([child], query).length) matches.push(child);
-					if (child.type === 'directory') queue.push(child.path);
-					if (scannedEntries >= fileTransferLimits.remoteSearchMaxEntries) break;
+			const { matches, scannedEntries } = await searchRemoteEntries({
+				rootPath: path,
+				query,
+				listDirectory,
+				assertActive: assertTransferActive,
+				onProgress: ({ directory, scannedEntries }) => {
+					if (transfer) {
+						transfer = updateTransferProgress(transfer, {
+							completedItems: Math.min(scannedEntries, fileTransferLimits.remoteSearchMaxEntries),
+							currentName: directory
+						});
+					}
 				}
-				if (transfer) {
-					transfer = updateTransferProgress(transfer, {
-						completedItems: Math.min(scannedEntries, fileTransferLimits.remoteSearchMaxEntries),
-						currentName: directory
-					});
-				}
-				if (scannedEntries >= fileTransferLimits.remoteSearchMaxEntries) break;
-			}
+			});
 			remoteSearchResults = matches;
 			if (transfer) {
 				transfer = updateTransferProgress(transfer, {
@@ -893,52 +725,20 @@ export function createSftpBrowserController({
 	}
 
 	function addBookmark() {
-		const normalized = normalizePath(path);
-		if (bookmarks.some((bookmark) => bookmark.path === normalized)) return;
-		saveBookmarks([
-			...bookmarks,
-			{
-				id: crypto.randomUUID(),
-				path: normalized,
-				label: normalized === '/' ? '/' : basename(normalized),
-				createdAt: new Date().toISOString()
-			}
-		]);
+		saveBookmarks(addBookmarkEntry(bookmarks, path));
 	}
 
 	function removeBookmark(id: string) {
-		saveBookmarks(bookmarks.filter((bookmark) => bookmark.id !== id));
+		saveBookmarks(removeBookmarkEntry(bookmarks, id));
 	}
 
 	function saveBookmarks(next: BookmarkEntry[]) {
 		bookmarks = next;
-		localStorage.setItem(bookmarkStorageKey(), JSON.stringify(next));
-	}
-
-	function bookmarkStorageKey() {
-		return `termixkit:file-manager:${apiBase}:${hostId}:bookmarks`;
+		localStorage.setItem(bookmarkStorageKey(apiBase, hostId), JSON.stringify(next));
 	}
 
 	function loadBookmarks() {
-		try {
-			const raw = localStorage.getItem(bookmarkStorageKey());
-			if (!raw) return;
-			const parsed = JSON.parse(raw);
-			if (Array.isArray(parsed)) bookmarks = parsed.filter(isBookmarkEntry);
-		} catch {
-			bookmarks = [];
-		}
-	}
-
-	function isBookmarkEntry(value: unknown): value is BookmarkEntry {
-		if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-		const candidate = value as Partial<BookmarkEntry>;
-		return (
-			typeof candidate.id === 'string' &&
-			typeof candidate.path === 'string' &&
-			typeof candidate.label === 'string' &&
-			typeof candidate.createdAt === 'string'
-		);
+		bookmarks = parseBookmarks(localStorage.getItem(bookmarkStorageKey(apiBase, hostId)));
 	}
 
 	async function handleDrop(event: DragEvent) {
@@ -951,99 +751,6 @@ export function createSftpBrowserController({
 			error = caught instanceof Error ? caught.message : 'Could not prepare dropped upload';
 			lastRetry = null;
 		}
-	}
-
-	async function droppedUploadItems(dataTransfer: DataTransfer | null): Promise<UploadItem[]> {
-		if (!dataTransfer) return [];
-		const transferItems = Array.from(dataTransfer.items ?? []);
-		if (!transferItems.length) {
-			return Array.from(dataTransfer.files ?? []).map((file) => ({
-				file,
-				relativePath: file.name,
-				directories: []
-			}));
-		}
-
-		const uploads: UploadItem[] = [];
-		let recursiveScan = createRecursiveUploadLimitState();
-		for (const item of transferItems) {
-			const entry = (
-				item as DataTransferItem & {
-					webkitGetAsEntry?: () => WebKitFileSystemEntry | null;
-				}
-			).webkitGetAsEntry?.();
-			if (entry?.isDirectory) {
-				recursiveScan = await collectEntryUploads(entry, uploads, recursiveScan);
-				continue;
-			}
-			if (entry?.isFile) {
-				const file = await fileFromEntry(entry as unknown as WebKitFileSystemFileEntry);
-				uploads.push({ file, relativePath: file.name, directories: [] });
-				continue;
-			}
-			const file = item.getAsFile();
-			if (file) uploads.push({ file, relativePath: file.name, directories: [] });
-		}
-		return uploads;
-	}
-
-	async function collectEntryUploads(
-		entry: WebKitFileSystemEntry,
-		uploads: UploadItem[],
-		scan: RecursiveUploadLimitState
-	): Promise<RecursiveUploadLimitState> {
-		let nextScan = countRecursiveUploadEntry(scan);
-		if (entry.isFile) {
-			const file = await fileFromEntry(entry as WebKitFileSystemFileEntry);
-			const relativePath = entry.fullPath.replace(/^\/+/, '') || file.name;
-			nextScan = countRecursiveUploadFile(nextScan, file.size);
-			uploads.push({
-				file,
-				relativePath,
-				directories: directoryPrefixes(relativePath)
-			});
-			return nextScan;
-		}
-		if (!entry.isDirectory) return nextScan;
-		const children = await readDirectoryEntries(entry as WebKitFileSystemDirectoryEntry);
-		for (const child of children) {
-			nextScan = await collectEntryUploads(child, uploads, nextScan);
-		}
-		return nextScan;
-	}
-
-	function fileFromEntry(entry: WebKitFileSystemFileEntry): Promise<globalThis.File> {
-		return new Promise((resolve, reject) => entry.file(resolve, reject));
-	}
-
-	function readDirectoryEntries(
-		entry: WebKitFileSystemDirectoryEntry
-	): Promise<WebKitFileSystemEntry[]> {
-		const reader = entry.createReader();
-		const entries: WebKitFileSystemEntry[] = [];
-
-		return new Promise((resolve, reject) => {
-			function readBatch() {
-				reader.readEntries((batch) => {
-					if (!batch.length) {
-						resolve(entries);
-						return;
-					}
-					entries.push(...batch);
-					readBatch();
-				}, reject);
-			}
-			readBatch();
-		});
-	}
-
-	function directoryPrefixes(relativePath: string) {
-		const parts = relativePath.split('/').filter(Boolean);
-		const prefixes: string[] = [];
-		for (let index = 1; index < parts.length; index += 1) {
-			prefixes.push(parts.slice(0, index).join('/'));
-		}
-		return prefixes;
 	}
 
 	function confirmRecursiveAction() {
@@ -1074,44 +781,6 @@ export function createSftpBrowserController({
 
 	function isAbortError(caught: unknown) {
 		return caught instanceof DOMException && caught.name === 'AbortError';
-	}
-
-	async function readApiBody(response: Response, fallback: string): Promise<ApiResponseBody> {
-		const responseText = await response.text().catch(() => '');
-		const body = parseApiResponseBody(responseText);
-		if (body) return body;
-		if (!response.ok) throw new Error(responseError(responseText, fallback));
-		return {};
-	}
-
-	function apiErrorMessage(body: ApiResponseBody, fallback: string) {
-		if (typeof body.error === 'string' && body.error.trim()) return body.error;
-		if (Array.isArray(body.issues)) {
-			const issues = body.issues.filter((issue): issue is string => typeof issue === 'string');
-			if (issues.length) return issues.join('; ');
-		}
-		return fallback;
-	}
-
-	function responseError(responseText: string, fallback: string) {
-		const body = parseApiResponseBody(responseText);
-		if (body) return apiErrorMessage(body, fallback);
-		const plainText = compactResponseText(responseText);
-		return plainText ? `${fallback}: ${plainText}` : fallback;
-	}
-
-	function parseApiResponseBody(responseText: string): ApiResponseBody | null {
-		try {
-			const body = JSON.parse(responseText);
-			return typeof body === 'object' && body !== null && !Array.isArray(body) ? body : null;
-		} catch {
-			return null;
-		}
-	}
-
-	function compactResponseText(responseText: string) {
-		const compact = responseText.replace(/\s+/g, ' ').trim();
-		return compact.length > 240 ? `${compact.slice(0, 237)}...` : compact;
 	}
 
 	onMount(() => {

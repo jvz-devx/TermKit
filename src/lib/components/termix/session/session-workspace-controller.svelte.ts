@@ -8,6 +8,7 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 import type { BadgeVariant } from '$lib/components/ui/badge';
 import { getAppSettings, type BasicAppSettings } from '$lib/settings.remote';
 import * as termixRemote from '$lib/termix.remote';
+import { terminalFontSize } from '$lib/termix/host-metadata';
 import {
 	attachLiveSshSession,
 	closeLiveSshSession,
@@ -19,7 +20,6 @@ import {
 	type LiveSshAttach,
 	type LiveSshSessionSummary
 } from '$lib/termix.remote';
-import { failureCopy, failureDetail } from '$lib/termix/failure-copy';
 import {
 	clearSessionPause,
 	isSessionPaused,
@@ -27,7 +27,6 @@ import {
 	readSessionPauseKeys,
 	sessionPauseKey
 } from './session-pause';
-import { terminalFontSize } from '$lib/termix/host-metadata';
 import {
 	normalizeSessionLayout,
 	removeSessionPane,
@@ -38,20 +37,33 @@ import {
 	type SessionPaneKind,
 	type SessionWorkspaceLayoutMetadata
 } from './workspace-layout';
+import {
+	canAttachLiveSshSession,
+	isPaneProtocolAvailable,
+	isSshHostKeyLaunchBlocked,
+	isWorkspaceProtocol,
+	protocolsForHost,
+	type WorkspaceProtocol
+} from './session-workspace-protocols';
+import { layoutGridDimensions } from './session-workspace-layout-dimensions';
+import {
+	attachableLiveSshSessionsForHost as getAttachableLiveSshSessionsForHost,
+	isHostKeyTrustFailure,
+	liveSshActionDetail,
+	liveSshActionTitle,
+	liveSshErrorForHost as getLiveSshErrorForHost,
+	liveSshSessionsForHost as getLiveSshSessionsForHost,
+	sshWelcome,
+	type LiveSshErrorState
+} from './session-workspace-live-ssh';
+import { sessionUrl, toWebSocketUrl } from './session-workspace-navigation';
+import { estimateWorkspaceTerminalSize as estimateTerminalSize } from './session-workspace-terminal-size';
 
-type WorkspaceProtocol = SessionPaneKind;
 type LauncherProtocolFilter = WorkspaceProtocol | 'all';
 type SessionLayoutQuery = {
 	current?: unknown;
 	loading?: boolean;
 	refresh?: () => Promise<unknown> | unknown;
-};
-type LiveSshAction = 'create' | 'attach' | 'rename' | 'close';
-type LiveSshErrorState = {
-	action: LiveSshAction;
-	message: string;
-	hostId: string | null;
-	sessionId: string | null;
 };
 type LiveSshLaunchTarget = {
 	host?: HostSummary | null;
@@ -658,20 +670,6 @@ export function createSessionWorkspaceController() {
 		window.localStorage.setItem(`${lastProtocolStoragePrefix}${hostId}`, protocol);
 	}
 
-	function protocolsForHost(host: HostSummary): WorkspaceProtocol[] {
-		return host.protocol === 'ssh' ? ['ssh', 'sftp', 'ssh-tunnel'] : [host.protocol];
-	}
-
-	function isWorkspaceProtocol(value: string): value is WorkspaceProtocol {
-		return ['ssh', 'sftp', 'rdp', 'vnc', 'telnet', 'ftp', 'ftps', 'ssh-tunnel'].includes(value);
-	}
-
-	function isPaneProtocolAvailable(host: HostSummary, kind: SessionPaneKind) {
-		if (kind === 'sftp') return host.protocol === 'ssh';
-		if (kind === 'ssh-tunnel') return host.protocol === 'ssh';
-		return host.protocol === kind;
-	}
-
 	function hostForPane(pane: { hostId: string | null }) {
 		return hosts.find((host) => host.id === pane.hostId) ?? selectedHost;
 	}
@@ -694,37 +692,19 @@ export function createSessionWorkspaceController() {
 	}
 
 	function liveSshSessionsForHost(hostId: string) {
-		return liveSshSessions.filter((session) => session.hostId === hostId);
+		return getLiveSshSessionsForHost(liveSshSessions, hostId);
 	}
 
 	function attachableLiveSshSessionsForHost(hostId: string) {
-		const attachedSessionIds = new Set(
-			Object.values(liveSshAttachByPaneId).map((attach) => attach.session.id)
-		);
-		return liveSshSessionsForHost(hostId).filter(
-			(session) => canAttachLiveSshSession(session) && !attachedSessionIds.has(session.id)
-		);
+		return getAttachableLiveSshSessionsForHost({
+			sessions: liveSshSessions,
+			attachments: liveSshAttachByPaneId,
+			hostId
+		});
 	}
 
 	function liveSshErrorForHost(hostId: string) {
-		if (!liveSshError) return null;
-		return !liveSshError.hostId || liveSshError.hostId === hostId ? liveSshError : null;
-	}
-
-	function liveSshActionTitle(error: LiveSshErrorState) {
-		if (error.action === 'create') return 'Could not create SSH tab';
-		if (error.action === 'attach') return 'Could not attach SSH tab';
-		if (error.action === 'rename') return 'Could not rename SSH tab';
-		return 'Could not close SSH tab';
-	}
-
-	function liveSshActionDetail(error: LiveSshErrorState) {
-		const copy = failureCopy({ protocol: 'ssh', message: error.message });
-		return `${failureDetail(copy)} Diagnostic: ${copy.diagnostic ?? error.message}`;
-	}
-
-	function isHostKeyTrustFailure(error: LiveSshErrorState) {
-		return error.message.toLowerCase().includes('host key');
+		return getLiveSshErrorForHost(liveSshError, hostId);
 	}
 
 	function markSessionPaused(hostId: string, protocol: string) {
@@ -754,69 +734,19 @@ export function createSessionWorkspaceController() {
 		);
 	}
 
-	function sessionUrl(params: SvelteURLSearchParams) {
-		const query = params.toString();
-		return query ? `/sessions?${query}` : '/sessions';
-	}
-
-	function toWebSocketUrl(path: string) {
-		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-		return `${protocol}//${window.location.host}${path}`;
-	}
-
-	function sshWelcome(host: HostSummary, hostname: string) {
-		return [
-			`$ ssh ${hostname}`,
-			host.sshJumpHost.enabled && host.sshJumpHost.hostId
-				? `Using jump host ${host.sshJumpHost.hostId}`
-				: 'Direct SSH target',
-			'Attaching live SSH session...',
-			''
-		];
-	}
-
-	function canAttachLiveSshSession(session: LiveSshSessionSummary) {
-		if (session.expiresAt && Date.now() >= new Date(session.expiresAt).getTime()) return false;
-		return (
-			session.status === 'attached' ||
-			session.status === 'detached' ||
-			session.status === 'starting'
-		);
-	}
-
-	function isSshHostKeyLaunchBlocked(host: HostSummary) {
-		const trust = host.hostKeyTrust;
-		return trust?.status === 'unknown' && trust.trustOnFirstUse === false;
-	}
-
 	function errorMessage(caught: unknown) {
 		return caught instanceof Error ? caught.message : 'Could not create session ticket';
 	}
 
 	function estimateWorkspaceTerminalSize(host: HostSummary) {
 		const bounds = workspaceElement?.getBoundingClientRect();
-		if (!browser || !bounds?.width || !bounds?.height) return { cols: 80, rows: 24 };
-
-		const large = window.innerWidth >= 1024;
-		const { columns, rows } = layoutGridDimensions(activeWorkspaceLayout.layout, large);
-		const fontSize = terminalFontSize(host.terminalPreferences, appSettings.terminalFontSize);
-		const paneWidth = (bounds.width - 16 - Math.max(0, columns - 1) * 8) / columns;
-		const paneHeight = (bounds.height - 148 - Math.max(0, rows - 1) * 8) / rows;
-		const charWidth = Math.max(6, fontSize * 0.62);
-		const rowHeight = Math.max(12, fontSize * 1.35);
-
-		return {
-			cols: Math.floor(Math.max(40, Math.min(240, (paneWidth - 24) / charWidth))),
-			rows: Math.floor(Math.max(12, Math.min(80, (paneHeight - 96) / rowHeight)))
-		};
-	}
-
-	function layoutGridDimensions(layout: SessionLayoutKind, large: boolean) {
-		if (layout === 'single') return { columns: 1, rows: 1 };
-		if (layout === 'two-columns') return large ? { columns: 2, rows: 1 } : { columns: 1, rows: 2 };
-		if (layout === 'two-rows') return { columns: 1, rows: 2 };
-		if (layout === 'three') return large ? { columns: 2, rows: 2 } : { columns: 1, rows: 3 };
-		return large ? { columns: 2, rows: 2 } : { columns: 1, rows: 4 };
+		return estimateTerminalSize({
+			bounds: browser ? bounds : null,
+			innerWidth: browser ? window.innerWidth : 0,
+			layout: activeWorkspaceLayout.layout,
+			host,
+			defaultFontSize: appSettings.terminalFontSize
+		});
 	}
 
 	return {
