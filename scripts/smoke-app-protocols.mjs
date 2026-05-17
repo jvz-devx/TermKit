@@ -7,7 +7,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { chromium } from 'playwright';
 import postgres from 'postgres';
 import { WebSocket } from 'ws';
 import {
@@ -18,6 +17,7 @@ import {
 	createSshCredential,
 	createVncCredential
 } from './smoke-app-api-client.mjs';
+import { createAndLoginAdmin } from './smoke-app-browser.mjs';
 import { createFtpFixtureServer, createSshFixtureServer } from './smoke-app-protocol-fixtures.mjs';
 import {
 	createTelnetFixtureServer,
@@ -97,7 +97,14 @@ try {
 	cleanup.push(app.close);
 	pass('built app ready', app.baseUrl);
 
-	const auth = await createAndLoginAdmin(app.baseUrl);
+	const auth = await createAndLoginAdmin({
+		baseUrl: app.baseUrl,
+		tempDir,
+		smokeUsername,
+		smokePassword,
+		timeoutMs,
+		execFile
+	});
 	cleanup.push(auth.close);
 	pass(
 		'create/login admin',
@@ -421,71 +428,6 @@ async function runMigrations(databaseUrl) {
 			await delay(1_000);
 		}
 	}
-}
-
-async function createAndLoginAdmin(baseUrl) {
-	const context = await chromium.launchPersistentContext(join(tempDir, 'chromium-profile'), {
-		headless: true,
-		executablePath: await chromiumExecutablePath(),
-		baseURL: baseUrl,
-		args: ['--no-first-run', '--disable-default-apps']
-	});
-	const page = await context.newPage();
-	let createdAdmin = false;
-
-	await page.goto('/first-run');
-	if (
-		await page
-			.getByRole('heading', { name: 'Create admin' })
-			.isVisible()
-			.catch(() => false)
-	) {
-		await page.getByLabel('Username').fill(smokeUsername);
-		await page.getByLabel('Password', { exact: true }).fill(smokePassword);
-		await page.getByLabel('Confirm password').fill(smokePassword);
-		await page.getByRole('button', { name: 'Create admin' }).click();
-		await page.waitForURL(/\/hosts$/, { timeout: timeoutMs });
-		createdAdmin = true;
-	}
-
-	await context.clearCookies();
-	await page.goto('/login');
-	await page.getByLabel('Username').fill(smokeUsername);
-	await page.getByLabel('Password').fill(smokePassword);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await page.waitForURL(/\/hosts$/, { timeout: timeoutMs });
-
-	const cookieHeader = (await context.cookies(baseUrl))
-		.map((cookie) => `${cookie.name}=${cookie.value}`)
-		.join('; ');
-	if (!cookieHeader.includes('termixkit_session=')) {
-		throw new Error('Login did not produce a termixkit_session cookie.');
-	}
-
-	return {
-		createdAdmin,
-		page,
-		cookieHeader,
-		close: () => context.close()
-	};
-}
-
-async function chromiumExecutablePath() {
-	if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
-		return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-	}
-
-	for (const command of ['google-chrome', 'chromium', 'chromium-browser', 'chrome']) {
-		try {
-			const { stdout } = await execFile('sh', ['-lc', `command -v ${command}`]);
-			const path = stdout.trim();
-			if (path) return path;
-		} catch {
-			// Try the next common browser command before falling back to Playwright defaults.
-		}
-	}
-
-	return undefined;
 }
 
 async function smokeVncSavedCredentialLaunchUi(page, hostId, vncState, closeVncClients) {
