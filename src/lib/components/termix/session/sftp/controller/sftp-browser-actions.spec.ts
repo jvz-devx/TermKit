@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { RemoteEntry } from './file-manager-state';
+import type { RemoteEntry } from '../state/file-manager-state';
 import {
 	actionEntries,
 	deleteEntriesForSelection,

@@ -3,7 +3,7 @@ import {
 	countRecursiveUploadFile,
 	createRecursiveUploadLimitState,
 	type RecursiveUploadLimitState
-} from './file-manager-state';
+} from '../state/file-manager-state';
 
 export type UploadItem = {
 	file: globalThis.File;

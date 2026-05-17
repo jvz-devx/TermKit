@@ -6,7 +6,7 @@
 		formatThroughput,
 		transferPercent,
 		type TransferProgress
-	} from './file-manager-state';
+	} from '../state/file-manager-state';
 
 	let { transfer }: { transfer: TransferProgress } = $props();
 

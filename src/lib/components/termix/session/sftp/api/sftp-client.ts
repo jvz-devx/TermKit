@@ -1,4 +1,4 @@
-import { normalizePath, type RemoteEntry } from './file-manager-state';
+import { normalizePath, type RemoteEntry } from '../state/file-manager-state';
 import { apiErrorMessage, readApiBody } from './sftp-api-response';
 
 export type ApiBase = 'sftp' | 'ftp';

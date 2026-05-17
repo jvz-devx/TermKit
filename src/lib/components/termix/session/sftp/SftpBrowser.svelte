@@ -1,11 +1,11 @@
 <script lang="ts">
 	import * as Resizable from '$lib/components/ui/resizable';
-	import SftpBookmarksPane from './SftpBookmarksPane.svelte';
-	import SftpDialogs from './SftpDialogs.svelte';
-	import SftpEditorPane from './SftpEditorPane.svelte';
-	import SftpFileListPane from './SftpFileListPane.svelte';
-	import SftpToolbar from './SftpToolbar.svelte';
-	import { createSftpBrowserController } from './sftp-browser-controller.svelte';
+	import SftpBookmarksPane from './components/SftpBookmarksPane.svelte';
+	import SftpDialogs from './components/SftpDialogs.svelte';
+	import SftpEditorPane from './components/SftpEditorPane.svelte';
+	import SftpFileListPane from './components/SftpFileListPane.svelte';
+	import SftpToolbar from './components/SftpToolbar.svelte';
+	import { createSftpBrowserController } from './controller/sftp-browser-controller.svelte';
 
 	let {
 		hostId,

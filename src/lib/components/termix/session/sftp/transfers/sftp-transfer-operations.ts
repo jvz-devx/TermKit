@@ -8,15 +8,15 @@ import {
 	updateTransferProgress,
 	type RemoteEntry,
 	type TransferProgress
-} from './file-manager-state';
+} from '../state/file-manager-state';
 import {
 	isAbortError,
 	moveTargetForEntry,
 	recursiveUploadLimitItems,
 	transferItemLabel,
 	uploadDirectoryPaths
-} from './sftp-browser-actions';
-import type { createSftpClient } from './sftp-client';
+} from '../controller/sftp-browser-actions';
+import type { createSftpClient } from '../api/sftp-client';
 import { collectRecursiveDownloadFiles } from './sftp-recursive-download';
 import { fetchDownloadBlob, saveDownloadedBlob, uploadFile } from './sftp-transfer-io';
 import type { UploadItem } from './sftp-upload-drop';

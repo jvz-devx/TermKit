@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { collectRecursiveDownloadFiles } from './sftp-recursive-download';
-import type { RemoteEntry } from './file-manager-state';
+import type { RemoteEntry } from '../state/file-manager-state';
 
 describe('SFTP recursive download collection', () => {
 	it('collects downloadable files from selected directories', async () => {

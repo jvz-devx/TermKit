@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchDownloadBlob, saveDownloadedBlob } from './sftp-transfer-io';
-import type { RemoteEntry } from './file-manager-state';
+import type { RemoteEntry } from '../state/file-manager-state';
 
 describe('SFTP transfer IO helpers', () => {
 	afterEach(() => {

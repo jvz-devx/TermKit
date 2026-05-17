@@ -4,13 +4,13 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Table from '$lib/components/ui/table';
-	import StatePanel from '../../StatePanel.svelte';
+	import StatePanel from '../../../StatePanel.svelte';
 	import {
 		entryTypeLabel,
 		formatSize,
 		isDownloadableFile,
 		type RemoteEntry
-	} from './file-manager-state';
+	} from '../state/file-manager-state';
 
 	let {
 		path,

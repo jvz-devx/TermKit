@@ -7,8 +7,8 @@ import {
 	orderedRemoteEntriesForDelete,
 	selectedEntries,
 	type RemoteEntry
-} from './file-manager-state';
-import type { UploadItem } from './sftp-upload-drop';
+} from '../state/file-manager-state';
+import type { UploadItem } from '../transfers/sftp-upload-drop';
 
 export type PendingRecursive =
 	| {

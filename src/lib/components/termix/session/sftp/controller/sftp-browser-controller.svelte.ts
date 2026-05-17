@@ -18,7 +18,7 @@ import {
 	updateTransferProgress,
 	type RemoteEntry,
 	type TransferProgress
-} from './file-manager-state';
+} from '../state/file-manager-state';
 import {
 	actionEntries,
 	deleteEntriesForSelection,
@@ -33,11 +33,11 @@ import {
 	parseBookmarks,
 	removeBookmarkEntry,
 	type BookmarkEntry
-} from './sftp-bookmarks';
-import { createSftpClient, type ApiBase } from './sftp-client';
-import { formatModified, modeLabel, symlinkTarget } from './sftp-entry-format';
-import { searchRemoteEntries } from './sftp-remote-search';
-import { createSftpTextEditor } from './sftp-text-editor.svelte';
+} from '../state/sftp-bookmarks';
+import { createSftpClient, type ApiBase } from '../api/sftp-client';
+import { formatModified, modeLabel, symlinkTarget } from '../format/sftp-entry-format';
+import { searchRemoteEntries } from '../search/sftp-remote-search';
+import { createSftpTextEditor } from '../editor/sftp-text-editor.svelte';
 import {
 	assertUploadItemsWithinLimits,
 	runDeleteEntries,
@@ -45,8 +45,8 @@ import {
 	runDownloadRecursive,
 	runMoveEntries,
 	runUploadItems
-} from './sftp-transfer-operations';
-import { droppedUploadItems, type UploadItem } from './sftp-upload-drop';
+} from '../transfers/sftp-transfer-operations';
+import { droppedUploadItems, type UploadItem } from '../transfers/sftp-upload-drop';
 
 export type SftpBrowserControllerProps = {
 	hostId: string;

@@ -1,4 +1,4 @@
-import type { RemoteEntry } from './file-manager-state';
+import type { RemoteEntry } from '../state/file-manager-state';
 
 export function formatModified(entry: RemoteEntry) {
 	if (!entry.mtime) return entry.rawModifiedAt ?? '-';

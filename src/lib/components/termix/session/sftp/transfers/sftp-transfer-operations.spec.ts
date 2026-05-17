@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileTransferLimits } from './file-manager-state';
+import { fileTransferLimits } from '../state/file-manager-state';
 import { assertUploadItemsWithinLimits } from './sftp-transfer-operations';
 import type { UploadItem } from './sftp-upload-drop';
 

@@ -1,5 +1,5 @@
-import type { RemoteEntry } from './file-manager-state';
-import type { createSftpClient } from './sftp-client';
+import type { RemoteEntry } from '../state/file-manager-state';
+import type { createSftpClient } from '../api/sftp-client';
 
 type SftpClient = ReturnType<typeof createSftpClient>;
 
