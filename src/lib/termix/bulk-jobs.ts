@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import {
+	captureBulkOutput,
+	defaultMaxOutputBytes,
+	sanitizeReportFields,
+	secretKeyPattern
+} from './bulk-job-output';
+import { formatBulkJobReport, summarizeBulkJobHosts } from './bulk-job-report';
 
-const defaultMaxOutputBytes = 64 * 1024;
 const maxConcurrencyLimit = 25;
-const secretKeyPattern = /(password|passwd|passphrase|secret|token|api[_-]?key|private[_-]?key)/i;
+
+export { captureBulkOutput } from './bulk-job-output';
 
 export const bulkJobKinds = ['ssh_command', 'transfer'] as const;
 export type BulkJobKind = (typeof bulkJobKinds)[number];
@@ -409,49 +416,11 @@ export function getRetryableBulkHostIds(job: BulkJobRecord): string[] {
 		.map((host) => host.hostId);
 }
 
-export function captureBulkOutput(
-	value: string | Buffer | null | undefined,
-	policy: BulkOutputPolicy
-): BulkCapturedOutput {
-	const source = Buffer.isBuffer(value) ? value.toString('utf8') : (value ?? '');
-	const originalBytes = Buffer.byteLength(source, 'utf8');
-	const redacted = redactText(source, policy.redactionValues);
-	const redactedBytes = Buffer.byteLength(redacted.text, 'utf8');
-	if (redactedBytes <= policy.maxBytes) {
-		return {
-			text: redacted.text,
-			originalBytes,
-			truncated: false,
-			redacted: redacted.redacted
-		};
-	}
-
-	return {
-		text: truncateUtf8(redacted.text, policy.maxBytes),
-		originalBytes,
-		truncated: true,
-		redacted: redacted.redacted
-	};
-}
-
 export function buildBulkJobReport(
 	job: BulkJobRecord,
 	format: 'json' | 'csv' = 'json'
 ): { filename: string; mimeType: string; body: string } {
-	const safe = toReportModel(job);
-	if (format === 'csv') {
-		return {
-			filename: `bulk-job-${job.id}.csv`,
-			mimeType: 'text/csv',
-			body: toCsvReport(safe)
-		};
-	}
-
-	return {
-		filename: `bulk-job-${job.id}.json`,
-		mimeType: 'application/json',
-		body: `${JSON.stringify(safe, null, 2)}\n`
-	};
+	return formatBulkJobReport(job, summarizeBulkJob(job), format);
 }
 
 export function summarizeBulkJob(job: BulkJobRecord): {
@@ -463,20 +432,7 @@ export function summarizeBulkJob(job: BulkJobRecord): {
 	running: number;
 	partialFailure: boolean;
 } {
-	const count = (status: BulkHostStatus) =>
-		job.hosts.filter((host) => host.status === status).length;
-	const failed = count('failed');
-	const cancelled = count('cancelled');
-	const succeeded = count('succeeded');
-	return {
-		total: job.hosts.length,
-		succeeded,
-		failed,
-		cancelled,
-		queued: count('queued'),
-		running: count('running'),
-		partialFailure: succeeded > 0 && failed + cancelled > 0
-	};
+	return summarizeBulkJobHosts(job.hosts);
 }
 
 function finalizeBulkJobIfSettled(job: BulkJobRecord, now: Date): BulkJobRecord {
@@ -795,145 +751,6 @@ function validateLocalReference(value: unknown, field: string, issues: string[])
 	}
 	if (ref.includes('\0')) issues.push(`${field} cannot contain NUL bytes`);
 	return ref;
-}
-
-function redactText(text: string, values: string[]): { text: string; redacted: boolean } {
-	let redacted = text;
-	for (const value of values) {
-		redacted = redacted.split(value).join('[REDACTED]');
-	}
-	redacted = redacted
-		.replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]')
-		.replace(
-			/(password|passwd|passphrase|secret|token|api[_-]?key)\s*[:=]\s*([^\s,;"']+)/gi,
-			'$1=[REDACTED]'
-		)
-		.replace(
-			/-----BEGIN [^-]+PRIVATE KEY-----[\s\S]*?-----END [^-]+PRIVATE KEY-----/g,
-			'[REDACTED PRIVATE KEY]'
-		);
-	return { text: redacted, redacted: redacted !== text };
-}
-
-function truncateUtf8(text: string, maxBytes: number): string {
-	const buffer = Buffer.from(text, 'utf8');
-	return (
-		buffer
-			.subarray(0, maxBytes)
-			.toString('utf8')
-			.replace(/\uFFFD$/, '') + '\n[truncated]'
-	);
-}
-
-function toReportModel(job: BulkJobRecord): Record<string, unknown> {
-	return {
-		id: job.id,
-		userId: job.userId,
-		kind: job.kind,
-		status: job.status,
-		summary: summarizeBulkJob(job),
-		concurrency: job.concurrency,
-		command: job.command
-			? {
-					command: redactText(job.command.command, job.output.redactionValues).text,
-					cwd: job.command.cwd,
-					envKeys: Object.keys(job.command.env ?? {}),
-					timeoutMs: job.command.timeoutMs
-				}
-			: null,
-		transfer: job.transfer,
-		createdAt: job.createdAt.toISOString(),
-		startedAt: job.startedAt?.toISOString() ?? null,
-		finishedAt: job.finishedAt?.toISOString() ?? null,
-		hosts: job.hosts.map((host) => ({
-			hostId: host.hostId,
-			hostName: host.hostName,
-			protocol: host.protocol,
-			status: host.status,
-			attempt: host.attempt,
-			startedAt: host.startedAt?.toISOString() ?? null,
-			finishedAt: host.finishedAt?.toISOString() ?? null,
-			failure: host.failure
-				? {
-						code: host.failure.code,
-						message: redactText(host.failure.message, job.output.redactionValues).text,
-						retryable: host.failure.retryable,
-						at: host.failure.at.toISOString()
-					}
-				: null,
-			result: host.result
-				? {
-						exitCode: host.result.exitCode ?? null,
-						bytesTransferred: host.result.bytesTransferred ?? null,
-						stdout: summarizeCapturedOutput(host.result.stdout),
-						stderr: summarizeCapturedOutput(host.result.stderr),
-						report: host.result.report
-					}
-				: null
-		}))
-	};
-}
-
-function summarizeCapturedOutput(output: BulkCapturedOutput): Omit<BulkCapturedOutput, 'text'> {
-	return {
-		originalBytes: output.originalBytes,
-		truncated: output.truncated,
-		redacted: output.redacted
-	};
-}
-
-function toCsvReport(model: Record<string, unknown>): string {
-	const hosts = Array.isArray(model.hosts) ? (model.hosts as Record<string, unknown>[]) : [];
-	const rows = [
-		[
-			'jobId',
-			'hostId',
-			'hostName',
-			'protocol',
-			'status',
-			'attempt',
-			'failureCode',
-			'failureMessage',
-			'exitCode',
-			'bytesTransferred'
-		]
-	];
-	for (const host of hosts) {
-		const failure = isRecord(host.failure) ? host.failure : {};
-		const result = isRecord(host.result) ? host.result : {};
-		rows.push([
-			String(model.id ?? ''),
-			String(host.hostId ?? ''),
-			String(host.hostName ?? ''),
-			String(host.protocol ?? ''),
-			String(host.status ?? ''),
-			String(host.attempt ?? ''),
-			String(failure.code ?? ''),
-			String(failure.message ?? ''),
-			String(result.exitCode ?? ''),
-			String(result.bytesTransferred ?? '')
-		]);
-	}
-	return `${rows.map((row) => row.map(csvCell).join(',')).join('\n')}\n`;
-}
-
-function sanitizeReportFields(
-	fields: Record<string, string | number | boolean | null>,
-	redactionValues: string[]
-): Record<string, string | number | boolean | null> {
-	const sanitized: Record<string, string | number | boolean | null> = {};
-	for (const [key, value] of Object.entries(fields)) {
-		if (secretKeyPattern.test(key)) continue;
-		if (typeof value === 'string') sanitized[key] = redactText(value, redactionValues).text;
-		else if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
-			sanitized[key] = value;
-		}
-	}
-	return sanitized;
-}
-
-function csvCell(value: string): string {
-	return `"${value.replace(/"/g, '""')}"`;
 }
 
 function asTrimmedString(value: unknown): string | null {
