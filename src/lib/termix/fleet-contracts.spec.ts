@@ -65,7 +65,7 @@ describe('V6 fleet UI and remote contract wiring', () => {
 	});
 
 	it('renders the fleet route from the remote overview contract', () => {
-		expect(routeSource).toContain("import { getFleetOverview } from '$lib/fleet.remote'");
+		expect(routeSource).toContain("import { getFleetOverview } from '$lib/remotes/fleet.remote'");
 		expect(routeSource).toContain(
 			'<FleetDashboard overview={await getFleetOverview()} dataSourceLabel="remote functions" />'
 		);

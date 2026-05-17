@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Cable, Clock3, Server, SquareTerminal } from '@lucide/svelte';
 	import * as Card from '$lib/components/ui/card';
-	import type { AdminOverview } from '$lib/admin.remote';
+	import type { AdminOverview } from '$lib/remotes/admin.remote';
 	import type { Component } from 'svelte';
 
 	let { overview }: { overview: AdminOverview } = $props();

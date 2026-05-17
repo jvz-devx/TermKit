@@ -11,7 +11,7 @@
 		WorkspaceCredentialSummary,
 		WorkspaceHostSummary,
 		WorkspaceSummary
-	} from '$lib/workspaces.remote';
+	} from '$lib/remotes/workspaces.remote';
 
 	let {
 		workspace,

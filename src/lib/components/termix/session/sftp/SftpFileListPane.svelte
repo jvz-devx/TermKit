@@ -10,7 +10,7 @@
 		formatSize,
 		isDownloadableFile,
 		type RemoteEntry
-	} from '../file-manager-state';
+	} from './file-manager-state';
 
 	let {
 		path,

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createFleetAutomationTemplate, getFleetRunbooks } from '$lib/fleet.remote';
+	import { createFleetAutomationTemplate, getFleetRunbooks } from '$lib/remotes/fleet.remote';
 	import AutomationTemplatesPanel from './AutomationTemplatesPanel.svelte';
 
 	const runbooksQuery = getFleetRunbooks();

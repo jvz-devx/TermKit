@@ -6,7 +6,10 @@
 	import { Label } from '$lib/components/ui/label';
 	import * as NativeSelect from '$lib/components/ui/native-select';
 	import * as Table from '$lib/components/ui/table';
-	import { listConnectionHistory, type ConnectionHistorySummary } from '$lib/termix.remote';
+	import {
+		listConnectionHistory,
+		type ConnectionHistorySummary
+	} from '$lib/remotes/sessions.remote';
 	import { failureCopy, humanizeCode } from '$lib/termix/failure-copy';
 	import StatePanel from '../StatePanel.svelte';
 

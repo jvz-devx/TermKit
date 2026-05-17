@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { appBuildInfo } from '$lib/app-version';
-	import { logoutForm } from '$lib/auth.remote';
+	import { logoutForm } from '$lib/remotes/auth.remote';
 	import * as Avatar from '$lib/components/ui/avatar/index.js';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';

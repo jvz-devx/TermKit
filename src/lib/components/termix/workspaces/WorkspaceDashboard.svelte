@@ -13,7 +13,7 @@
 		setWorkspaceHostAssignment,
 		setWorkspaceMember,
 		type WorkspaceRole
-	} from '$lib/workspaces.remote';
+	} from '$lib/remotes/workspaces.remote';
 	import WorkspaceInventoryPanel from './WorkspaceInventoryPanel.svelte';
 	import WorkspaceList from './WorkspaceList.svelte';
 	import WorkspaceMembersPanel from './WorkspaceMembersPanel.svelte';

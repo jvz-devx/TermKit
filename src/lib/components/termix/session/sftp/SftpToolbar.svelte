@@ -23,7 +23,7 @@
 		parentPath,
 		type RemoteEntry,
 		type TransferProgress
-	} from '../file-manager-state';
+	} from './file-manager-state';
 	import SftpTransferProgress from './SftpTransferProgress.svelte';
 
 	let {

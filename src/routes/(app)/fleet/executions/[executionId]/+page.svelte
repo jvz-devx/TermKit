@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import FleetExecutionDetailPage from '$lib/components/termix/fleet/FleetExecutionDetailPage.svelte';
-	import { getFleetExecutions } from '$lib/fleet.remote';
+	import { getFleetExecutions } from '$lib/remotes/fleet.remote';
 
 	const executions = await getFleetExecutions();
 	const execution =

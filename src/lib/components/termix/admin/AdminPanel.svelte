@@ -25,7 +25,7 @@
 		type AdminSshTunnelSummary,
 		type AdminUserSummary,
 		type AdminWorkspaceSummary
-	} from '$lib/admin.remote';
+	} from '$lib/remotes/admin.remote';
 	import * as Alert from '$lib/components/ui/alert';
 	import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';

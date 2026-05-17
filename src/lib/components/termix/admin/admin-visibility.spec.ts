@@ -6,7 +6,7 @@ import {
 	formatAdminDuration,
 	isV4AdminProtocol
 } from './admin-visibility';
-import type { AdminFailureReason } from '$lib/admin.remote';
+import type { AdminFailureReason } from '$lib/remotes/admin.remote';
 
 describe('V4 admin visibility helpers', () => {
 	it('labels SSH tunnel, FTP, and FTPS protocols for admin views', () => {

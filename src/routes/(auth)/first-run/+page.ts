@@ -1,5 +1,5 @@
 import type { PageLoad } from './$types';
-import { getMicrosoftAuthAvailability } from '$lib/auth.remote';
+import { getMicrosoftAuthAvailability } from '$lib/remotes/auth.remote';
 
 export const load: PageLoad = async () => {
 	return {

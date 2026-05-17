@@ -4,14 +4,13 @@ import {
 	runRecordedFtpAction,
 	validateFtpPath
 } from '$lib/server/protocols/ftp';
-import { readJsonObject, requireParam, requireUser, serviceJson } from '../../../_helpers';
+import { serviceJson } from '../../../_helpers';
+import { readJsonPath, requireFileTransferContext } from '../../../file-transfer-helpers';
 
 export const POST: RequestHandler = async (event) => {
 	try {
-		const userId = requireUser(event);
-		const hostId = requireParam(event.params.hostId, 'hostId');
-		const input = await readJsonObject(event.request);
-		const path = validateFtpPath(input.path);
+		const { userId, hostId } = requireFileTransferContext(event);
+		const path = await readJsonPath(event, validateFtpPath);
 
 		await runRecordedFtpAction(
 			userId,

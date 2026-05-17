@@ -4,7 +4,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Separator } from '$lib/components/ui/separator';
-	import { firstRunForm, loginForm } from '$lib/auth.remote';
+	import { firstRunForm, loginForm } from '$lib/remotes/auth.remote';
 	import MicrosoftSignIn from './MicrosoftSignIn.svelte';
 
 	type MicrosoftAuth = {

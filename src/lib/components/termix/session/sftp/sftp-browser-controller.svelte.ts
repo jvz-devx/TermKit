@@ -22,7 +22,7 @@ import {
 	updateTransferProgress,
 	type RemoteEntry,
 	type TransferProgress
-} from '../file-manager-state';
+} from './file-manager-state';
 import {
 	addBookmarkEntry,
 	bookmarkStorageKey,
@@ -516,16 +516,21 @@ export function createSftpBrowserController({
 					completedItems,
 					currentName: entry.name
 				});
-				const blob = await fetchDownloadBlob(entry, client.downloadUrl(entry), controller.signal, (bytes) => {
-					completedBytes += bytes;
-					if (transfer) {
-						transfer = updateTransferProgress(transfer, {
-							completedBytes,
-							completedItems,
-							currentName: entry.name
-						});
+				const blob = await fetchDownloadBlob(
+					entry,
+					client.downloadUrl(entry),
+					controller.signal,
+					(bytes) => {
+						completedBytes += bytes;
+						if (transfer) {
+							transfer = updateTransferProgress(transfer, {
+								completedBytes,
+								completedItems,
+								currentName: entry.name
+							});
+						}
 					}
-				});
+				);
 				saveDownloadedBlob(entry, blob);
 				completedItems += 1;
 				if (entry.size > 0 && completedBytes < totalBytes) {

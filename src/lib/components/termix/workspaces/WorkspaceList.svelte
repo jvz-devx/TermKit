@@ -3,7 +3,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
-	import type { WorkspaceCapabilities, WorkspaceSummary } from '$lib/workspaces.remote';
+	import type { WorkspaceCapabilities, WorkspaceSummary } from '$lib/remotes/workspaces.remote';
 
 	let {
 		workspaces,

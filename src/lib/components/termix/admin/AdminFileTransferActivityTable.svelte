@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Server } from '@lucide/svelte';
-	import type { AdminFileTransferActivitySummary } from '$lib/admin.remote';
+	import type { AdminFileTransferActivitySummary } from '$lib/remotes/admin.remote';
 	import type { BadgeVariant } from '$lib/components/ui/badge';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Card from '$lib/components/ui/card';

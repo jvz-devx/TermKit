@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { SquareTerminal } from '@lucide/svelte';
-	import type { AdminLiveSshSessionSummary } from '$lib/admin.remote';
+	import type { AdminLiveSshSessionSummary } from '$lib/remotes/admin.remote';
 	import type { BadgeVariant } from '$lib/components/ui/badge';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';

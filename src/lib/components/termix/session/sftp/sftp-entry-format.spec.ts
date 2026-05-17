@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatModified, modeLabel, symlinkTarget } from './sftp-entry-format';
-import type { RemoteEntry } from '../file-manager-state';
+import type { RemoteEntry } from './file-manager-state';
 
 describe('SFTP entry formatting', () => {
 	it('formats modified timestamps with raw fallbacks', () => {

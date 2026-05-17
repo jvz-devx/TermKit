@@ -1,4 +1,4 @@
-import { normalizePath, type RemoteEntry } from '../file-manager-state';
+import { normalizePath, type RemoteEntry } from './file-manager-state';
 import { apiErrorMessage, readApiBody } from './sftp-api-response';
 
 export type ApiBase = 'sftp' | 'ftp';
@@ -9,9 +9,12 @@ export function createSftpClient(apiBase: ApiBase, hostId: string) {
 	}
 
 	async function list(remotePath: string, signal?: AbortSignal) {
-		const response = await fetch(url(`/list?path=${encodeURIComponent(normalizePath(remotePath))}`), {
-			signal
-		});
+		const response = await fetch(
+			url(`/list?path=${encodeURIComponent(normalizePath(remotePath))}`),
+			{
+				signal
+			}
+		);
 		const body = await readApiBody(response, 'Could not list directory');
 		if (!response.ok) throw new Error(apiErrorMessage(body, 'Could not list directory'));
 		return {

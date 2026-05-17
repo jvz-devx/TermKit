@@ -1,8 +1,4 @@
-import {
-	fileTransferLimits,
-	filterRemoteEntries,
-	type RemoteEntry
-} from '../file-manager-state';
+import { fileTransferLimits, filterRemoteEntries, type RemoteEntry } from './file-manager-state';
 
 export type RemoteSearchProgress = {
 	directory: string;

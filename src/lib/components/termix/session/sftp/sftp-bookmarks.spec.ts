@@ -14,7 +14,9 @@ describe('SFTP bookmarks', () => {
 	});
 
 	it('builds a stable per-protocol host storage key', () => {
-		expect(bookmarkStorageKey('sftp', 'host-1')).toBe('termixkit:file-manager:sftp:host-1:bookmarks');
+		expect(bookmarkStorageKey('sftp', 'host-1')).toBe(
+			'termixkit:file-manager:sftp:host-1:bookmarks'
+		);
 	});
 
 	it('creates normalized bookmark labels', () => {
@@ -31,7 +33,9 @@ describe('SFTP bookmarks', () => {
 
 	it('adds bookmarks once and removes by id', () => {
 		vi.useFakeTimers();
-		vi.spyOn(crypto, 'randomUUID').mockReturnValue('bookmark-id' as ReturnType<Crypto['randomUUID']>);
+		vi.spyOn(crypto, 'randomUUID').mockReturnValue(
+			'bookmark-id' as ReturnType<Crypto['randomUUID']>
+		);
 		vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
 
 		const added = addBookmarkEntry([], '/tmp//logs');

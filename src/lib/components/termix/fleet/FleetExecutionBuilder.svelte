@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getFleetOverview, queueFleetBulkOperation } from '$lib/fleet.remote';
+	import { getFleetOverview, queueFleetBulkOperation } from '$lib/remotes/fleet.remote';
 	import BulkOperationsPanel from './BulkOperationsPanel.svelte';
 	import {
 		buildBulkOperationSummary,

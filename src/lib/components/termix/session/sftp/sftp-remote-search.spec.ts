@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { searchRemoteEntries } from './sftp-remote-search';
-import type { RemoteEntry } from '../file-manager-state';
+import type { RemoteEntry } from './file-manager-state';
 
 describe('SFTP remote search', () => {
 	it('walks directories and reports matching entries', async () => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ImportPanel from '$lib/components/termix/ImportPanel.svelte';
+	import ImportPanel from '$lib/components/termix/import/ImportPanel.svelte';
 </script>
 
 <ImportPanel />

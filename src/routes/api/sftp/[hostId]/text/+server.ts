@@ -6,13 +6,13 @@ import {
 	writeSftpTextFile
 } from '$lib/server/protocols/sftp';
 import { ServiceValidationError } from '$lib/server/services/errors';
-import { readJsonObject, requireParam, requireUser, serviceJson } from '../../../_helpers';
+import { readJsonObject, serviceJson } from '../../../_helpers';
+import { readQueryPath, requireFileTransferContext } from '../../../file-transfer-helpers';
 
 export const GET: RequestHandler = async (event) => {
 	try {
-		const userId = requireUser(event);
-		const hostId = requireParam(event.params.hostId, 'hostId');
-		const path = validateSftpPath(event.url.searchParams.get('path'));
+		const { userId, hostId } = requireFileTransferContext(event);
+		const path = readQueryPath(event, validateSftpPath);
 		const target = await resolveSftpTarget(userId, hostId);
 		const text = await readSftpTextFile(target, path);
 
@@ -24,8 +24,7 @@ export const GET: RequestHandler = async (event) => {
 
 export const PUT: RequestHandler = async (event) => {
 	try {
-		const userId = requireUser(event);
-		const hostId = requireParam(event.params.hostId, 'hostId');
+		const { userId, hostId } = requireFileTransferContext(event);
 		const input = await readJsonObject(event.request);
 		const path = validateSftpPath(input.path);
 		if (typeof input.text !== 'string') {

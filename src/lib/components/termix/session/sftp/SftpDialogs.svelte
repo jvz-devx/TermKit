@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import { fileTransferLimits, formatSize, type RemoteEntry } from '../file-manager-state';
+	import { fileTransferLimits, formatSize, type RemoteEntry } from './file-manager-state';
 
 	type UploadItem = {
 		file: globalThis.File;

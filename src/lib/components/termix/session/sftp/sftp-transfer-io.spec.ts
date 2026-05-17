@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchDownloadBlob, saveDownloadedBlob } from './sftp-transfer-io';
-import type { RemoteEntry } from '../file-manager-state';
+import type { RemoteEntry } from './file-manager-state';
 
 describe('SFTP transfer IO helpers', () => {
 	afterEach(() => {
@@ -15,14 +15,22 @@ describe('SFTP transfer IO helpers', () => {
 			vi.fn(async () => new Response(blob, { headers: { 'content-type': 'text/plain' } }))
 		);
 
-		const result = await fetchDownloadBlob(entry(), '/download', new AbortController().signal, progress);
+		const result = await fetchDownloadBlob(
+			entry(),
+			'/download',
+			new AbortController().signal,
+			progress
+		);
 
 		expect(await result.text()).toBe('hello');
 		expect(progress).toHaveBeenCalledWith(5);
 	});
 
 	it('turns failed download responses into API errors', async () => {
-		vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"Denied"}', { status: 403 })));
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('{"error":"Denied"}', { status: 403 }))
+		);
 
 		await expect(
 			fetchDownloadBlob(entry(), '/download', new AbortController().signal, vi.fn())

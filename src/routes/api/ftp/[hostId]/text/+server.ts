@@ -6,13 +6,13 @@ import {
 	writeFtpTextFile
 } from '$lib/server/protocols/ftp';
 import { ServiceValidationError } from '$lib/server/services/errors';
-import { readJsonObject, requireParam, requireUser, serviceJson } from '../../../_helpers';
+import { readJsonObject, serviceJson } from '../../../_helpers';
+import { readQueryPath, requireFileTransferContext } from '../../../file-transfer-helpers';
 
 export const GET: RequestHandler = async (event) => {
 	try {
-		const userId = requireUser(event);
-		const hostId = requireParam(event.params.hostId, 'hostId');
-		const path = validateFtpPath(event.url.searchParams.get('path'));
+		const { userId, hostId } = requireFileTransferContext(event);
+		const path = readQueryPath(event, validateFtpPath);
 		const text = await runRecordedFtpAction(
 			userId,
 			hostId,
@@ -29,8 +29,7 @@ export const GET: RequestHandler = async (event) => {
 
 export const PUT: RequestHandler = async (event) => {
 	try {
-		const userId = requireUser(event);
-		const hostId = requireParam(event.params.hostId, 'hostId');
+		const { userId, hostId } = requireFileTransferContext(event);
 		const input = await readJsonObject(event.request);
 		const path = validateFtpPath(input.path);
 		if (typeof input.text !== 'string') {

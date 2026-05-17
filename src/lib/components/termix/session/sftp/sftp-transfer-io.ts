@@ -1,4 +1,4 @@
-import type { RemoteEntry } from '../file-manager-state';
+import type { RemoteEntry } from './file-manager-state';
 import { apiErrorMessage, readApiBody, responseError } from './sftp-api-response';
 
 export type UploadFileInput = {

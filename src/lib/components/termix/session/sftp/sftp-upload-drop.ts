@@ -3,7 +3,7 @@ import {
 	countRecursiveUploadFile,
 	createRecursiveUploadLimitState,
 	type RecursiveUploadLimitState
-} from '../file-manager-state';
+} from './file-manager-state';
 
 export type UploadItem = {
 	file: globalThis.File;
@@ -94,7 +94,9 @@ function fileFromEntry(entry: WebKitFileSystemFileEntry): Promise<globalThis.Fil
 	return new Promise((resolve, reject) => entry.file(resolve, reject));
 }
 
-function readDirectoryEntries(entry: WebKitFileSystemDirectoryEntry): Promise<WebKitFileSystemEntry[]> {
+function readDirectoryEntries(
+	entry: WebKitFileSystemDirectoryEntry
+): Promise<WebKitFileSystemEntry[]> {
 	const reader = entry.createReader();
 	const entries: WebKitFileSystemEntry[] = [];
 

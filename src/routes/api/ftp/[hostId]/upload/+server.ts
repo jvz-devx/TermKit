@@ -5,13 +5,13 @@ import {
 	validateFtpPath,
 	writeFtpFile
 } from '$lib/server/protocols/ftp';
-import { readRequiredFormFile, requireParam, requireUser, serviceJson } from '../../../_helpers';
+import { readRequiredFormFile, serviceJson } from '../../../_helpers';
+import { readQueryPath, requireFileTransferContext } from '../../../file-transfer-helpers';
 
 export const POST: RequestHandler = async (event) => {
 	try {
-		const userId = requireUser(event);
-		const hostId = requireParam(event.params.hostId, 'hostId');
-		const path = validateFtpPath(event.url.searchParams.get('path'));
+		const { userId, hostId } = requireFileTransferContext(event);
+		const path = readQueryPath(event, validateFtpPath);
 		const file = await readRequiredFormFile(event.request, 'file', maxFtpUploadBytes);
 
 		const data = Buffer.from(await file.arrayBuffer());

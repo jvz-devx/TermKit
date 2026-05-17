@@ -5,7 +5,7 @@ import {
 	normalizePath,
 	uniqueRemoteEntries,
 	type RemoteEntry
-} from '../file-manager-state';
+} from './file-manager-state';
 
 export type RecursiveDownloadProgress = {
 	directory: string;

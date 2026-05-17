@@ -1,6 +1,6 @@
 <script lang="ts">
 	import FleetExecutionsPage from '$lib/components/termix/fleet/FleetExecutionsPage.svelte';
-	import { getFleetExecutions } from '$lib/fleet.remote';
+	import { getFleetExecutions } from '$lib/remotes/fleet.remote';
 </script>
 
 <FleetExecutionsPage executions={await getFleetExecutions()} />

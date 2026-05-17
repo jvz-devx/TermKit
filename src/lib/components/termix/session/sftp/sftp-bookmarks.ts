@@ -1,4 +1,4 @@
-import { basename, normalizePath } from '../file-manager-state';
+import { basename, normalizePath } from './file-manager-state';
 
 export type BookmarkEntry = {
 	id: string;

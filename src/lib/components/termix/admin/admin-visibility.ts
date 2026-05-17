@@ -1,4 +1,4 @@
-import type { AdminConnectionProtocol, AdminFailureReason } from '$lib/admin.remote';
+import type { AdminConnectionProtocol, AdminFailureReason } from '$lib/remotes/admin.remote';
 
 export const adminProtocolLabels: Record<AdminConnectionProtocol, string> = {
 	ssh: 'SSH',

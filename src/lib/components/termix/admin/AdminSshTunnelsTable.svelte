@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Cable } from '@lucide/svelte';
-	import type { AdminSshTunnelSummary } from '$lib/admin.remote';
+	import type { AdminSshTunnelSummary } from '$lib/remotes/admin.remote';
 	import type { BadgeVariant } from '$lib/components/ui/badge';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';

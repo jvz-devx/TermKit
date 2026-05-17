@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { collectRecursiveDownloadFiles } from './sftp-recursive-download';
-import type { RemoteEntry } from '../file-manager-state';
+import type { RemoteEntry } from './file-manager-state';
 
 describe('SFTP recursive download collection', () => {
 	it('collects downloadable files from selected directories', async () => {
@@ -10,7 +10,8 @@ describe('SFTP recursive download collection', () => {
 			assertActive: vi.fn(),
 			onProgress,
 			listDirectory: async (path) => {
-				if (path === '/folder') return [entry('/folder/a.txt', 'file'), entry('/folder/sub', 'directory')];
+				if (path === '/folder')
+					return [entry('/folder/a.txt', 'file'), entry('/folder/sub', 'directory')];
 				if (path === '/folder/sub') return [entry('/folder/sub/b.txt', 'file')];
 				return [];
 			}

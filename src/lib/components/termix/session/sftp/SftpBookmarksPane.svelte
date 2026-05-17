@@ -10,7 +10,7 @@
 	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Collapsible from '$lib/components/ui/collapsible';
-	import type { RemoteEntry } from '../file-manager-state';
+	import type { RemoteEntry } from './file-manager-state';
 
 	type BookmarkEntry = {
 		id: string;
