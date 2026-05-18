@@ -124,7 +124,7 @@ origins. Keep `GATEWAY_PUBLIC_URL` on the app origin, for example
 `https://termix.example/gateway`; the app reverse-proxies that path to the
 internal Gateway container so reverse proxies only expose the app port.
 
-Start Postgres, Gateway, the migration job, and the production app container:
+Start Postgres, Gateway, and the production app container:
 
 ```sh
 docker compose up --build
@@ -133,7 +133,8 @@ docker compose up --build
 Compose publishes only the app on `APP_PORT` and binds Postgres to loopback for
 local tooling. Devolutions Gateway is reachable only on the Compose network; the
 app proxies browser RDP traffic from `/gateway/jet/...` to the internal Gateway
-container.
+container. The production app runs checked-in Drizzle migrations during startup,
+so a fresh database is initialized before the server accepts requests.
 
 For SvelteKit development against a local Postgres database:
 
@@ -425,7 +426,7 @@ Smoke-test Postgres migrations in a disposable container:
 nix develop -c npm run smoke:postgres
 ```
 
-Smoke-test Docker Compose deployment with generated local secrets. This builds the Compose app image, starts `app`, `migrate`, `postgres`, and `gateway` under a unique project name, waits for the app through its public HTTP port, verifies that Postgres is loopback-only and Gateway has no published port, and tears the stack down with volumes removed:
+Smoke-test Docker Compose deployment with generated local secrets. This builds the Compose app image, starts `app`, `postgres`, and `gateway` under a unique project name, waits for the app through its public HTTP port, verifies that Postgres is loopback-only and Gateway has no published port, and tears the stack down with volumes removed:
 
 ```sh
 nix develop -c npm run smoke:compose
@@ -547,14 +548,15 @@ the shell:
 nix develop -c npm run test:e2e
 ```
 
-Build the app and migration images:
+Build the production app image:
 
 ```sh
-nix develop -c docker compose build app migrate
+nix develop -c docker compose build app
 ```
 
-Run the production migration job used by Compose:
+Run production migrations manually when needed. Normal Docker Compose startup
+runs this automatically before the app server starts:
 
 ```sh
-nix develop -c docker compose run --rm migrate
+nix develop -c docker compose run --rm app node scripts/migrate.mjs
 ```

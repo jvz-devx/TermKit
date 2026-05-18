@@ -3,8 +3,6 @@ services:
     build:
       context: .
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       gateway:
@@ -36,17 +34,6 @@ services:
     volumes:
       - app-data:/var/lib/termixkit
     restart: unless-stopped
-
-  migrate:
-    build:
-      context: .
-    command: ['node', 'scripts/migrate.mjs']
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-termixkit}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-termixkit}
-    restart: 'no'
 
   postgres:
     image: postgres:17-alpine
