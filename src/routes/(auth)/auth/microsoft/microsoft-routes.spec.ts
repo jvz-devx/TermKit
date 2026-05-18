@@ -114,10 +114,17 @@ function mockTopLevelUserUpdate() {
 }
 
 function mockProvisionTransaction(
-	options: { existingUser?: { id: string; isAdmin: boolean } } = {}
+	options: {
+		existingUser?: { id: string; isAdmin: boolean };
+		invitation?: { id: string; isAdmin: boolean } | null;
+		requiresInvitation?: boolean;
+	} = {}
 ) {
 	const insertValues: unknown[] = [];
 	const updateValues: unknown[] = [];
+	const invitation =
+		options.invitation === undefined ? { id: 'invite-1', isAdmin: false } : options.invitation;
+	const requiresInvitation = options.requiresInvitation ?? true;
 
 	db.transaction.mockImplementation(async (callback) => {
 		let selectCount = 0;
@@ -126,7 +133,13 @@ function mockProvisionTransaction(
 				where: () => ({
 					limit: async () => {
 						selectCount += 1;
-						if (selectCount === 2 && options.existingUser) return [options.existingUser];
+						if (requiresInvitation) {
+							if (selectCount === 2) return invitation ? [invitation] : [];
+							if (selectCount === 3 && options.existingUser) return [options.existingUser];
+						}
+						if (!requiresInvitation && selectCount === 2 && options.existingUser) {
+							return [options.existingUser];
+						}
 						return [];
 					}
 				})
@@ -389,7 +402,9 @@ describe('Microsoft auth routes', () => {
 		expect(password.hashPassword).toHaveBeenCalledOnce();
 		expect(auth.createSessionForUser).toHaveBeenCalledWith('user-1', event);
 		expect(auth.setSessionCookie).toHaveBeenCalledWith(event.cookies, 'session-token', true);
-		expect(transaction.updateValues).toEqual([]);
+		expect(transaction.updateValues).toContainEqual(
+			expect.objectContaining({ acceptedUserId: 'user-1', acceptedAt: expect.any(Date) })
+		);
 		expect(transaction.insertValues).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ username: 'user@example.com', isAdmin: false }),
@@ -518,6 +533,30 @@ describe('Microsoft auth routes', () => {
 			body: { message: 'Microsoft account domain is not allowed' }
 		});
 		expect(db.transaction).not.toHaveBeenCalled();
+	});
+
+	it('rejects new Microsoft users without a pending invitation after bootstrap', async () => {
+		expect.assertions(2);
+		const nonce = 'expected-nonce';
+		const { idToken, jwk } = createSignedIdToken({ nonce, email: 'user@example.com' });
+		mockMicrosoftTokenAndJwks(idToken, jwk);
+		mockNoExistingIdentity();
+		mockProvisionTransaction({ invitation: null });
+		const { GET } = await import('./callback/+server');
+		const event = createEvent(
+			'/auth/microsoft/callback?code=code-1&state=expected-state',
+			createCookies({
+				termixkit_microsoft_oauth_state: 'expected-state',
+				termixkit_microsoft_oauth_nonce: nonce,
+				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			})
+		);
+
+		await expect(GET(event as never)).rejects.toMatchObject({
+			status: 403,
+			body: { message: 'A Microsoft invitation is required for this account' }
+		});
+		expect(auth.createSessionForUser).not.toHaveBeenCalled();
 	});
 
 	it('rejects Microsoft id_tokens with unsupported signature headers', async () => {
@@ -716,7 +755,7 @@ describe('Microsoft auth routes', () => {
 		auth.hasAnyUser.mockResolvedValueOnce(false);
 		mockMicrosoftTokenAndJwks(idToken, jwk);
 		mockNoExistingIdentity();
-		const transaction = mockProvisionTransaction();
+		const transaction = mockProvisionTransaction({ requiresInvitation: false });
 		const { GET } = await import('./callback/+server');
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',

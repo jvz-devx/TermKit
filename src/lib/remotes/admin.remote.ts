@@ -3,11 +3,13 @@ import { error } from '@sveltejs/kit';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { hashPassword } from '$lib/server/auth/password';
+import { parseMicrosoftEntraAuthConfig } from '$lib/server/auth/microsoft';
 import {
 	authIdentities,
 	connectionSessions,
 	credentials,
 	hosts,
+	microsoftInvitations,
 	sessions,
 	sshLiveSessions,
 	sshTunnelSessions,
@@ -17,6 +19,10 @@ import {
 } from '$lib/server/db/schema';
 import { settingsService } from '$lib/server/services/settings';
 import { ServiceValidationError } from '$lib/server/services/errors';
+import {
+	createMicrosoftInvitation as createMicrosoftInvitationRecord,
+	revokeMicrosoftInvitation as revokeMicrosoftInvitationRecord
+} from '$lib/server/services/microsoft-invitations';
 import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
 import { liveSshManager } from '$lib/server/ssh-live/manager';
 import type { BasicAppSettings } from '$lib/server/services/settings';
@@ -37,6 +43,19 @@ export type AdminUserSummary = {
 	credentialCount: number;
 	liveSshSessionCount: number;
 	lastSeenAt: string | null;
+};
+
+export type AdminMicrosoftInvitationSummary = {
+	id: string;
+	email: string;
+	isAdmin: boolean;
+	status: 'pending' | 'accepted' | 'revoked';
+	invitedByUsername: string | null;
+	acceptedUsername: string | null;
+	createdAt: string;
+	updatedAt: string;
+	acceptedAt: string | null;
+	revokedAt: string | null;
 };
 
 export type AdminWorkspaceSummary = {
@@ -134,6 +153,7 @@ export type AdminConnectionHistoryEntry = {
 
 export type AdminOverview = {
 	users: AdminUserSummary[];
+	microsoftInvitations: AdminMicrosoftInvitationSummary[];
 	workspaces: AdminWorkspaceSummary[];
 	liveSshSessions: AdminLiveSshSessionSummary[];
 	sshTunnels: AdminSshTunnelSummary[];
@@ -142,6 +162,8 @@ export type AdminOverview = {
 	settings: BasicAppSettings;
 	capabilities: {
 		createUsers: true;
+		createMicrosoftInvitations: true;
+		revokeMicrosoftInvitations: true;
 		disableUsers: true;
 		promoteUsers: true;
 		terminateLiveSshSessions: true;
@@ -158,6 +180,11 @@ export type AdminCreateUserInput = {
 	isAdmin?: unknown;
 };
 
+export type AdminCreateMicrosoftInvitationInput = {
+	email?: unknown;
+	isAdmin?: unknown;
+};
+
 export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 	requireAdmin();
 
@@ -165,6 +192,7 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 		userRows,
 		identityRows,
 		appSessionRows,
+		invitationRows,
 		hostRows,
 		credentialRows,
 		workspaceRows,
@@ -178,6 +206,7 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 		db.select().from(users).orderBy(users.username),
 		db.select().from(authIdentities),
 		db.select().from(sessions),
+		db.select().from(microsoftInvitations).orderBy(microsoftInvitations.email),
 		db.select().from(hosts),
 		db.select().from(credentials),
 		db.select().from(workspaces),
@@ -236,6 +265,22 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 						?.toISOString() ?? null
 			};
 		}),
+		microsoftInvitations: invitationRows.map((invitation) => ({
+			id: invitation.id,
+			email: invitation.email,
+			isAdmin: invitation.isAdmin,
+			status: invitation.acceptedAt ? 'accepted' : invitation.revokedAt ? 'revoked' : 'pending',
+			invitedByUsername: invitation.invitedByUserId
+				? (usersById.get(invitation.invitedByUserId)?.username ?? null)
+				: null,
+			acceptedUsername: invitation.acceptedUserId
+				? (usersById.get(invitation.acceptedUserId)?.username ?? null)
+				: null,
+			createdAt: invitation.createdAt.toISOString(),
+			updatedAt: invitation.updatedAt.toISOString(),
+			acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
+			revokedAt: invitation.revokedAt?.toISOString() ?? null
+		})),
 		workspaces: toWorkspaceSummaries(
 			userRows,
 			hostRows,
@@ -283,6 +328,8 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 		settings,
 		capabilities: {
 			createUsers: true,
+			createMicrosoftInvitations: true,
+			revokeMicrosoftInvitations: true,
 			disableUsers: true,
 			promoteUsers: true,
 			terminateLiveSshSessions: true,
@@ -291,6 +338,32 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 		}
 	};
 });
+
+export const createAdminMicrosoftInvitation = command<AdminCreateMicrosoftInvitationInput, void>(
+	'unchecked',
+	async (input) => {
+		const adminUserId = requireAdmin();
+		const allowedDomains = getMicrosoftAllowedDomainsForAdminInvite();
+		const payload = input ?? {};
+
+		await createMicrosoftInvitationRecord({
+			email: payload.email,
+			isAdmin: payload.isAdmin,
+			invitedByUserId: adminUserId,
+			allowedDomains
+		});
+		void getAdminOverview().refresh();
+	}
+);
+
+export const revokeAdminMicrosoftInvitation = command<string, void>(
+	'unchecked',
+	async (invitationId) => {
+		requireAdmin();
+		await revokeMicrosoftInvitationRecord(invitationId);
+		void getAdminOverview().refresh();
+	}
+);
 
 export const createAdminUser = command<AdminCreateUserInput, void>('unchecked', async (input) => {
 	requireAdmin();
@@ -409,6 +482,18 @@ function requireAdmin(): string {
 	if (!user) error(401, 'Unauthenticated');
 	if (!user.isAdmin) error(403, 'Admin access required');
 	return user.id;
+}
+
+function getMicrosoftAllowedDomainsForAdminInvite(): string[] {
+	const event = getRequestEvent();
+	const result = parseMicrosoftEntraAuthConfig({
+		...process.env,
+		ORIGIN: process.env.ORIGIN ?? event.url.origin
+	});
+	if (!result.enabled) {
+		throw new ServiceValidationError(['Microsoft authentication is not configured']);
+	}
+	return result.config.allowedDomains;
 }
 
 function toAdminConnectionProtocol(value: string): AdminConnectionProtocol {

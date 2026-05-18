@@ -1,14 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServiceValidationError } from '$lib/server/services/errors';
 import { hashPassword } from '$lib/server/auth/password';
 import { settingsService } from '$lib/server/services/settings';
 import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
 import { liveSshManager } from '$lib/server/ssh-live/manager';
 import {
+	createAdminMicrosoftInvitation,
 	createAdminUser,
 	disableAdminUser,
 	getAdminOverview,
 	promoteAdminUser,
+	revokeAdminMicrosoftInvitation,
 	terminateAdminLiveSshSession,
 	terminateAdminSshTunnelSession
 } from './admin.remote';
@@ -87,6 +89,7 @@ const basicSettings = {
 	rdpAudioRedirection: false,
 	rememberLastActiveTab: true
 };
+const originalEnv = { ...process.env };
 
 function adminEvent(user: { id: string; username: string; isAdmin?: boolean } | undefined) {
 	appServer.event = {
@@ -143,6 +146,7 @@ function mockAdminOverviewSelects(rows: {
 	users?: Row[];
 	identities?: Row[];
 	appSessions?: Row[];
+	invitations?: Row[];
 	hosts?: Row[];
 	credentials?: Row[];
 	workspaces?: Row[];
@@ -156,6 +160,7 @@ function mockAdminOverviewSelects(rows: {
 		.mockReturnValueOnce(chainFromOrderRows(rows.users ?? []))
 		.mockReturnValueOnce(chainFromRows(rows.identities ?? []))
 		.mockReturnValueOnce(chainFromRows(rows.appSessions ?? []))
+		.mockReturnValueOnce(chainFromOrderRows(rows.invitations ?? []))
 		.mockReturnValueOnce(chainFromRows(rows.hosts ?? []))
 		.mockReturnValueOnce(chainFromRows(rows.credentials ?? []))
 		.mockReturnValueOnce(chainFromRows(rows.workspaces ?? []))
@@ -172,6 +177,12 @@ function mockEmptyOverviewRefresh() {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	process.env.MICROSOFT_AUTH_ENABLED = 'true';
+	process.env.MICROSOFT_TENANT_ID = '11111111-1111-4111-8111-111111111111';
+	process.env.MICROSOFT_CLIENT_ID = '22222222-2222-4222-8222-222222222222';
+	process.env.MICROSOFT_CLIENT_SECRET = 'secret-1';
+	process.env.MICROSOFT_ALLOWED_DOMAINS = 'example.com';
+	process.env.MICROSOFT_ADMIN_EMAILS = 'admin@example.com';
 	adminEvent({ id: 'admin-1', username: 'root', isAdmin: true });
 	vi.mocked(settingsService.getBasicAppSettings).mockResolvedValue(basicSettings as never);
 	db.insert.mockReturnValue({ values: vi.fn(async () => undefined) });
@@ -197,6 +208,10 @@ describe('admin remote authorization', () => {
 		await expect(promoteAdminUser('user-2')).rejects.toMatchObject({ status: 403 });
 		expect(db.update).not.toHaveBeenCalled();
 	});
+});
+
+afterEach(() => {
+	process.env = { ...originalEnv };
 });
 
 describe('admin overview query', () => {
@@ -232,6 +247,19 @@ describe('admin overview query', () => {
 			appSessions: [
 				{ userId: 'user-1', expiresAt: new Date('2030-05-15T11:00:00.000Z'), lastSeenAt: now },
 				{ userId: 'user-1', expiresAt: new Date('2020-05-15T09:00:00.000Z'), lastSeenAt: earlier }
+			],
+			invitations: [
+				{
+					id: 'invite-1',
+					email: 'new@example.com',
+					isAdmin: true,
+					invitedByUserId: 'admin-1',
+					acceptedUserId: null,
+					createdAt: earlier,
+					updatedAt: later,
+					acceptedAt: null,
+					revokedAt: null
+				}
 			],
 			hosts: [
 				{
@@ -379,6 +407,8 @@ describe('admin overview query', () => {
 		expect(overview.settings).toEqual(basicSettings);
 		expect(overview.capabilities).toMatchObject({
 			createUsers: true,
+			createMicrosoftInvitations: true,
+			revokeMicrosoftInvitations: true,
 			disableUsers: true,
 			promoteUsers: true,
 			terminateLiveSshSessions: true,
@@ -398,6 +428,15 @@ describe('admin overview query', () => {
 				})
 			])
 		);
+		expect(overview.microsoftInvitations).toEqual([
+			expect.objectContaining({
+				id: 'invite-1',
+				email: 'new@example.com',
+				isAdmin: true,
+				status: 'pending',
+				invitedByUsername: 'root'
+			})
+		]);
 		expect(overview.workspaces).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -531,6 +570,118 @@ describe('admin user commands', () => {
 		expect(updateWhere).toHaveBeenCalledOnce();
 		expect(deleteWhere).toHaveBeenCalledOnce();
 		expect(appServer.refresh).toHaveBeenCalledOnce();
+	});
+});
+
+describe('admin Microsoft invitation commands', () => {
+	it('creates pending Microsoft invitations with normalized email and admin flag', async () => {
+		const values = vi.fn(async () => undefined);
+		db.select.mockReturnValueOnce(chainFromWhereLimitRows([]));
+		db.insert.mockReturnValueOnce({ values });
+		mockEmptyOverviewRefresh();
+
+		await expect(
+			createAdminMicrosoftInvitation({ email: '  New.User@Example.com  ', isAdmin: true })
+		).resolves.toBe(undefined);
+
+		expect(values).toHaveBeenCalledWith({
+			email: 'new.user@example.com',
+			isAdmin: true,
+			invitedByUserId: 'admin-1'
+		});
+		expect(appServer.refresh).toHaveBeenCalledOnce();
+	});
+
+	it('rejects Microsoft invitations outside the configured domain', async () => {
+		await expect(
+			createAdminMicrosoftInvitation({ email: 'user@blocked.test', isAdmin: false })
+		).rejects.toBeInstanceOf(ServiceValidationError);
+
+		expect(db.insert).not.toHaveBeenCalled();
+		expect(db.update).not.toHaveBeenCalled();
+	});
+
+	it('reactivates revoked Microsoft invitations and updates admin intent', async () => {
+		const set = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
+		db.select.mockReturnValueOnce(
+			chainFromWhereLimitRows([
+				{
+					id: 'invite-1',
+					email: 'user@example.com',
+					acceptedAt: null,
+					revokedAt: new Date('2026-05-15T10:00:00Z')
+				}
+			])
+		);
+		db.update.mockReturnValueOnce({ set });
+		mockEmptyOverviewRefresh();
+
+		await expect(
+			createAdminMicrosoftInvitation({ email: 'user@example.com', isAdmin: true })
+		).resolves.toBe(undefined);
+
+		expect(set).toHaveBeenCalledWith({
+			isAdmin: true,
+			invitedByUserId: 'admin-1',
+			revokedAt: null,
+			updatedAt: expect.any(Date)
+		});
+		expect(appServer.refresh).toHaveBeenCalledOnce();
+	});
+
+	it('rejects recreating accepted Microsoft invitations', async () => {
+		db.select.mockReturnValueOnce(
+			chainFromWhereLimitRows([
+				{
+					id: 'invite-1',
+					email: 'user@example.com',
+					acceptedAt: new Date('2026-05-15T10:00:00Z'),
+					revokedAt: null
+				}
+			])
+		);
+
+		await expect(
+			createAdminMicrosoftInvitation({ email: 'user@example.com', isAdmin: false })
+		).rejects.toBeInstanceOf(ServiceValidationError);
+
+		expect(db.insert).not.toHaveBeenCalled();
+		expect(db.update).not.toHaveBeenCalled();
+	});
+
+	it('revokes pending Microsoft invitations and refreshes overview', async () => {
+		const set = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
+		db.select.mockReturnValueOnce(
+			chainFromWhereLimitRows([
+				{ id: 'invite-1', acceptedAt: null, revokedAt: null, email: 'user@example.com' }
+			])
+		);
+		db.update.mockReturnValueOnce({ set });
+		mockEmptyOverviewRefresh();
+
+		await expect(revokeAdminMicrosoftInvitation('invite-1')).resolves.toBe(undefined);
+
+		expect(set).toHaveBeenCalledWith({ revokedAt: expect.any(Date), updatedAt: expect.any(Date) });
+		expect(appServer.refresh).toHaveBeenCalledOnce();
+	});
+
+	it('rejects revoking accepted Microsoft invitations', async () => {
+		db.select.mockReturnValueOnce(
+			chainFromWhereLimitRows([
+				{
+					id: 'invite-1',
+					acceptedAt: new Date('2026-05-15T10:00:00Z'),
+					revokedAt: null,
+					email: 'user@example.com'
+				}
+			])
+		);
+
+		await expect(revokeAdminMicrosoftInvitation('invite-1')).rejects.toBeInstanceOf(
+			ServiceValidationError
+		);
+
+		expect(db.update).not.toHaveBeenCalled();
 	});
 });
 

@@ -16,6 +16,11 @@ import {
 } from '$lib/server/auth/session';
 import { hashPassword } from '$lib/server/auth/password';
 import {
+	MicrosoftInvitationRequiredError,
+	markMicrosoftInvitationAccepted,
+	requireActiveMicrosoftInvitation
+} from '$lib/server/services/microsoft-invitations';
+import {
 	buildMicrosoftAuthorizationUrl,
 	createOidcNonce,
 	createOidcState,
@@ -109,19 +114,27 @@ export async function completeMicrosoftCallback(event: RequestEvent): Promise<ne
 	if (!email) error(400, 'Microsoft account did not provide an email address');
 
 	const normalizedEmail = email.toLowerCase();
-	const isAdmin = config.adminEmails.includes(normalizedEmail);
-	if (!isAdmin && !(await hasAnyUser())) {
+	const isMicrosoftAdmin = config.adminEmails.includes(normalizedEmail);
+	const hasExistingUsers = await hasAnyUser();
+	if (!isMicrosoftAdmin && !hasExistingUsers) {
 		error(403, 'The first Microsoft sign-in must be a configured admin email');
 	}
 
-	const userId = await findOrCreateMicrosoftUser({
-		tenantId: config.tenantId,
-		subject: requiredClaim(claims.sub, 'sub'),
-		email: normalizedEmail,
-		displayName: claims.name ?? normalizedEmail,
-		isAdmin,
-		claims
-	});
+	let userId: string;
+	try {
+		userId = await findOrCreateMicrosoftUser({
+			tenantId: config.tenantId,
+			subject: requiredClaim(claims.sub, 'sub'),
+			email: normalizedEmail,
+			displayName: claims.name ?? normalizedEmail,
+			isAdmin: isMicrosoftAdmin,
+			invitationRequired: hasExistingUsers,
+			claims
+		});
+	} catch (caught) {
+		if (caught instanceof MicrosoftInvitationRequiredError) error(403, caught.message);
+		throw caught;
+	}
 	let token: string;
 	try {
 		({ token } = await createSessionForUser(userId, event));
@@ -215,6 +228,7 @@ async function findOrCreateMicrosoftUser(input: {
 	email: string;
 	displayName: string;
 	isAdmin: boolean;
+	invitationRequired: boolean;
 	claims: OidcIdTokenClaims;
 }): Promise<string> {
 	const [existing] = await db
@@ -252,6 +266,11 @@ async function findOrCreateMicrosoftUser(input: {
 			return racedIdentity.userId;
 		}
 
+		const invitation = input.invitationRequired
+			? await requireActiveMicrosoftInvitation(input.email, tx)
+			: null;
+		const isAdmin = input.isAdmin || Boolean(invitation?.isAdmin);
+
 		const [existingUser] = await tx
 			.select({ id: users.id, isAdmin: users.isAdmin })
 			.from(users)
@@ -265,13 +284,13 @@ async function findOrCreateMicrosoftUser(input: {
 					.values({
 						username: input.email,
 						passwordHash: await hashPassword(randomBytes(32).toString('base64url')),
-						isAdmin: input.isAdmin
+						isAdmin
 					})
 					.returning({ id: users.id })
 			)[0]?.id;
 
 		if (!userId) error(500, 'Could not provision Microsoft user');
-		if (existingUser && input.isAdmin && !existingUser.isAdmin) {
+		if (existingUser && isAdmin && !existingUser.isAdmin) {
 			await tx.update(users).set({ isAdmin: true }).where(eq(users.id, existingUser.id));
 		}
 
@@ -286,6 +305,10 @@ async function findOrCreateMicrosoftUser(input: {
 				preferredUsername: input.claims.preferred_username ?? null
 			}
 		});
+
+		if (invitation) {
+			await markMicrosoftInvitationAccepted({ email: input.email, userId, client: tx });
+		}
 
 		return userId;
 	});

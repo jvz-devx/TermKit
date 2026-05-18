@@ -77,6 +77,30 @@ export const authIdentities = pgTable(
 	]
 );
 
+export const microsoftInvitations = pgTable(
+	'microsoft_invitations',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		email: text('email').notNull(),
+		isAdmin: boolean('is_admin').notNull().default(false),
+		invitedByUserId: uuid('invited_by_user_id').references(() => users.id, {
+			onDelete: 'set null'
+		}),
+		acceptedUserId: uuid('accepted_user_id').references(() => users.id, {
+			onDelete: 'set null'
+		}),
+		acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+		revokedAt: timestamp('revoked_at', { withTimezone: true }),
+		...timestamps
+	},
+	(table) => [
+		uniqueIndex('microsoft_invitations_email_unique').on(table.email),
+		index('microsoft_invitations_invited_by_user_id_idx').on(table.invitedByUserId),
+		index('microsoft_invitations_accepted_user_id_idx').on(table.acceptedUserId),
+		index('microsoft_invitations_revoked_at_idx').on(table.revokedAt)
+	]
+);
+
 export const sessions = pgTable(
 	'sessions',
 	{
@@ -888,6 +912,12 @@ export const hostHealth = pgTable(
 
 export const usersRelations = relations(users, ({ many }) => ({
 	authIdentities: many(authIdentities),
+	sentMicrosoftInvitations: many(microsoftInvitations, {
+		relationName: 'microsoftInvitationInvitedBy'
+	}),
+	acceptedMicrosoftInvitations: many(microsoftInvitations, {
+		relationName: 'microsoftInvitationAcceptedBy'
+	}),
 	sessions: many(sessions),
 	workspaceMemberships: many(workspaceMemberships),
 	hosts: many(hosts),
@@ -915,6 +945,19 @@ export const usersRelations = relations(users, ({ many }) => ({
 
 export const authIdentitiesRelations = relations(authIdentities, ({ one }) => ({
 	user: one(users, { fields: [authIdentities.userId], references: [users.id] })
+}));
+
+export const microsoftInvitationsRelations = relations(microsoftInvitations, ({ one }) => ({
+	invitedBy: one(users, {
+		fields: [microsoftInvitations.invitedByUserId],
+		references: [users.id],
+		relationName: 'microsoftInvitationInvitedBy'
+	}),
+	acceptedUser: one(users, {
+		fields: [microsoftInvitations.acceptedUserId],
+		references: [users.id],
+		relationName: 'microsoftInvitationAcceptedBy'
+	})
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({

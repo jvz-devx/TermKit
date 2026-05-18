@@ -5,6 +5,7 @@
 		Ban,
 		Cable,
 		FolderKanban,
+		MailPlus,
 		Server,
 		Settings2,
 		Shield,
@@ -14,12 +15,15 @@
 	} from '@lucide/svelte';
 	import { page } from '$app/state';
 	import {
+		createAdminMicrosoftInvitation,
 		createAdminUser,
 		disableAdminUser,
 		getAdminOverview,
 		promoteAdminUser,
+		revokeAdminMicrosoftInvitation,
 		terminateAdminLiveSshSession,
 		terminateAdminSshTunnelSession,
+		type AdminMicrosoftInvitationSummary,
 		type AdminLiveSshSessionSummary,
 		type AdminOverview,
 		type AdminSshTunnelSummary,
@@ -53,6 +57,8 @@
 	let createUsername = $state('');
 	let createPassword = $state('');
 	let createAsAdmin = $state(false);
+	let inviteEmail = $state('');
+	let inviteAsAdmin = $state(false);
 
 	const overview = $derived(overviewQuery.current ?? initialOverview);
 	const activeLiveSessions = $derived(
@@ -77,6 +83,25 @@
 			createPassword = '';
 			createAsAdmin = false;
 		});
+	}
+
+	async function createInvitation() {
+		await runAction('create:microsoft-invitation', `Invited ${inviteEmail.trim()}.`, async () => {
+			await createAdminMicrosoftInvitation({
+				email: inviteEmail,
+				isAdmin: inviteAsAdmin
+			}).updates(getAdminOverview);
+			inviteEmail = '';
+			inviteAsAdmin = false;
+		});
+	}
+
+	async function revokeInvitation(invitation: AdminMicrosoftInvitationSummary) {
+		await runAction(
+			`revoke:microsoft-invitation:${invitation.id}`,
+			`Revoked ${invitation.email}.`,
+			() => revokeAdminMicrosoftInvitation(invitation.id).updates(getAdminOverview)
+		);
 	}
 
 	async function promoteUser(user: AdminUserSummary) {
@@ -196,7 +221,7 @@
 		<AdminTabsList />
 
 		<Tabs.Content value="users">
-			{@render UsersTable({ overview, pendingAction, promoteUser, disableUser })}
+			{@render UsersTable({ overview, pendingAction, promoteUser, disableUser, revokeInvitation })}
 		</Tabs.Content>
 
 		<Tabs.Content value="workspaces">
@@ -253,19 +278,119 @@
 	overview,
 	pendingAction,
 	promoteUser,
-	disableUser
+	disableUser,
+	revokeInvitation
 }: {
 	overview: AdminOverview;
 	pendingAction: string | null;
 	promoteUser: (user: AdminUserSummary) => Promise<void>;
 	disableUser: (user: AdminUserSummary) => Promise<void>;
+	revokeInvitation: (invitation: AdminMicrosoftInvitationSummary) => Promise<void>;
 })}
 	<Card.Root>
 		<Card.Header>
 			<Card.Title>User operations</Card.Title>
-			<Card.Description>{overview.users.length} account records</Card.Description>
+			<Card.Description>
+				{overview.users.length} account records, {overview.microsoftInvitations.length} Microsoft invites
+			</Card.Description>
 		</Card.Header>
 		<Card.Content class="space-y-4">
+			<form
+				class="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-[minmax(0,1fr)_auto_auto]"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void createInvitation();
+				}}
+			>
+				<div class="grid gap-2">
+					<Label for="admin-invite-email">Microsoft email</Label>
+					<Input
+						id="admin-invite-email"
+						type="email"
+						bind:value={inviteEmail}
+						autocomplete="email"
+						placeholder="operator@example.com"
+						required
+					/>
+				</div>
+				<label
+					class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2 text-sm md:self-end"
+				>
+					<span class="font-medium">Admin</span>
+					<Switch bind:checked={inviteAsAdmin} aria-label="Invite as admin" />
+				</label>
+				<Button
+					type="submit"
+					class="md:self-end"
+					disabled={pendingAction === 'create:microsoft-invitation'}
+				>
+					<MailPlus class="size-4" />
+					Invite
+				</Button>
+			</form>
+
+			{#if overview.microsoftInvitations.length > 0}
+				<div class="overflow-x-auto">
+					<Table.Root>
+						<Table.Header>
+							<Table.Row>
+								<Table.Head>Microsoft invite</Table.Head>
+								<Table.Head>Status</Table.Head>
+								<Table.Head>Created</Table.Head>
+								<Table.Head>Accepted by</Table.Head>
+								<Table.Head class="text-right">Actions</Table.Head>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{#each overview.microsoftInvitations as invitation (invitation.id)}
+								<Table.Row>
+									<Table.Cell>
+										<div class="font-medium">{invitation.email}</div>
+										<div class="text-xs text-muted-foreground">
+											{invitation.invitedByUsername ?? shortId(invitation.id)}
+										</div>
+									</Table.Cell>
+									<Table.Cell>
+										<div class="flex flex-wrap gap-1">
+											<Badge
+												variant={invitation.status === 'revoked'
+													? 'destructive'
+													: invitation.status === 'accepted'
+														? 'secondary'
+														: 'default'}
+											>
+												{invitation.status}
+											</Badge>
+											{#if invitation.isAdmin}
+												<Badge variant="outline"><ShieldCheck class="size-3" />Admin</Badge>
+											{/if}
+										</div>
+									</Table.Cell>
+									<Table.Cell>{formatDate(invitation.createdAt)}</Table.Cell>
+									<Table.Cell>
+										{invitation.acceptedUsername ?? formatDate(invitation.acceptedAt)}
+									</Table.Cell>
+									<Table.Cell>
+										<div class="flex justify-end">
+											<Button
+												size="sm"
+												variant="outline"
+												disabled={invitation.status !== 'pending' ||
+													pendingAction === `revoke:microsoft-invitation:${invitation.id}`}
+												onclick={() => revokeInvitation(invitation)}
+											>
+												<Ban class="size-4" />
+												Revoke
+											</Button>
+										</div>
+									</Table.Cell>
+								</Table.Row>
+							{/each}
+						</Table.Body>
+					</Table.Root>
+				</div>
+			{/if}
+
 			<form
 				class="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]"
 				onsubmit={(event) => {
@@ -370,11 +495,11 @@
 											size="sm"
 											variant="destructive"
 											disabled={user.disabled || pendingAction === `disable:${user.id}`}
-											title="Disable user and revoke active app sessions"
+											title="Disable local and Microsoft login, then revoke active app sessions"
 											onclick={() => disableUser(user)}
 										>
 											<Ban class="size-4" />
-											Disable
+											Disable login
 										</Button>
 									</div>
 								</Table.Cell>
