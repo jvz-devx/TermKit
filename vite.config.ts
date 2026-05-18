@@ -121,6 +121,7 @@ export default defineConfig({
 				'src/**/*.{fixture,fixtures,mock,mocks}.{js,ts}',
 				'src/lib/assets/**',
 				'src/lib/components/ui/**',
+				'src/lib/server/db/schema.ts',
 				'src/lib/server/db/migrations/**',
 				'src/routes/**/+*.svelte',
 				'.svelte-kit/**',
