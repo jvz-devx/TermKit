@@ -2,8 +2,8 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:cr
 import { env } from '$env/dynamic/private';
 
 const algorithm = 'aes-256-gcm';
-const info = 'termixkit:credential-encryption:v1';
-const associatedDataInfo = 'termixkit:credential-encryption:aad:v1';
+const info = 'termkit:credential-encryption:v1';
+const associatedDataInfo = 'termkit:credential-encryption:aad:v1';
 const minimumProductionMasterKeyBytes = 32;
 
 export type CredentialEncryptionContext = {
@@ -166,7 +166,7 @@ function isStrongProductionMasterKey(masterKey: string): boolean {
 			'password',
 			'secret',
 			'test-master-key',
-			'termixkit'
+			'termkit'
 		].some((placeholder) => lower.includes(placeholder))
 	) {
 		return false;

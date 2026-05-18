@@ -178,7 +178,7 @@ describe('mapTermixRecords', () => {
 				sourceId: 'owned-auth',
 				code: 'unsupported_user_account',
 				message:
-					'Source user accounts or password hashes were not imported; TermixKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
+					'Source user accounts or password hashes were not imported; TermKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
 			}
 		]);
 	});

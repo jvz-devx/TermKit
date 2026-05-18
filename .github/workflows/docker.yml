@@ -14,7 +14,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/jvz-devx/termixkit
+  IMAGE_NAME: ghcr.io/jvz-devx/termkit
 
 jobs:
   build:
@@ -42,12 +42,16 @@ jobs:
         run: |
           short_sha="${GITHUB_SHA::12}"
           build_date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          package_version="$(node -p "require('./package.json').version")"
           {
             echo "short_sha=${short_sha}"
             echo "build_date=${build_date}"
+            echo "package_version=${package_version}"
             echo "tags<<EOF"
             echo "${IMAGE_NAME}:${short_sha}"
             echo "${IMAGE_NAME}:main"
+            echo "${IMAGE_NAME}:${package_version}"
+            echo "${IMAGE_NAME}:latest"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -59,8 +63,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
-            TERMIXKIT_COMMIT_SHA=${{ github.sha }}
-            TERMIXKIT_SHORT_SHA=${{ steps.meta.outputs.short_sha }}
-            TERMIXKIT_BUILD_DATE=${{ steps.meta.outputs.build_date }}
+            TERMKIT_COMMIT_SHA=${{ github.sha }}
+            TERMKIT_SHORT_SHA=${{ steps.meta.outputs.short_sha }}
+            TERMKIT_BUILD_DATE=${{ steps.meta.outputs.build_date }}
+            TERMKIT_PACKAGE_VERSION=${{ steps.meta.outputs.package_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -8,9 +8,9 @@ services:
       gateway:
         condition: service_started
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-termixkit}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-termixkit}
+      DATABASE_URL: postgres://${POSTGRES_USER:-termkit}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-termkit}
       ORIGIN: ${ORIGIN:-https://localhost:3000}
-      TERMIXKIT_INSECURE_LOCAL_HTTP: ${TERMIXKIT_INSECURE_LOCAL_HTTP:-0}
+      TERMKIT_INSECURE_LOCAL_HTTP: ${TERMKIT_INSECURE_LOCAL_HTTP:-0}
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       BODY_SIZE_LIMIT: ${BODY_SIZE_LIMIT:-55M}
       CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:?set CREDENTIAL_MASTER_KEY in .env}
@@ -22,25 +22,25 @@ services:
       MICROSOFT_SCOPES: ${MICROSOFT_SCOPES:-}
       MICROSOFT_ALLOWED_DOMAINS: ${MICROSOFT_ALLOWED_DOMAINS:-}
       MICROSOFT_ADMIN_EMAILS: ${MICROSOFT_ADMIN_EMAILS:-}
-      TERMIXKIT_IMPORT_SOURCE_SECRET: ${TERMIXKIT_IMPORT_SOURCE_SECRET:-}
-      TERMIXKIT_SSH_KNOWN_HOSTS_PATH: ${TERMIXKIT_SSH_KNOWN_HOSTS_PATH:-/var/lib/termixkit/ssh-known-hosts.json}
-      TERMIXKIT_SSH_TRUST_ON_FIRST_USE: ${TERMIXKIT_SSH_TRUST_ON_FIRST_USE:-1}
-      TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: ${TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU:-1}
+      TERMKIT_IMPORT_SOURCE_SECRET: ${TERMKIT_IMPORT_SOURCE_SECRET:-}
+      TERMKIT_SSH_KNOWN_HOSTS_PATH: ${TERMKIT_SSH_KNOWN_HOSTS_PATH:-/var/lib/termkit/ssh-known-hosts.json}
+      TERMKIT_SSH_TRUST_ON_FIRST_USE: ${TERMKIT_SSH_TRUST_ON_FIRST_USE:-1}
+      TERMKIT_SSH_ALLOW_PRODUCTION_TOFU: ${TERMKIT_SSH_ALLOW_PRODUCTION_TOFU:-1}
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:7171}
       GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-https://localhost:3000/gateway}
       GATEWAY_PROVISIONER_KEY: ${GATEWAY_PROVISIONER_KEY:?set GATEWAY_PROVISIONER_KEY in .env}
     ports:
       - '${APP_PORT:-3000}:3000'
     volumes:
-      - app-data:/var/lib/termixkit
+      - app-data:/var/lib/termkit
     restart: unless-stopped
 
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-termixkit}
+      POSTGRES_USER: ${POSTGRES_USER:-termkit}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:-termixkit}
+      POSTGRES_DB: ${POSTGRES_DB:-termkit}
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 5s

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="520" viewBox="0 0 1600 520" role="img" aria-labelledby="title desc">
+	<title id="title">TermKit</title>
+	<desc id="desc">A TermKit banner with the app icon, product name, and remote access workflow theme.</desc>
+	<defs>
+		<linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+			<stop offset="0" stop-color="#09090b" />
+			<stop offset="0.55" stop-color="#111827" />
+			<stop offset="1" stop-color="#042f2e" />
+		</linearGradient>
+		<linearGradient id="panel" x1="0" x2="1" y1="0" y2="1">
+			<stop offset="0" stop-color="#18181b" />
+			<stop offset="1" stop-color="#0f172a" />
+		</linearGradient>
+		<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+			<feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000000" flood-opacity="0.35" />
+		</filter>
+	</defs>
+
+	<rect width="1600" height="520" rx="42" fill="url(#bg)" />
+	<g opacity="0.34">
+		<rect x="1078" y="118" width="354" height="214" rx="30" fill="#0f172a" stroke="#164e63" stroke-width="2" />
+		<rect x="1102" y="142" width="306" height="40" rx="12" fill="#0b1120" />
+		<circle cx="1126" cy="162" r="6" fill="#22d3ee" />
+		<circle cx="1148" cy="162" r="6" fill="#84cc16" />
+		<circle cx="1170" cy="162" r="6" fill="#64748b" />
+		<path d="M1130 220h96M1130 254h178M1130 288h138" stroke="#67e8f9" stroke-width="10" stroke-linecap="round" opacity="0.55" />
+		<path d="M1360 218l24 20-24 20" fill="none" stroke="#84cc16" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.65" />
+	</g>
+
+	<g filter="url(#shadow)">
+		<rect x="112" y="106" width="308" height="308" rx="68" fill="#09090b" />
+		<rect x="157" y="169" width="218" height="175" rx="18" fill="#18181b" stroke="#3f3f46" stroke-width="8" />
+		<path d="M192 219l38 31-38 31" fill="none" stroke="#22d3ee" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" />
+		<path d="M251 288h72" fill="none" stroke="#e4e4e7" stroke-width="18" stroke-linecap="round" />
+		<circle cx="338" cy="196" r="11" fill="#84cc16" />
+	</g>
+
+	<g fill="#f8fafc">
+		<text x="486" y="222" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="96" font-weight="760" letter-spacing="0">TermKit</text>
+		<text x="492" y="286" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="32" font-weight="520" fill="#cbd5e1" letter-spacing="0">Remote access workflows for SSH, RDP, VNC, Telnet, and file transfer.</text>
+	</g>
+
+	<g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="650">
+		<rect x="492" y="338" width="122" height="46" rx="23" fill="#164e63" stroke="#22d3ee" stroke-opacity="0.45" />
+		<text x="529" y="370" fill="#cffafe">SSH</text>
+		<rect x="632" y="338" width="123" height="46" rx="23" fill="#14532d" stroke="#84cc16" stroke-opacity="0.45" />
+		<text x="669" y="370" fill="#dcfce7">RDP</text>
+		<rect x="773" y="338" width="124" height="46" rx="23" fill="#312e81" stroke="#818cf8" stroke-opacity="0.45" />
+		<text x="810" y="370" fill="#e0e7ff">VNC</text>
+	</g>
+</svg>

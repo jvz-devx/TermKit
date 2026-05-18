@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-const proofFilePath = process.env.TERMIXKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
-const notesFilePath = process.env.TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES_FILE?.trim();
-const notesFromEnv = process.env.TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES?.trim();
+const proofFilePath = process.env.TERMKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
+const notesFilePath = process.env.TERMKIT_MICROSOFT_INTERACTIVE_NOTES_FILE?.trim();
+const notesFromEnv = process.env.TERMKIT_MICROSOFT_INTERACTIVE_NOTES?.trim();
 const timestamp = new Date().toISOString();
 const commit = currentCommit();
 const proofFileExists = existsSync(proofFilePath);
@@ -70,7 +70,7 @@ console.log(`Recorded Microsoft interactive proof in ${proofFilePath}.`);
 function readNotes() {
 	if (notesFilePath && notesFromEnv) {
 		console.error(
-			'Set either TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES_FILE or TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES, not both.'
+			'Set either TERMKIT_MICROSOFT_INTERACTIVE_NOTES_FILE or TERMKIT_MICROSOFT_INTERACTIVE_NOTES, not both.'
 		);
 		process.exit(1);
 	}
@@ -90,7 +90,7 @@ function readNotes() {
 function requireNotes(notes) {
 	if (!notes) {
 		console.error(
-			'Set TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES or TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES_FILE with redacted manual browser proof notes.'
+			'Set TERMKIT_MICROSOFT_INTERACTIVE_NOTES or TERMKIT_MICROSOFT_INTERACTIVE_NOTES_FILE with redacted manual browser proof notes.'
 		);
 		process.exit(1);
 	}

@@ -13,19 +13,19 @@ const template = `${JSON.stringify(
 			realSsh: {
 				passed: false,
 				timestamp,
-				command: 'TERMIXKIT_SMOKE_SSH_HOST=... npm run smoke:protocols',
+				command: 'TERMKIT_SMOKE_SSH_HOST=... npm run smoke:protocols',
 				redactedEnv: [
-					'TERMIXKIT_SMOKE_SSH_HOST',
-					'TERMIXKIT_SMOKE_SSH_USERNAME',
-					'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
+					'TERMKIT_SMOKE_SSH_HOST',
+					'TERMKIT_SMOKE_SSH_USERNAME',
+					'TERMKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
 				],
 				output: ''
 			},
 			realVnc: {
 				passed: false,
 				timestamp,
-				command: 'TERMIXKIT_SMOKE_VNC_HOST=... npm run smoke:protocols',
-				redactedEnv: ['TERMIXKIT_SMOKE_VNC_HOST', 'TERMIXKIT_SMOKE_VNC_PORT'],
+				command: 'TERMKIT_SMOKE_VNC_HOST=... npm run smoke:protocols',
+				redactedEnv: ['TERMKIT_SMOKE_VNC_HOST', 'TERMKIT_SMOKE_VNC_PORT'],
 				output: ''
 			},
 			realRdp: {
@@ -36,7 +36,7 @@ const template = `${JSON.stringify(
 					'GATEWAY_URL',
 					'GATEWAY_PUBLIC_URL',
 					'GATEWAY_PROVISIONER_KEY',
-					'TERMIXKIT_SMOKE_RDP_HOST'
+					'TERMKIT_SMOKE_RDP_HOST'
 				],
 				output: ''
 			},
@@ -44,14 +44,14 @@ const template = `${JSON.stringify(
 				passed: false,
 				timestamp,
 				command:
-					'TERMIXKIT_REAL_FTP_HOST=<redacted> TERMIXKIT_REAL_FTP_EVIDENCE_ID=<redacted> TERMIXKIT_REAL_FTP_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftp',
+					'TERMKIT_REAL_FTP_HOST=<redacted> TERMKIT_REAL_FTP_EVIDENCE_ID=<redacted> TERMKIT_REAL_FTP_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftp',
 				instructions:
 					'Record only after testing a real FTP target outside local fixtures. Notes must include the exact fragments ftp login, ftp list, ftp download, ftp upload, ftp mkdir, ftp rename, ftp delete, ftp text edit, and connection history. Do not store target credentials, session tokens, or cookies.',
 				redactedEnv: [
-					'TERMIXKIT_REAL_FTP_HOST',
-					'TERMIXKIT_REAL_FTP_PORT',
-					'TERMIXKIT_REAL_FTP_USERNAME',
-					'TERMIXKIT_REAL_FTP_EVIDENCE_ID'
+					'TERMKIT_REAL_FTP_HOST',
+					'TERMKIT_REAL_FTP_PORT',
+					'TERMKIT_REAL_FTP_USERNAME',
+					'TERMKIT_REAL_FTP_EVIDENCE_ID'
 				],
 				evidenceId: '',
 				notes: '',
@@ -61,16 +61,16 @@ const template = `${JSON.stringify(
 				passed: false,
 				timestamp,
 				command:
-					'TERMIXKIT_REAL_FTPS_HOST=<redacted> TERMIXKIT_REAL_FTPS_EVIDENCE_ID=<redacted> TERMIXKIT_REAL_FTPS_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftps',
+					'TERMKIT_REAL_FTPS_HOST=<redacted> TERMKIT_REAL_FTPS_EVIDENCE_ID=<redacted> TERMKIT_REAL_FTPS_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftps',
 				instructions:
 					'Record only after testing a real FTPS target outside local fixtures. Notes must include the exact fragments ftps login, ftps tls, ftps certificate, ftps list, ftps download, ftps upload, ftps mkdir, ftps rename, ftps delete, ftps text edit, and connection history. Do not store target credentials, session tokens, or cookies.',
 				redactedEnv: [
-					'TERMIXKIT_REAL_FTPS_HOST',
-					'TERMIXKIT_REAL_FTPS_PORT',
-					'TERMIXKIT_REAL_FTPS_USERNAME',
-					'TERMIXKIT_REAL_FTPS_MODE',
-					'TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY',
-					'TERMIXKIT_REAL_FTPS_EVIDENCE_ID'
+					'TERMKIT_REAL_FTPS_HOST',
+					'TERMKIT_REAL_FTPS_PORT',
+					'TERMKIT_REAL_FTPS_USERNAME',
+					'TERMKIT_REAL_FTPS_MODE',
+					'TERMKIT_REAL_FTPS_CERTIFICATE_POLICY',
+					'TERMKIT_REAL_FTPS_EVIDENCE_ID'
 				],
 				evidenceId: '',
 				notes: '',
@@ -79,7 +79,7 @@ const template = `${JSON.stringify(
 			microsoftSmoke: {
 				passed: false,
 				timestamp,
-				command: 'TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft',
+				command: 'TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft',
 				instructions:
 					'Prefer npm run acceptance:record-microsoft-smoke after exporting real Microsoft Entra environment variables. Put only redacted pass output here; never store tenant secrets, authorization codes, access tokens, refresh tokens, ID tokens, or cookies.',
 				redactedEnv: [

@@ -27,7 +27,7 @@ const crypto: CredentialCrypto = {
 	}
 };
 const sourceSecret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-const performanceIt = process.env.TERMIXKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
+const performanceIt = process.env.TERMKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
 
 function createService(repository = new InMemoryTermixServicesRepository()) {
 	const importJobs = new InMemoryImportJobRepository();
@@ -361,13 +361,13 @@ describe('ImportService', () => {
 				sourceId: 'source-user-1',
 				code: 'unsupported_user_account',
 				message:
-					'Source user accounts or password hashes were not imported; TermixKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
+					'Source user accounts or password hashes were not imported; TermKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
 			},
 			{
 				sourceId: 'source-user-2',
 				code: 'unsupported_user_account',
 				message:
-					'Source user accounts or password hashes were not imported; TermixKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
+					'Source user accounts or password hashes were not imported; TermKit imports hosts into the signed-in user and requires new local or Microsoft auth.'
 			}
 		]);
 		await expect(repository.listHosts('user-1')).resolves.toHaveLength(0);
@@ -412,7 +412,7 @@ describe('ImportService', () => {
 
 	it('falls back to the environment source secret for encrypted imports', async () => {
 		const { imports, repository } = createService();
-		vi.stubEnv('TERMIXKIT_IMPORT_SOURCE_SECRET', sourceSecret);
+		vi.stubEnv('TERMKIT_IMPORT_SOURCE_SECRET', sourceSecret);
 		const encryptedPassword = encryptTermixField({
 			plaintext: 'env-source-password',
 			sourceSecret,

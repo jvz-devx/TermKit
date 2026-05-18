@@ -18,10 +18,10 @@ type AppBuildInfoInput = {
 };
 
 export const appBuildInfo = createAppBuildInfo({
-	packageVersion: import.meta.env.PUBLIC_TERMIXKIT_PACKAGE_VERSION || packageJson.version,
-	commitSha: import.meta.env.PUBLIC_TERMIXKIT_COMMIT_SHA,
-	shortCommitSha: import.meta.env.PUBLIC_TERMIXKIT_SHORT_SHA,
-	buildDate: import.meta.env.PUBLIC_TERMIXKIT_BUILD_DATE
+	packageVersion: import.meta.env.PUBLIC_TERMKIT_PACKAGE_VERSION || packageJson.version,
+	commitSha: import.meta.env.PUBLIC_TERMKIT_COMMIT_SHA,
+	shortCommitSha: import.meta.env.PUBLIC_TERMKIT_SHORT_SHA,
+	buildDate: import.meta.env.PUBLIC_TERMKIT_BUILD_DATE
 });
 
 export function createAppBuildInfo(input: AppBuildInfoInput = {}): AppBuildInfo {
@@ -32,7 +32,7 @@ export function createAppBuildInfo(input: AppBuildInfoInput = {}): AppBuildInfo 
 	const environment = commitSha === 'dev' ? 'development' : 'production';
 
 	return {
-		name: 'TermixKit',
+		name: 'TermKit',
 		packageVersion,
 		commitSha,
 		shortCommitSha,

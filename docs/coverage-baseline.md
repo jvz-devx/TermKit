@@ -53,7 +53,7 @@ Additional scoped ratchets protect the owned surfaces that already clear higher 
 | `src/lib/server/services/bulk-job-runner.ts`              |        82% |      71% |       88% |   88% |
 | `src/lib/components/termix/session/file-manager-state.ts` |        87% |      72% |      100% |   91% |
 
-Coverage includes TermixKit-owned JavaScript and TypeScript under these measured
+Coverage includes TermKit-owned JavaScript and TypeScript under these measured
 surfaces: `src/hooks.server.ts`, `src/lib/**/*.{js,ts}`, API route handlers, and
 the Microsoft OAuth route helper. It intentionally excludes declaration files,
 test files, test-only folders, fixtures, mocks, generated output, shadcn-svelte

@@ -14,9 +14,7 @@ describe('SFTP bookmarks', () => {
 	});
 
 	it('builds a stable per-protocol host storage key', () => {
-		expect(bookmarkStorageKey('sftp', 'host-1')).toBe(
-			'termixkit:file-manager:sftp:host-1:bookmarks'
-		);
+		expect(bookmarkStorageKey('sftp', 'host-1')).toBe('termkit:file-manager:sftp:host-1:bookmarks');
 	});
 
 	it('creates normalized bookmark labels', () => {

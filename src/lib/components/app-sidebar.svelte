@@ -28,7 +28,7 @@
 	} = {
 		teams: [
 			{
-				name: 'TermixKit',
+				name: 'TermKit',
 				logo: DatabaseZapIcon,
 				plan: 'Operations'
 			}

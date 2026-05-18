@@ -267,10 +267,10 @@ describe('Microsoft auth routes', () => {
 			);
 			expect(redirectUrl.searchParams.get('scope')).toBe('openid profile email');
 			expect(redirectUrl.searchParams.get('state')).toBe(
-				cookies.setCalls.get('termixkit_microsoft_oauth_state')?.value
+				cookies.setCalls.get('termkit_microsoft_oauth_state')?.value
 			);
 			expect(redirectUrl.searchParams.get('code_challenge_method')).toBe('S256');
-			expect(cookies.setCalls.get('termixkit_microsoft_oauth_nonce')?.options).toMatchObject({
+			expect(cookies.setCalls.get('termkit_microsoft_oauth_nonce')?.options).toMatchObject({
 				httpOnly: true,
 				path: '/auth/microsoft',
 				secure: true
@@ -282,9 +282,9 @@ describe('Microsoft auth routes', () => {
 		expect.assertions(2);
 		const { GET } = await import('./callback/+server');
 		const cookies = createCookies({
-			termixkit_microsoft_oauth_state: 'expected-state',
-			termixkit_microsoft_oauth_nonce: 'expected-nonce',
-			termixkit_microsoft_oauth_pkce: 'expected-pkce'
+			termkit_microsoft_oauth_state: 'expected-state',
+			termkit_microsoft_oauth_nonce: 'expected-nonce',
+			termkit_microsoft_oauth_pkce: 'expected-pkce'
 		});
 		const event = createEvent('/auth/microsoft/callback?code=code-1&state=wrong-state', cookies);
 
@@ -293,12 +293,12 @@ describe('Microsoft auth routes', () => {
 			body: { message: 'OIDC callback state did not match' }
 		});
 		expect(cookies.delete).toHaveBeenCalledWith(
-			'termixkit_microsoft_oauth_state',
+			'termkit_microsoft_oauth_state',
 			expect.any(Object)
 		);
 	});
 
-	it('provisions a domain-allowed Microsoft user and creates a TermixKit session', async () => {
+	it('provisions a domain-allowed Microsoft user and creates a TermKit session', async () => {
 		expect.assertions(11);
 		const nonce = 'expected-nonce';
 		const { idToken, jwk } = createSignedIdToken({ nonce });
@@ -326,9 +326,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -390,9 +390,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -449,9 +449,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -480,9 +480,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -522,9 +522,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -546,9 +546,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -579,9 +579,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -602,9 +602,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -624,9 +624,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -667,9 +667,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -693,9 +693,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -735,9 +735,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 
@@ -760,9 +760,9 @@ describe('Microsoft auth routes', () => {
 		const event = createEvent(
 			'/auth/microsoft/callback?code=code-1&state=expected-state',
 			createCookies({
-				termixkit_microsoft_oauth_state: 'expected-state',
-				termixkit_microsoft_oauth_nonce: nonce,
-				termixkit_microsoft_oauth_pkce: 'expected-pkce'
+				termkit_microsoft_oauth_state: 'expected-state',
+				termkit_microsoft_oauth_nonce: nonce,
+				termkit_microsoft_oauth_pkce: 'expected-pkce'
 			})
 		);
 

@@ -14,7 +14,7 @@ const WILL = 251;
 const SB = 250;
 const SE = 240;
 const NAWS = 31;
-const probeTimeoutMs = Number(process.env.TERMIXKIT_SMOKE_PROTOCOL_TIMEOUT_MS ?? 7000);
+const probeTimeoutMs = Number(process.env.TERMKIT_SMOKE_PROTOCOL_TIMEOUT_MS ?? 7000);
 
 const results = [];
 const pendingSocketReads = new WeakMap();
@@ -24,17 +24,17 @@ try {
 	await runSmoke('vnc loopback rfb banner', smokeVnc);
 	await runSmoke('vnc loopback no-auth handshakes', smokeVncNoAuthVersions);
 	await runSmoke('ssh shell and sftp loopback', smokeSshAndSftp);
-	if (process.env.TERMIXKIT_SMOKE_SSH_HOST) {
+	if (process.env.TERMKIT_SMOKE_SSH_HOST) {
 		await runSmoke('real SSH target exec and SFTP', smokeRealSshTarget);
 	} else {
-		skipSmoke('real SSH target exec and SFTP', 'missing TERMIXKIT_SMOKE_SSH_HOST');
+		skipSmoke('real SSH target exec and SFTP', 'missing TERMKIT_SMOKE_SSH_HOST');
 	}
-	if (process.env.TERMIXKIT_SMOKE_VNC_HOST) {
+	if (process.env.TERMKIT_SMOKE_VNC_HOST) {
 		await runSmoke('real VNC target framebuffer handshake', smokeRealVncTarget);
 	} else {
 		skipSmoke(
 			'real VNC target framebuffer handshake',
-			'missing TERMIXKIT_SMOKE_VNC_HOST; local smoke verifies the RFB TCP banner only'
+			'missing TERMKIT_SMOKE_VNC_HOST; local smoke verifies the RFB TCP banner only'
 		);
 	}
 
@@ -316,30 +316,27 @@ async function smokeRealSshTarget({ cleanup }) {
 	cleanup.push(() => destroySshClient(client));
 
 	await connectSshClientWithConfig(client, config);
-	await smokeSshExec(
-		client,
-		process.env.TERMIXKIT_SMOKE_SSH_COMMAND ?? 'printf termixkit-ssh-smoke'
-	);
-	if (process.env.TERMIXKIT_SMOKE_SSH_SKIP_SFTP !== '1') {
-		await smokeSftpReaddir(client, process.env.TERMIXKIT_SMOKE_SSH_SFTP_PATH ?? '.');
+	await smokeSshExec(client, process.env.TERMKIT_SMOKE_SSH_COMMAND ?? 'printf termkit-ssh-smoke');
+	if (process.env.TERMKIT_SMOKE_SSH_SKIP_SFTP !== '1') {
+		await smokeSftpReaddir(client, process.env.TERMKIT_SMOKE_SSH_SFTP_PATH ?? '.');
 		return 'exec and SFTP verified';
 	}
 	return 'exec verified; SFTP skipped';
 }
 
 async function realSshConfig() {
-	const host = requiredEnv('TERMIXKIT_SMOKE_SSH_HOST');
-	const username = requiredEnv('TERMIXKIT_SMOKE_SSH_USERNAME');
-	const port = readPort(process.env.TERMIXKIT_SMOKE_SSH_PORT ?? '22', 'TERMIXKIT_SMOKE_SSH_PORT');
-	const privateKey = await readOptionalFile(process.env.TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PATH);
-	const password = process.env.TERMIXKIT_SMOKE_SSH_PASSWORD;
+	const host = requiredEnv('TERMKIT_SMOKE_SSH_HOST');
+	const username = requiredEnv('TERMKIT_SMOKE_SSH_USERNAME');
+	const port = readPort(process.env.TERMKIT_SMOKE_SSH_PORT ?? '22', 'TERMKIT_SMOKE_SSH_PORT');
+	const privateKey = await readOptionalFile(process.env.TERMKIT_SMOKE_SSH_PRIVATE_KEY_PATH);
+	const password = process.env.TERMKIT_SMOKE_SSH_PASSWORD;
 	const expectedHostHash = normalizeSha256Fingerprint(
-		requiredEnv('TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256')
+		requiredEnv('TERMKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256')
 	);
 
 	assert(
 		Boolean(password || privateKey),
-		'Set TERMIXKIT_SMOKE_SSH_PASSWORD or TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PATH for real SSH smoke.'
+		'Set TERMKIT_SMOKE_SSH_PASSWORD or TERMKIT_SMOKE_SSH_PRIVATE_KEY_PATH for real SSH smoke.'
 	);
 
 	return {
@@ -350,8 +347,8 @@ async function realSshConfig() {
 		hostVerifier: (hostHash) => hostHash.toLowerCase() === expectedHostHash,
 		...(password ? { password } : {}),
 		...(privateKey ? { privateKey } : {}),
-		...(process.env.TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PASSPHRASE
-			? { passphrase: process.env.TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PASSPHRASE }
+		...(process.env.TERMKIT_SMOKE_SSH_PRIVATE_KEY_PASSPHRASE
+			? { passphrase: process.env.TERMKIT_SMOKE_SSH_PRIVATE_KEY_PASSPHRASE }
 			: {})
 	};
 }
@@ -415,8 +412,8 @@ function smokeSftpReaddir(client, path) {
 }
 
 async function smokeRealVncTarget({ cleanup }) {
-	const host = requiredEnv('TERMIXKIT_SMOKE_VNC_HOST');
-	const port = readPort(process.env.TERMIXKIT_SMOKE_VNC_PORT ?? '5900', 'TERMIXKIT_SMOKE_VNC_PORT');
+	const host = requiredEnv('TERMKIT_SMOKE_VNC_HOST');
+	const port = readPort(process.env.TERMKIT_SMOKE_VNC_PORT ?? '5900', 'TERMKIT_SMOKE_VNC_PORT');
 	await smokeVncNoAuthHandshake({ host, port, cleanup });
 }
 
@@ -478,7 +475,7 @@ function createVncNoAuthFixture(version) {
 }
 
 function vncServerInit() {
-	const name = Buffer.from('TermixKit smoke VNC');
+	const name = Buffer.from('TermKit smoke VNC');
 	const serverInit = Buffer.alloc(24);
 	serverInit.writeUInt16BE(800, 0);
 	serverInit.writeUInt16BE(600, 2);
@@ -761,7 +758,7 @@ function normalizeSha256Fingerprint(value) {
 	}
 
 	throw new Error(
-		'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256 must be a SHA256:<base64> OpenSSH fingerprint or 64-character hex SHA256 digest.'
+		'TERMKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256 must be a SHA256:<base64> OpenSSH fingerprint or 64-character hex SHA256 digest.'
 	);
 }
 

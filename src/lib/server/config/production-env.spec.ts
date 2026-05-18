@@ -19,7 +19,7 @@ describe('production environment validation', () => {
 			validateProductionEnv(
 				productionEnv({
 					ORIGIN: 'http://127.0.0.1:3000',
-					TERMIXKIT_INSECURE_LOCAL_HTTP: '1'
+					TERMKIT_INSECURE_LOCAL_HTTP: '1'
 				})
 			)
 		).not.toThrow();
@@ -30,7 +30,7 @@ describe('production environment validation', () => {
 			validateProductionEnv(
 				productionEnv({
 					GATEWAY_PUBLIC_URL: 'http://localhost:3000/gateway',
-					TERMIXKIT_INSECURE_LOCAL_HTTP: 'true'
+					TERMKIT_INSECURE_LOCAL_HTTP: 'true'
 				})
 			)
 		).not.toThrow();
@@ -41,7 +41,7 @@ describe('production environment validation', () => {
 			validateProductionEnv(
 				productionEnv({
 					ORIGIN: 'http://termix.example',
-					TERMIXKIT_INSECURE_LOCAL_HTTP: '1'
+					TERMKIT_INSECURE_LOCAL_HTTP: '1'
 				})
 			)
 		).toThrow('only permits local');
@@ -98,7 +98,7 @@ describe('production environment validation', () => {
 		expect(() =>
 			validateProductionEnv(
 				productionEnv({
-					DATABASE_URL: 'termixkit'
+					DATABASE_URL: 'termkit'
 				})
 			)
 		).toThrow('DATABASE_URL must be an absolute Postgres URL');
@@ -106,7 +106,7 @@ describe('production environment validation', () => {
 		expect(() =>
 			validateProductionEnv(
 				productionEnv({
-					DATABASE_URL: 'mysql://termixkit:termixkit@postgres:3306/termixkit'
+					DATABASE_URL: 'mysql://termkit:termkit@postgres:3306/termkit'
 				})
 			)
 		).toThrow('DATABASE_URL must use postgres:// or postgresql:// in production');
@@ -114,7 +114,7 @@ describe('production environment validation', () => {
 		expect(() =>
 			validateProductionEnv(
 				productionEnv({
-					DATABASE_URL: 'postgres://termixkit:termixkit@postgres:5432'
+					DATABASE_URL: 'postgres://termkit:termkit@postgres:5432'
 				})
 			)
 		).toThrow('DATABASE_URL must include a database host and name in production');
@@ -162,7 +162,7 @@ describe('production environment validation', () => {
 				productionEnv({
 					ORIGIN: 'https://termix.example',
 					GATEWAY_PUBLIC_URL: 'http://rdp.example/gateway',
-					TERMIXKIT_INSECURE_LOCAL_HTTP: '1'
+					TERMKIT_INSECURE_LOCAL_HTTP: '1'
 				})
 			)
 		).toThrow('only permits local');
@@ -278,7 +278,7 @@ describe('production environment validation', () => {
 			validateProductionEnv(
 				productionEnv({
 					MICROSOFT_AUTH_ENABLED: 'true',
-					TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
+					TERMKIT_INSECURE_LOCAL_HTTP: '1',
 					MICROSOFT_REDIRECT_URI: 'http://localhost/auth/microsoft/callback'
 				})
 			)
@@ -319,7 +319,7 @@ function productionEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
 		ORIGIN: 'https://termix.example',
 		APP_SECRET: 'd4YmG5uVPKHLb4xikqu47GzDL8RQXmyC4k53YmgW',
 		CREDENTIAL_MASTER_KEY: 'v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL',
-		DATABASE_URL: 'postgres://termixkit:termixkit@postgres:5432/termixkit',
+		DATABASE_URL: 'postgres://termkit:termkit@postgres:5432/termkit',
 		GATEWAY_URL: 'http://gateway:7171',
 		GATEWAY_PUBLIC_URL: 'https://rdp.example/gateway',
 		GATEWAY_PROVISIONER_KEY: 'shared-key',

@@ -43,8 +43,8 @@ export async function createAndLoginAdmin({
 	const cookieHeader = (await context.cookies(baseUrl))
 		.map((cookie) => `${cookie.name}=${cookie.value}`)
 		.join('; ');
-	if (!cookieHeader.includes('termixkit_session=')) {
-		throw new Error('Login did not produce a termixkit_session cookie.');
+	if (!cookieHeader.includes('termkit_session=')) {
+		throw new Error('Login did not produce a termkit_session cookie.');
 	}
 
 	return {

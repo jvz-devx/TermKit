@@ -15,10 +15,10 @@ export async function runProductionMigrations(options = {}) {
 	const migrationsFolder = options.migrationsFolder ?? defaultMigrationsFolder;
 	const readyTimeoutMs =
 		options.readyTimeoutMs ??
-		readIntegerEnv('TERMIXKIT_DB_READY_TIMEOUT_MS', defaultReadyTimeoutMs, 1_000, 600_000);
+		readIntegerEnv('TERMKIT_DB_READY_TIMEOUT_MS', defaultReadyTimeoutMs, 1_000, 600_000);
 	const readyIntervalMs =
 		options.readyIntervalMs ??
-		readIntegerEnv('TERMIXKIT_DB_READY_INTERVAL_MS', defaultReadyIntervalMs, 100, 30_000);
+		readIntegerEnv('TERMKIT_DB_READY_INTERVAL_MS', defaultReadyIntervalMs, 100, 30_000);
 
 	if (!databaseUrl) {
 		throw new Error('DATABASE_URL is not set.');

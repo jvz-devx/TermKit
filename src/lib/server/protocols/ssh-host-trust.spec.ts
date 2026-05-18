@@ -112,13 +112,13 @@ describe('SSH host key trust', () => {
 	});
 
 	it('respects explicit strict host-key trust overrides', () => {
-		expect(readSshHostKeyTrustPolicy({ TERMIXKIT_SSH_TRUST_ON_FIRST_USE: '0' })).toEqual({
+		expect(readSshHostKeyTrustPolicy({ TERMKIT_SSH_TRUST_ON_FIRST_USE: '0' })).toEqual({
 			trustOnFirstUse: false,
 			productionTofuBlocked: false
 		});
 		expect(
 			readSshHostKeyTrustPolicy({
-				TERMIXKIT_SSH_TRUST_ON_FIRST_USE: 'false'
+				TERMKIT_SSH_TRUST_ON_FIRST_USE: 'false'
 			})
 		).toEqual({
 			trustOnFirstUse: false,
@@ -130,7 +130,7 @@ describe('SSH host key trust', () => {
 		expect(
 			readSshHostKeyTrustPolicy({
 				NODE_ENV: 'production',
-				TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: '0'
+				TERMKIT_SSH_ALLOW_PRODUCTION_TOFU: '0'
 			})
 		).toEqual({
 			trustOnFirstUse: false,
@@ -139,8 +139,8 @@ describe('SSH host key trust', () => {
 		expect(
 			readSshHostKeyTrustPolicy({
 				NODE_ENV: 'production',
-				TERMIXKIT_SSH_TRUST_ON_FIRST_USE: '1',
-				TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: '0'
+				TERMKIT_SSH_TRUST_ON_FIRST_USE: '1',
+				TERMKIT_SSH_ALLOW_PRODUCTION_TOFU: '0'
 			})
 		).toEqual({
 			trustOnFirstUse: false,
@@ -149,7 +149,7 @@ describe('SSH host key trust', () => {
 		expect(
 			readSshHostKeyTrustPolicy({
 				NODE_ENV: 'production',
-				TERMIXKIT_SSH_TRUST_ON_FIRST_USE: '1'
+				TERMKIT_SSH_TRUST_ON_FIRST_USE: '1'
 			})
 		).toEqual({
 			trustOnFirstUse: true,
@@ -158,7 +158,7 @@ describe('SSH host key trust', () => {
 	});
 
 	it('writes pinned fingerprints to the known-hosts file', () => {
-		tempDirectory = mkdtempSync(join(tmpdir(), 'termixkit-ssh-host-trust-'));
+		tempDirectory = mkdtempSync(join(tmpdir(), 'termkit-ssh-host-trust-'));
 		const path = join(tempDirectory, 'known-hosts.json');
 		const store = new JsonFileSshHostKeyTrustStore(path);
 
@@ -177,7 +177,7 @@ describe('SSH host key trust', () => {
 	});
 
 	it('rejects malformed known-hosts files without enrolling a new pin', () => {
-		tempDirectory = mkdtempSync(join(tmpdir(), 'termixkit-ssh-host-trust-'));
+		tempDirectory = mkdtempSync(join(tmpdir(), 'termkit-ssh-host-trust-'));
 		const path = join(tempDirectory, 'known-hosts.json');
 		const store = new JsonFileSshHostKeyTrustStore(path);
 		writeInvalidKnownHosts(path);

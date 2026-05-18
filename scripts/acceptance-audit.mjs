@@ -1,16 +1,16 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
-const proofFilePath = process.env.TERMIXKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
+const proofFilePath = process.env.TERMKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
 const proofFile = loadProofFile(proofFilePath);
 const currentCommit = currentGitCommit();
 const proofExpectations = {
 	realSsh: {
 		commandIncludes: ['npm run smoke:protocols'],
 		redactedEnv: [
-			'TERMIXKIT_SMOKE_SSH_HOST',
-			'TERMIXKIT_SMOKE_SSH_USERNAME',
-			'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
+			'TERMKIT_SMOKE_SSH_HOST',
+			'TERMKIT_SMOKE_SSH_USERNAME',
+			'TERMKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
 		],
 		passLine: '[pass] real SSH target exec and SFTP',
 		skipLine: '[skip] real SSH target exec and SFTP',
@@ -18,7 +18,7 @@ const proofExpectations = {
 	},
 	realVnc: {
 		commandIncludes: ['npm run smoke:protocols'],
-		redactedEnv: ['TERMIXKIT_SMOKE_VNC_HOST', 'TERMIXKIT_SMOKE_VNC_PORT'],
+		redactedEnv: ['TERMKIT_SMOKE_VNC_HOST', 'TERMKIT_SMOKE_VNC_PORT'],
 		passLine: '[pass] real VNC target framebuffer handshake',
 		skipLine: '[skip] real VNC target framebuffer handshake'
 	},
@@ -28,7 +28,7 @@ const proofExpectations = {
 			'GATEWAY_URL',
 			'GATEWAY_PUBLIC_URL',
 			'GATEWAY_PROVISIONER_KEY',
-			'TERMIXKIT_SMOKE_RDP_HOST'
+			'TERMKIT_SMOKE_RDP_HOST'
 		],
 		passLine: '[pass] real Devolutions Gateway RDP bootstrap',
 		skipLine: '[skip] real Devolutions Gateway RDP bootstrap'
@@ -36,10 +36,10 @@ const proofExpectations = {
 	realFtp: {
 		commandIncludes: ['npm run acceptance:record-real-ftp'],
 		redactedEnv: [
-			'TERMIXKIT_REAL_FTP_HOST',
-			'TERMIXKIT_REAL_FTP_PORT',
-			'TERMIXKIT_REAL_FTP_USERNAME',
-			'TERMIXKIT_REAL_FTP_EVIDENCE_ID'
+			'TERMKIT_REAL_FTP_HOST',
+			'TERMKIT_REAL_FTP_PORT',
+			'TERMKIT_REAL_FTP_USERNAME',
+			'TERMKIT_REAL_FTP_EVIDENCE_ID'
 		],
 		evidenceRequired: true,
 		narrativeIncludes: [
@@ -57,12 +57,12 @@ const proofExpectations = {
 	realFtps: {
 		commandIncludes: ['npm run acceptance:record-real-ftps'],
 		redactedEnv: [
-			'TERMIXKIT_REAL_FTPS_HOST',
-			'TERMIXKIT_REAL_FTPS_PORT',
-			'TERMIXKIT_REAL_FTPS_USERNAME',
-			'TERMIXKIT_REAL_FTPS_MODE',
-			'TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY',
-			'TERMIXKIT_REAL_FTPS_EVIDENCE_ID'
+			'TERMKIT_REAL_FTPS_HOST',
+			'TERMKIT_REAL_FTPS_PORT',
+			'TERMKIT_REAL_FTPS_USERNAME',
+			'TERMKIT_REAL_FTPS_MODE',
+			'TERMKIT_REAL_FTPS_CERTIFICATE_POLICY',
+			'TERMKIT_REAL_FTPS_EVIDENCE_ID'
 		],
 		evidenceRequired: true,
 		narrativeIncludes: [
@@ -80,7 +80,7 @@ const proofExpectations = {
 		]
 	},
 	microsoftSmoke: {
-		commandIncludes: ['TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1', 'npm run smoke:microsoft'],
+		commandIncludes: ['TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1', 'npm run smoke:microsoft'],
 		redactedEnv: [
 			'MICROSOFT_AUTH_ENABLED',
 			'MICROSOFT_TENANT_ID',
@@ -425,13 +425,13 @@ const checks = [
 		name: 'V7 real FTP external proof',
 		status: externalStatus('realFtp', { externalOnly: true }),
 		evidence:
-			'run nix develop -c npm run acceptance:record-real-ftp with redacted FTP target env, TERMIXKIT_REAL_FTP_EVIDENCE_ID, and TERMIXKIT_REAL_FTP_PROOF_NOTES after external FTP proof covers ftp login, ftp list, ftp download, ftp upload, ftp mkdir, ftp rename, ftp delete, ftp text edit, and connection history'
+			'run nix develop -c npm run acceptance:record-real-ftp with redacted FTP target env, TERMKIT_REAL_FTP_EVIDENCE_ID, and TERMKIT_REAL_FTP_PROOF_NOTES after external FTP proof covers ftp login, ftp list, ftp download, ftp upload, ftp mkdir, ftp rename, ftp delete, ftp text edit, and connection history'
 	},
 	{
 		name: 'V7 real FTPS external proof',
 		status: externalStatus('realFtps', { externalOnly: true }),
 		evidence:
-			'run nix develop -c npm run acceptance:record-real-ftps with redacted FTPS target env, TERMIXKIT_REAL_FTPS_EVIDENCE_ID, and TERMIXKIT_REAL_FTPS_PROOF_NOTES after external FTPS proof covers ftps login, ftps tls, ftps certificate, ftps list, ftps download, ftps upload, ftps mkdir, ftps rename, ftps delete, ftps text edit, and connection history'
+			'run nix develop -c npm run acceptance:record-real-ftps with redacted FTPS target env, TERMKIT_REAL_FTPS_EVIDENCE_ID, and TERMKIT_REAL_FTPS_PROOF_NOTES after external FTPS proof covers ftps login, ftps tls, ftps certificate, ftps list, ftps download, ftps upload, ftps mkdir, ftps rename, ftps delete, ftps text edit, and connection history'
 	}
 ];
 

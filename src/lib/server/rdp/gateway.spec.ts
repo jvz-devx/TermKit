@@ -57,7 +57,7 @@ describe('RDP Gateway bootstrap', () => {
 		expect(() =>
 			loadRdpGatewayConfig({
 				NODE_ENV: 'production',
-				TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
+				TERMKIT_INSECURE_LOCAL_HTTP: '1',
 				GATEWAY_URL: 'http://gateway:7171',
 				GATEWAY_PUBLIC_URL: 'http://localhost:3000/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key'
@@ -71,7 +71,7 @@ describe('RDP Gateway bootstrap', () => {
 				GATEWAY_URL: 'http://gateway:7171',
 				GATEWAY_PUBLIC_URL: 'https://rdp.example.test/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key',
-				TERMIXKIT_RDP_DISABLE_AUDIO: '1'
+				TERMKIT_RDP_DISABLE_AUDIO: '1'
 			}).audioRedirectionEnabled
 		).toBe(false);
 
@@ -80,7 +80,7 @@ describe('RDP Gateway bootstrap', () => {
 				GATEWAY_URL: 'http://gateway:7171',
 				GATEWAY_PUBLIC_URL: 'https://rdp.example.test/gateway',
 				GATEWAY_PROVISIONER_KEY: 'shared-key',
-				TERMIXKIT_RDP_AUDIO_REDIRECTION: '0'
+				TERMKIT_RDP_AUDIO_REDIRECTION: '0'
 			}).audioRedirectionEnabled
 		).toBe(false);
 	});

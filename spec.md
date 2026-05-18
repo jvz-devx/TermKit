@@ -1,8 +1,8 @@
-# TermixKit Specification
+# TermKit Specification
 
 ## Summary
 
-TermixKit is a clean SvelteKit rewrite of the connection-focused parts of Termix. It will live as a sibling project at `/home/jens/Documents/source/TermixKit`; this repository remains the reference implementation and data source for migration work.
+TermKit is a clean SvelteKit rewrite of the connection-focused parts of Termix. It will live as a sibling project at `/home/jens/Documents/source/TermKit`; this repository remains the reference implementation and data source for migration work.
 
 The goal is a single Docker-deployable web application for managing hosts and launching browser-based remote sessions without Guacamole or `guacd`.
 
@@ -31,7 +31,7 @@ V2 scope:
 - Microsoft Entra ID login through OIDC, alongside the V1 local login flow.
 - Domain-allowlisted Microsoft auto-provisioning for new users.
 - Persistent SSH workspace tabs.
-- App-owned live SSH sessions that can detach when a browser disconnects and reattach from another browser session while the TermixKit app process remains alive.
+- App-owned live SSH sessions that can detach when a browser disconnects and reattach from another browser session while the TermKit app process remains alive.
 - Per-user live SSH session limits and detached-session idle cleanup.
 - Recent in-memory terminal scrollback for reattached SSH sessions.
 - SSH workspace UI for listing, opening, renaming, reattaching, and closing live SSH tabs.
@@ -77,7 +77,7 @@ Out of scope for V4:
 - Persisting live SSH sessions across app/container restart.
 - Terminal session recording or terminal-output persistence.
 - Secret templating inside commands or snippets.
-- Browser-native FTP URL handling; FTP/FTPS must go through TermixKit's authenticated file manager.
+- Browser-native FTP URL handling; FTP/FTPS must go through TermKit's authenticated file manager.
 - Desktop and mobile wrappers.
 
 V5 scope:
@@ -118,7 +118,7 @@ Out of scope for V6:
 
 V7 scope:
 
-- Deep, realistic test coverage across the TermixKit codebase after the V1-V6 product surface exists.
+- Deep, realistic test coverage across the TermKit codebase after the V1-V6 product surface exists.
 - Bug-seeking tests that deliberately look for incomplete wiring, missing route-to-service connections, stale UI affordances, and cross-layer contract drift.
 - Coverage tooling, coverage reports, and CI gates for the parts of the repo where automated coverage is meaningful.
 - High-confidence unit and integration coverage for server services, protocol adapters, auth, import, migrations, repository mapping, policy enforcement, and job orchestration.
@@ -129,7 +129,7 @@ V7 scope:
 Out of scope for V7:
 
 - Chasing 100% global line coverage across Svelte UI wrappers, generated shadcn-svelte components, or purely visual markup.
-- Testing third-party libraries such as xterm.js, noVNC, IronRDP, ssh2, or basic-ftp beyond TermixKit integration contracts.
+- Testing third-party libraries such as xterm.js, noVNC, IronRDP, ssh2, or basic-ftp beyond TermKit integration contracts.
 - Requiring real Microsoft, RDP, VNC, SSH, FTP, or FTPS infrastructure for ordinary local test success.
 - Storing secrets, terminal output, remote desktop frames, or transferred file contents in test artifacts.
 - Turning external proof-only checks into mandatory local gates when real tenant or target infrastructure is unavailable.
@@ -398,7 +398,7 @@ Behavior:
 
 - Use the same SSH credential resolution and known-host trust policy as SSH and SFTP.
 - Support local-forward style TCP targets for private services such as databases, dashboards, internal APIs, and admin consoles.
-- Expose the tunnel through an authenticated browser-accessible endpoint owned by TermixKit.
+- Expose the tunnel through an authenticated browser-accessible endpoint owned by TermKit.
 - Show active, starting, failed, expired, and ended states.
 - Enforce per-user and app-level active tunnel limits.
 - Record lifecycle metadata and structured failure reasons in connection history.
@@ -427,7 +427,7 @@ Behavior:
 - Reuse saved password credentials. SSH key credentials do not apply to FTP/FTPS.
 - Respect workspace host and credential authorization.
 - Record lifecycle state and structured failures in `connection_sessions`.
-- Keep all FTP/FTPS traffic server-side behind authenticated TermixKit routes; do not rely on browser-native FTP URL handling.
+- Keep all FTP/FTPS traffic server-side behind authenticated TermKit routes; do not rely on browser-native FTP URL handling.
 
 V5 file-transfer polish:
 
@@ -532,7 +532,7 @@ Host intelligence:
 
 - Add optional SSH-based host fact collection for OS, uptime, kernel, disk, memory, service hints, and last successful connection.
 - Track stale hosts, failing credentials, recent connection failures, and hosts that have not been used recently.
-- Keep fact collection on-demand or scheduled by TermixKit; do not require a target-side agent.
+- Keep fact collection on-demand or scheduled by TermKit; do not require a target-side agent.
 - Let users search inventory by workspace, tags, OS/facts, health state, last-seen state, and failure reason.
 
 ### V7 Deep Test And Bug-Seeking Program
@@ -552,7 +552,7 @@ Coverage targets:
 - Capture an initial coverage baseline before enforcing thresholds.
 - After baseline capture, target at least 85% line coverage and 75% branch coverage for `src/lib/server/**`, excluding generated snapshots and test fixtures.
 - Target at least 90% line coverage for security-critical pure logic: credential encryption, host-key trust, session tickets, auth/OIDC validation, route auth helpers, policy checks, and secret redaction helpers.
-- Target at least 80% line coverage for protocol adapter logic owned by TermixKit: SSH, SFTP, FTP/FTPS, Telnet negotiation, VNC proxy setup, RDP Gateway bootstrap, SSH tunnels, websocket upgrade routing, and TCP frame parsing.
+- Target at least 80% line coverage for protocol adapter logic owned by TermKit: SSH, SFTP, FTP/FTPS, Telnet negotiation, VNC proxy setup, RDP Gateway bootstrap, SSH tunnels, websocket upgrade routing, and TCP frame parsing.
 - Target at least 75% line coverage for importer, migration helpers, repository mapping, settings validation, workspace policy, job orchestration, and acceptance-audit scripts.
 - Use focused component/helper tests and Playwright coverage for Svelte UI behavior instead of forcing high line coverage on markup-heavy route files.
 - Keep global coverage thresholds lower at first, around 70% lines and 60% branches, then ratchet upward only after flaky and low-value files are excluded intentionally.
@@ -703,7 +703,7 @@ Required build checks:
 
 ### Milestone 1: Scaffold
 
-- Create `/home/jens/Documents/source/TermixKit`.
+- Create `/home/jens/Documents/source/TermKit`.
 - Scaffold SvelteKit with TypeScript, adapter-node, Tailwind, shadcn-svelte, ESLint, Prettier, Vitest, and Playwright.
 - Add custom Node server that delegates HTTP to SvelteKit and owns websocket upgrades.
 - Add Docker Compose with app and Postgres.
@@ -1048,7 +1048,7 @@ V2 repo-owned implementation is complete when:
 V2 real Microsoft acceptance proof is complete when:
 
 - Real Microsoft Entra login works with an externally supplied tenant, client credentials, and allowed domains.
-- A real domain-allowed Microsoft user can be auto-provisioned and receives a normal TermixKit session.
+- A real domain-allowed Microsoft user can be auto-provisioned and receives a normal TermKit session.
 - A real blocked-domain Microsoft user cannot sign in.
 - A real configured Microsoft admin email becomes admin on first provisioning or subsequent Microsoft login.
 - Local username/password login remains available alongside the real Microsoft flow.

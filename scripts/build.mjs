@@ -10,21 +10,21 @@ run('npm', ['run', 'build:server'], env);
 
 function applyBuildMetadata(targetEnv) {
 	const commitSha =
-		buildValue(targetEnv.PUBLIC_TERMIXKIT_COMMIT_SHA, ['dev']) ?? git(['rev-parse', 'HEAD']);
+		buildValue(targetEnv.PUBLIC_TERMKIT_COMMIT_SHA, ['dev']) ?? git(['rev-parse', 'HEAD']);
 	if (commitSha) {
-		targetEnv.PUBLIC_TERMIXKIT_COMMIT_SHA = commitSha;
-		targetEnv.PUBLIC_TERMIXKIT_SHORT_SHA =
-			buildValue(targetEnv.PUBLIC_TERMIXKIT_SHORT_SHA, ['dev']) ?? commitSha.slice(0, 12);
+		targetEnv.PUBLIC_TERMKIT_COMMIT_SHA = commitSha;
+		targetEnv.PUBLIC_TERMKIT_SHORT_SHA =
+			buildValue(targetEnv.PUBLIC_TERMKIT_SHORT_SHA, ['dev']) ?? commitSha.slice(0, 12);
 	} else {
-		targetEnv.PUBLIC_TERMIXKIT_COMMIT_SHA = clean(targetEnv.PUBLIC_TERMIXKIT_COMMIT_SHA) ?? 'dev';
-		targetEnv.PUBLIC_TERMIXKIT_SHORT_SHA = clean(targetEnv.PUBLIC_TERMIXKIT_SHORT_SHA) ?? 'dev';
+		targetEnv.PUBLIC_TERMKIT_COMMIT_SHA = clean(targetEnv.PUBLIC_TERMKIT_COMMIT_SHA) ?? 'dev';
+		targetEnv.PUBLIC_TERMKIT_SHORT_SHA = clean(targetEnv.PUBLIC_TERMKIT_SHORT_SHA) ?? 'dev';
 	}
 
-	targetEnv.PUBLIC_TERMIXKIT_BUILD_DATE =
-		buildValue(targetEnv.PUBLIC_TERMIXKIT_BUILD_DATE, ['unknown']) ?? new Date().toISOString();
-	targetEnv.PUBLIC_TERMIXKIT_PACKAGE_VERSION =
-		buildValue(targetEnv.PUBLIC_TERMIXKIT_PACKAGE_VERSION) ??
-		`${packageVersion}+${targetEnv.PUBLIC_TERMIXKIT_SHORT_SHA}`;
+	targetEnv.PUBLIC_TERMKIT_BUILD_DATE =
+		buildValue(targetEnv.PUBLIC_TERMKIT_BUILD_DATE, ['unknown']) ?? new Date().toISOString();
+	targetEnv.PUBLIC_TERMKIT_PACKAGE_VERSION =
+		buildValue(targetEnv.PUBLIC_TERMKIT_PACKAGE_VERSION) ??
+		`${packageVersion}+${targetEnv.PUBLIC_TERMKIT_SHORT_SHA}`;
 }
 
 function git(args) {

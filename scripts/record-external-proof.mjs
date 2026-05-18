@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-const proofFilePath = process.env.TERMIXKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
+const proofFilePath = process.env.TERMKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
 const timestamp = new Date().toISOString();
 const commit = currentCommit();
 const proofKind = process.argv[2];
@@ -10,29 +10,29 @@ const configs = {
 		label: 'real SSH target',
 		command: ['npm', ['run', 'smoke:protocols']],
 		requiredEnv: [
-			'TERMIXKIT_SMOKE_SSH_HOST',
-			'TERMIXKIT_SMOKE_SSH_USERNAME',
-			'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
+			'TERMKIT_SMOKE_SSH_HOST',
+			'TERMKIT_SMOKE_SSH_USERNAME',
+			'TERMKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
 		],
-		secretEnv: ['TERMIXKIT_SMOKE_SSH_PASSWORD', 'TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PATH'],
+		secretEnv: ['TERMKIT_SMOKE_SSH_PASSWORD', 'TERMKIT_SMOKE_SSH_PRIVATE_KEY_PATH'],
 		redactedEnv: [
-			'TERMIXKIT_SMOKE_SSH_HOST',
-			'TERMIXKIT_SMOKE_SSH_USERNAME',
-			'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
+			'TERMKIT_SMOKE_SSH_HOST',
+			'TERMKIT_SMOKE_SSH_USERNAME',
+			'TERMKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
 		],
 		passLine: '[pass] real SSH target exec and SFTP',
 		skipLine: '[skip] real SSH target exec and SFTP',
 		disallowedOutput: ['SFTP skipped'],
-		proofCommand: 'TERMIXKIT_SMOKE_SSH_HOST=<redacted> npm run smoke:protocols'
+		proofCommand: 'TERMKIT_SMOKE_SSH_HOST=<redacted> npm run smoke:protocols'
 	},
 	realVnc: {
 		label: 'real VNC framebuffer',
 		command: ['npm', ['run', 'smoke:protocols']],
-		requiredEnv: ['TERMIXKIT_SMOKE_VNC_HOST'],
-		redactedEnv: ['TERMIXKIT_SMOKE_VNC_HOST', 'TERMIXKIT_SMOKE_VNC_PORT'],
+		requiredEnv: ['TERMKIT_SMOKE_VNC_HOST'],
+		redactedEnv: ['TERMKIT_SMOKE_VNC_HOST', 'TERMKIT_SMOKE_VNC_PORT'],
 		passLine: '[pass] real VNC target framebuffer handshake',
 		skipLine: '[skip] real VNC target framebuffer handshake',
-		proofCommand: 'TERMIXKIT_SMOKE_VNC_HOST=<redacted> npm run smoke:protocols'
+		proofCommand: 'TERMKIT_SMOKE_VNC_HOST=<redacted> npm run smoke:protocols'
 	},
 	realRdp: {
 		label: 'reachable RDP target bootstrap through Devolutions Gateway',
@@ -41,35 +41,35 @@ const configs = {
 			'GATEWAY_URL',
 			'GATEWAY_PUBLIC_URL',
 			'GATEWAY_PROVISIONER_KEY',
-			'TERMIXKIT_SMOKE_RDP_HOST'
+			'TERMKIT_SMOKE_RDP_HOST'
 		],
 		redactedEnv: [
 			'GATEWAY_URL',
 			'GATEWAY_PUBLIC_URL',
 			'GATEWAY_PROVISIONER_KEY',
-			'TERMIXKIT_SMOKE_RDP_HOST'
+			'TERMKIT_SMOKE_RDP_HOST'
 		],
 		passLine: '[pass] real Devolutions Gateway RDP bootstrap',
 		skipLine: '[skip] real Devolutions Gateway RDP bootstrap',
 		proofCommand:
-			'GATEWAY_URL=<redacted> TERMIXKIT_SMOKE_RDP_HOST=<redacted> npm run smoke:rdp-gateway'
+			'GATEWAY_URL=<redacted> TERMKIT_SMOKE_RDP_HOST=<redacted> npm run smoke:rdp-gateway'
 	},
 	realFtp: {
 		label: 'real FTP target file-manager workflow',
 		requiredEnv: [
-			'TERMIXKIT_REAL_FTP_HOST',
-			'TERMIXKIT_REAL_FTP_PORT',
-			'TERMIXKIT_REAL_FTP_USERNAME',
-			'TERMIXKIT_REAL_FTP_EVIDENCE_ID'
+			'TERMKIT_REAL_FTP_HOST',
+			'TERMKIT_REAL_FTP_PORT',
+			'TERMKIT_REAL_FTP_USERNAME',
+			'TERMKIT_REAL_FTP_EVIDENCE_ID'
 		],
-		evidenceEnv: 'TERMIXKIT_REAL_FTP_EVIDENCE_ID',
-		notesEnv: 'TERMIXKIT_REAL_FTP_PROOF_NOTES',
-		notesFileEnv: 'TERMIXKIT_REAL_FTP_PROOF_NOTES_FILE',
+		evidenceEnv: 'TERMKIT_REAL_FTP_EVIDENCE_ID',
+		notesEnv: 'TERMKIT_REAL_FTP_PROOF_NOTES',
+		notesFileEnv: 'TERMKIT_REAL_FTP_PROOF_NOTES_FILE',
 		redactedEnv: [
-			'TERMIXKIT_REAL_FTP_HOST',
-			'TERMIXKIT_REAL_FTP_PORT',
-			'TERMIXKIT_REAL_FTP_USERNAME',
-			'TERMIXKIT_REAL_FTP_EVIDENCE_ID'
+			'TERMKIT_REAL_FTP_HOST',
+			'TERMKIT_REAL_FTP_PORT',
+			'TERMKIT_REAL_FTP_USERNAME',
+			'TERMKIT_REAL_FTP_EVIDENCE_ID'
 		],
 		requiredFragments: [
 			'ftp login',
@@ -83,28 +83,28 @@ const configs = {
 			'connection history'
 		],
 		proofCommand:
-			'TERMIXKIT_REAL_FTP_HOST=<redacted> TERMIXKIT_REAL_FTP_EVIDENCE_ID=<redacted> TERMIXKIT_REAL_FTP_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftp'
+			'TERMKIT_REAL_FTP_HOST=<redacted> TERMKIT_REAL_FTP_EVIDENCE_ID=<redacted> TERMKIT_REAL_FTP_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftp'
 	},
 	realFtps: {
 		label: 'real FTPS target file-manager workflow',
 		requiredEnv: [
-			'TERMIXKIT_REAL_FTPS_HOST',
-			'TERMIXKIT_REAL_FTPS_PORT',
-			'TERMIXKIT_REAL_FTPS_USERNAME',
-			'TERMIXKIT_REAL_FTPS_MODE',
-			'TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY',
-			'TERMIXKIT_REAL_FTPS_EVIDENCE_ID'
+			'TERMKIT_REAL_FTPS_HOST',
+			'TERMKIT_REAL_FTPS_PORT',
+			'TERMKIT_REAL_FTPS_USERNAME',
+			'TERMKIT_REAL_FTPS_MODE',
+			'TERMKIT_REAL_FTPS_CERTIFICATE_POLICY',
+			'TERMKIT_REAL_FTPS_EVIDENCE_ID'
 		],
-		evidenceEnv: 'TERMIXKIT_REAL_FTPS_EVIDENCE_ID',
-		notesEnv: 'TERMIXKIT_REAL_FTPS_PROOF_NOTES',
-		notesFileEnv: 'TERMIXKIT_REAL_FTPS_PROOF_NOTES_FILE',
+		evidenceEnv: 'TERMKIT_REAL_FTPS_EVIDENCE_ID',
+		notesEnv: 'TERMKIT_REAL_FTPS_PROOF_NOTES',
+		notesFileEnv: 'TERMKIT_REAL_FTPS_PROOF_NOTES_FILE',
 		redactedEnv: [
-			'TERMIXKIT_REAL_FTPS_HOST',
-			'TERMIXKIT_REAL_FTPS_PORT',
-			'TERMIXKIT_REAL_FTPS_USERNAME',
-			'TERMIXKIT_REAL_FTPS_MODE',
-			'TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY',
-			'TERMIXKIT_REAL_FTPS_EVIDENCE_ID'
+			'TERMKIT_REAL_FTPS_HOST',
+			'TERMKIT_REAL_FTPS_PORT',
+			'TERMKIT_REAL_FTPS_USERNAME',
+			'TERMKIT_REAL_FTPS_MODE',
+			'TERMKIT_REAL_FTPS_CERTIFICATE_POLICY',
+			'TERMKIT_REAL_FTPS_EVIDENCE_ID'
 		],
 		requiredFragments: [
 			'ftps login',
@@ -120,7 +120,7 @@ const configs = {
 			'connection history'
 		],
 		proofCommand:
-			'TERMIXKIT_REAL_FTPS_HOST=<redacted> TERMIXKIT_REAL_FTPS_EVIDENCE_ID=<redacted> TERMIXKIT_REAL_FTPS_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftps'
+			'TERMKIT_REAL_FTPS_HOST=<redacted> TERMKIT_REAL_FTPS_EVIDENCE_ID=<redacted> TERMKIT_REAL_FTPS_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftps'
 	}
 };
 
@@ -352,10 +352,10 @@ Package aliases:
   npm run acceptance:record-real-ftps
 
 FTP notes env:
-  TERMIXKIT_REAL_FTP_PROOF_NOTES or TERMIXKIT_REAL_FTP_PROOF_NOTES_FILE
+  TERMKIT_REAL_FTP_PROOF_NOTES or TERMKIT_REAL_FTP_PROOF_NOTES_FILE
 
 FTPS notes env:
-  TERMIXKIT_REAL_FTPS_PROOF_NOTES or TERMIXKIT_REAL_FTPS_PROOF_NOTES_FILE
+  TERMKIT_REAL_FTPS_PROOF_NOTES or TERMKIT_REAL_FTPS_PROOF_NOTES_FILE
 `);
 }
 

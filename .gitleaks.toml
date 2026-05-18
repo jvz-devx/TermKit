@@ -1,0 +1,35 @@
+title = "TermKit gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known fake high-entropy values used by tests and acceptance evidence"
+condition = "AND"
+regexTarget = "match"
+paths = [
+	'''scripts/acceptance-audit\.mjs$''',
+	'''src/lib/server/config/production-env\.spec\.ts$''',
+	'''src/lib/server/import/service\.spec\.ts$''',
+	'''src/lib/server/import/termix\.spec\.ts$''',
+	'''src/lib/server/server-proxy\.spec\.ts$'''
+]
+regexes = [
+	'''0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef''',
+	'''d4YmG5uVPKHLb4xikqu47GzDL8RQXmyC4k53YmgW''',
+	'''v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL''',
+	'''0xY8Qp9sLd2nV6rT''',
+	'''change-me''',
+	'''dGhlIHNhbXBsZSBub25jZQ==''',
+	'''RDP/VNC/Telnet'''
+]
+
+[[allowlists]]
+description = "Intentional fake OpenSSH private-key fixture in importer tests"
+condition = "AND"
+regexTarget = "match"
+paths = [
+	'''src/lib/server/import/termix\.spec\.ts$''',
+	'''src/lib/server/services/__tests__/v6-resources\.test\.ts$'''
+]
+regexes = ['''-----BEGIN OPENSSH PRIVATE KEY-----''']

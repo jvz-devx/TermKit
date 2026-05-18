@@ -541,7 +541,7 @@ async function signIn(
 
 async function expectAuthenticatedHostsApi(page: Page, context: BrowserContext) {
 	const cookies = await context.cookies();
-	expect(cookies.some((cookie) => cookie.name === 'termixkit_session')).toBe(true);
+	expect(cookies.some((cookie) => cookie.name === 'termkit_session')).toBe(true);
 
 	const response = await page.request.get('/api/hosts');
 	expect(response.status()).toBe(200);

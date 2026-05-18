@@ -10,7 +10,7 @@ import {
 	uniqueFleetValues
 } from './fleet-data';
 
-const performanceIt = process.env.TERMIXKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
+const performanceIt = process.env.TERMKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
 
 describe('fleet operations helpers', () => {
 	it('filters hosts by health, workspace, patch state, region, and search text', () => {

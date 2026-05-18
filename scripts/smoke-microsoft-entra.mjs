@@ -116,9 +116,9 @@ async function smokeMicrosoftDiscovery(parseMicrosoftEntraAuthConfig) {
 }
 
 async function smokeMicrosoftClientCredentials(parseMicrosoftEntraAuthConfig) {
-	const scope = process.env.TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE?.trim();
+	const scope = process.env.TERMKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE?.trim();
 	if (!scope) {
-		throw new SkipSmoke('missing TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE');
+		throw new SkipSmoke('missing TERMKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE');
 	}
 
 	const config = realMicrosoftConfig(parseMicrosoftEntraAuthConfig);
@@ -146,7 +146,7 @@ async function smokeMicrosoftClientCredentials(parseMicrosoftEntraAuthConfig) {
 
 function realMicrosoftConfig(parseMicrosoftEntraAuthConfig) {
 	if (!isEnabled(process.env.MICROSOFT_AUTH_ENABLED)) {
-		if (process.env.TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL === '1') {
+		if (process.env.TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL === '1') {
 			throw new Error('MICROSOFT_AUTH_ENABLED is required for real Microsoft smoke.');
 		}
 		throw new SkipSmoke('missing Microsoft Entra env');
@@ -214,12 +214,12 @@ async function withTimeout(promise, label, timeoutMs) {
 }
 
 function readTimeoutMs() {
-	const value = process.env.TERMIXKIT_SMOKE_MICROSOFT_TIMEOUT_MS;
+	const value = process.env.TERMKIT_SMOKE_MICROSOFT_TIMEOUT_MS;
 	if (!value) return 10_000;
 
 	const parsed = Number.parseInt(value, 10);
 	if (!Number.isInteger(parsed) || parsed < 1000 || parsed > 120_000) {
-		throw new Error('TERMIXKIT_SMOKE_MICROSOFT_TIMEOUT_MS must be an integer from 1000 to 120000');
+		throw new Error('TERMKIT_SMOKE_MICROSOFT_TIMEOUT_MS must be an integer from 1000 to 120000');
 	}
 	return parsed;
 }

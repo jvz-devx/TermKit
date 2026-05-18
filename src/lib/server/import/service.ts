@@ -318,7 +318,7 @@ function sourceName(fileName: string): string {
 }
 
 function resolveImportSourceSecret(uploadSecret: string | undefined): string | undefined {
-	return uploadSecret?.trim() || process.env.TERMIXKIT_IMPORT_SOURCE_SECRET?.trim() || undefined;
+	return uploadSecret?.trim() || process.env.TERMKIT_IMPORT_SOURCE_SECRET?.trim() || undefined;
 }
 
 function formatFailure(scope: string, error: unknown): string {

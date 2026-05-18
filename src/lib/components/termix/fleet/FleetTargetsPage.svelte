@@ -52,7 +52,7 @@
 </script>
 
 <svelte:head>
-	<title>Fleet Targets · TermixKit</title>
+	<title>Fleet Targets · TermKit</title>
 </svelte:head>
 
 <section class="space-y-4 p-4">

@@ -185,16 +185,16 @@ async function smokeRealGatewayBootstrap({ RdpGatewayBootstrapper, loadRdpGatewa
 		throw new SkipSmoke(`missing ${missing.join(', ')}`);
 	}
 
-	const targetPort = readPort(process.env.TERMIXKIT_SMOKE_RDP_PORT ?? '3389');
+	const targetPort = readPort(process.env.TERMKIT_SMOKE_RDP_PORT ?? '3389');
 	const config = loadRdpGatewayConfig(process.env);
 	const bootstrapper = new RdpGatewayBootstrapper(config, timeoutFetch(readTimeoutMs()));
 	const target = {
-		host: process.env.TERMIXKIT_SMOKE_RDP_HOST.trim(),
+		host: process.env.TERMKIT_SMOKE_RDP_HOST.trim(),
 		port: targetPort
 	};
-	const username = process.env.TERMIXKIT_SMOKE_RDP_USERNAME?.trim();
-	const password = process.env.TERMIXKIT_SMOKE_RDP_PASSWORD;
-	const domain = process.env.TERMIXKIT_SMOKE_RDP_DOMAIN?.trim();
+	const username = process.env.TERMKIT_SMOKE_RDP_USERNAME?.trim();
+	const password = process.env.TERMKIT_SMOKE_RDP_PASSWORD;
+	const domain = process.env.TERMKIT_SMOKE_RDP_DOMAIN?.trim();
 
 	if (username) target.username = username;
 	if (password) {
@@ -209,8 +209,8 @@ async function smokeRealGatewayBootstrap({ RdpGatewayBootstrapper, loadRdpGatewa
 
 	const bootstrap = await bootstrapper.bootstrap({
 		ticketId: 'smoke-real-ticket',
-		userId: process.env.TERMIXKIT_SMOKE_RDP_USER_ID?.trim() || 'termix-rdp-smoke',
-		hostId: process.env.TERMIXKIT_SMOKE_RDP_HOST_ID?.trim() || 'termix-rdp-smoke-host',
+		userId: process.env.TERMKIT_SMOKE_RDP_USER_ID?.trim() || 'termix-rdp-smoke',
+		hostId: process.env.TERMKIT_SMOKE_RDP_HOST_ID?.trim() || 'termix-rdp-smoke-host',
 		protocol: 'rdp',
 		target,
 		metadata: domain ? { domain } : undefined
@@ -384,12 +384,7 @@ async function startMockGateway({
 }
 
 function requiredRealEnv() {
-	return [
-		'GATEWAY_URL',
-		'GATEWAY_PUBLIC_URL',
-		'GATEWAY_PROVISIONER_KEY',
-		'TERMIXKIT_SMOKE_RDP_HOST'
-	];
+	return ['GATEWAY_URL', 'GATEWAY_PUBLIC_URL', 'GATEWAY_PROVISIONER_KEY', 'TERMKIT_SMOKE_RDP_HOST'];
 }
 
 function timeoutFetch(timeoutMs) {
@@ -450,14 +445,12 @@ async function withTimeout(promise, name, timeoutMs) {
 }
 
 function readTimeoutMs() {
-	const value = process.env.TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS;
+	const value = process.env.TERMKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS;
 	if (!value) return defaultTimeoutMs;
 
 	const timeoutMs = Number(value);
 	if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120_000) {
-		throw new Error(
-			'TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS must be an integer from 1000 to 120000'
-		);
+		throw new Error('TERMKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS must be an integer from 1000 to 120000');
 	}
 
 	return timeoutMs;
@@ -466,7 +459,7 @@ function readTimeoutMs() {
 function readPort(value) {
 	const port = Number(value);
 	if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-		throw new Error('TERMIXKIT_SMOKE_RDP_PORT must be an integer from 1 to 65535');
+		throw new Error('TERMKIT_SMOKE_RDP_PORT must be an integer from 1 to 65535');
 	}
 
 	return port;

@@ -11,9 +11,9 @@ import { promisify } from 'node:util';
 const execFile = promisify(execFileCallback);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const composeFile = join(root, 'compose.yaml');
-const timeoutMs = readIntegerEnv('TERMIXKIT_SMOKE_COMPOSE_TIMEOUT_MS', 900_000, 60_000, 1_800_000);
-const projectName = `termixkit-smoke-${process.pid}-${Date.now()}`;
-const tempDir = await mkdtemp(join(tmpdir(), 'termixkit-compose-smoke-'));
+const timeoutMs = readIntegerEnv('TERMKIT_SMOKE_COMPOSE_TIMEOUT_MS', 900_000, 60_000, 1_800_000);
+const projectName = `termkit-smoke-${process.pid}-${Date.now()}`;
+const tempDir = await mkdtemp(join(tmpdir(), 'termkit-compose-smoke-'));
 const envFile = join(tempDir, '.env');
 const cleanup = [];
 const results = [];
@@ -54,11 +54,11 @@ process.exit(process.exitCode ?? 0);
 function composeEnv(appPort, postgresPort) {
 	return [
 		`ORIGIN=http://localhost:${appPort}`,
-		'TERMIXKIT_INSECURE_LOCAL_HTTP=1',
+		'TERMKIT_INSECURE_LOCAL_HTTP=1',
 		`APP_PORT=${appPort}`,
-		'POSTGRES_USER=termixkit',
+		'POSTGRES_USER=termkit',
 		`POSTGRES_PASSWORD=${secret()}`,
-		'POSTGRES_DB=termixkit',
+		'POSTGRES_DB=termkit',
 		`POSTGRES_PORT=${postgresPort}`,
 		`APP_SECRET=${secret()}`,
 		`CREDENTIAL_MASTER_KEY=${secret()}`,
@@ -77,7 +77,7 @@ function secret() {
 
 async function runCompose(args) {
 	const composeFiles = ['-f', composeFile];
-	const dnsOverride = process.env.TERMIXKIT_COMPOSE_DNS_OVERRIDE?.trim();
+	const dnsOverride = process.env.TERMKIT_COMPOSE_DNS_OVERRIDE?.trim();
 	if (dnsOverride && existsSync(dnsOverride)) {
 		composeFiles.push('-f', dnsOverride);
 	}

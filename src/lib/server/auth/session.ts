@@ -5,7 +5,7 @@ import { db } from '$lib/server/db';
 import { sessions, users } from '$lib/server/db/schema';
 import { hashPassword, verifyPassword } from './password';
 
-export const sessionCookieName = 'termixkit_session';
+export const sessionCookieName = 'termkit_session';
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 
 export type AuthUser = {
@@ -122,7 +122,7 @@ export async function createFirstRunAdmin(input: {
 	const passwordHash = await hashPassword(input.password);
 
 	return db.transaction(async (tx) => {
-		await tx.execute(sql`select pg_advisory_xact_lock(hashtext('termixkit:first-run-admin'))`);
+		await tx.execute(sql`select pg_advisory_xact_lock(hashtext('termkit:first-run-admin'))`);
 
 		const [existingUserCount] = await tx.select({ value: count() }).from(users);
 

@@ -9,7 +9,7 @@ import {
 	updateSessionPaneHost
 } from './workspace-layout';
 
-const performanceIt = process.env.TERMIXKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
+const performanceIt = process.env.TERMKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
 
 describe('session workspace layout metadata', () => {
 	it('preserves pane host ids and supports per-pane host replacement', () => {

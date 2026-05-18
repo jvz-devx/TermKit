@@ -53,7 +53,7 @@ const entries: RemoteEntry[] = [
 		link: '/releases/42'
 	}
 ];
-const performanceIt = process.env.TERMIXKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
+const performanceIt = process.env.TERMKIT_PERFORMANCE_BUDGETS === '1' ? it : it.skip;
 
 describe('file manager state helpers', () => {
 	it('normalizes and joins remote paths without parent traversal', () => {

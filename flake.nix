@@ -1,5 +1,5 @@
 {
-  description = "TermixKit development shell";
+  description = "TermKit development shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -38,11 +38,11 @@
             PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
 
             shellHook = ''
-              export TERMIXKIT_DOCKER_DNS_PRIMARY="1.1.1.1"
-              export TERMIXKIT_DOCKER_DNS_SECONDARY="8.8.8.8"
-              export TERMIXKIT_COMPOSE_DNS_OVERRIDE="$(${pkgs.coreutils}/bin/mktemp -t termixkit-compose-dns.XXXXXX.yaml)"
+              export TERMKIT_DOCKER_DNS_PRIMARY="1.1.1.1"
+              export TERMKIT_DOCKER_DNS_SECONDARY="8.8.8.8"
+              export TERMKIT_COMPOSE_DNS_OVERRIDE="$(${pkgs.coreutils}/bin/mktemp -t termkit-compose-dns.XXXXXX.yaml)"
 
-              cat > "$TERMIXKIT_COMPOSE_DNS_OVERRIDE" <<'TERMIXKIT_COMPOSE_DNS_EOF'
+              cat > "$TERMKIT_COMPOSE_DNS_OVERRIDE" <<'TERMKIT_COMPOSE_DNS_EOF'
               services:
                 app:
                   build:
@@ -64,18 +64,18 @@
                   dns:
                     - 1.1.1.1
                     - 8.8.8.8
-              TERMIXKIT_COMPOSE_DNS_EOF
+              TERMKIT_COMPOSE_DNS_EOF
 
               if [ -f "$PWD/compose.yaml" ]; then
                 if [ -n "''${COMPOSE_FILE:-}" ]; then
-                  export COMPOSE_FILE="$COMPOSE_FILE:$TERMIXKIT_COMPOSE_DNS_OVERRIDE"
+                  export COMPOSE_FILE="$COMPOSE_FILE:$TERMKIT_COMPOSE_DNS_OVERRIDE"
                 else
-                  export COMPOSE_FILE="$PWD/compose.yaml:$TERMIXKIT_COMPOSE_DNS_OVERRIDE"
+                  export COMPOSE_FILE="$PWD/compose.yaml:$TERMKIT_COMPOSE_DNS_OVERRIDE"
                 fi
               fi
 
-              echo "TermixKit dev shell: npm, Chromium, and Docker Compose are available."
-              echo "Docker Compose DNS override: $TERMIXKIT_DOCKER_DNS_PRIMARY, $TERMIXKIT_DOCKER_DNS_SECONDARY."
+              echo "TermKit dev shell: npm, Chromium, and Docker Compose are available."
+              echo "Docker Compose DNS override: $TERMKIT_DOCKER_DNS_PRIMARY, $TERMKIT_DOCKER_DNS_SECONDARY."
             '';
           };
         }

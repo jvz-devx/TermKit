@@ -1,7 +1,7 @@
 import { spawnSync, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-const proofFilePath = process.env.TERMIXKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
+const proofFilePath = process.env.TERMKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
 const timestamp = new Date().toISOString();
 const commit = currentCommit();
 const proofFileExists = existsSync(proofFilePath);
@@ -16,7 +16,7 @@ if (proofFileExists && proofFile.commit !== commit) {
 
 const env = {
 	...process.env,
-	TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL: '1'
+	TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL: '1'
 };
 
 const result = spawnSync('npm', ['run', 'smoke:microsoft'], {
@@ -44,7 +44,7 @@ if (output.includes('[skip] Microsoft Entra discovery and JWKS')) {
 }
 
 if (
-	process.env.TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE?.trim() &&
+	process.env.TERMKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE?.trim() &&
 	!output.includes('[pass] Microsoft Entra client credentials')
 ) {
 	console.error('Microsoft client credentials smoke was requested but did not pass.');
@@ -82,9 +82,9 @@ writeFileSync(proofFilePath, `${JSON.stringify(proofFile, null, 2)}\n`);
 console.log(`Recorded Microsoft smoke proof in ${proofFilePath}.`);
 
 function proofCommand() {
-	const scope = process.env.TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE?.trim();
-	if (!scope) return 'TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft';
-	return 'TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE=<redacted> npm run smoke:microsoft';
+	const scope = process.env.TERMKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE?.trim();
+	if (!scope) return 'TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft';
+	return 'TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 TERMKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE=<redacted> npm run smoke:microsoft';
 }
 
 function loadProofFile(path) {

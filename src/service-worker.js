@@ -7,7 +7,7 @@ import { base, build, files, version } from '$service-worker';
 
 const worker = /** @type {ServiceWorkerGlobalScope} */ (/** @type {unknown} */ (globalThis.self));
 
-const CACHE = `termixkit-${version}`;
+const CACHE = `termkit-${version}`;
 const OFFLINE_URL = `${base}/offline.html`;
 const ASSETS = [...build, ...files];
 

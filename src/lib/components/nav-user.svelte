@@ -111,7 +111,7 @@
 				<DropdownMenu.Separator />
 				<DropdownMenu.Item onclick={() => (aboutOpen = true)}>
 					<InfoIcon />
-					About TermixKit
+					About TermKit
 				</DropdownMenu.Item>
 				<form {...logoutForm}>
 					<DropdownMenu.Item>
@@ -131,7 +131,7 @@
 <Dialog.Root bind:open={aboutOpen}>
 	<Dialog.Content class="max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>About TermixKit</Dialog.Title>
+			<Dialog.Title>About TermKit</Dialog.Title>
 			<Dialog.Description>
 				Running build {appBuildInfo.displayVersion}
 			</Dialog.Description>

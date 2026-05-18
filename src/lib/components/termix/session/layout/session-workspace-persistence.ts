@@ -1,7 +1,7 @@
 import type { WorkspaceProtocol } from './session-workspace-protocols';
 import { isWorkspaceProtocol } from './session-workspace-protocols';
 
-const lastProtocolStoragePrefix = 'termixkit:last-protocol:';
+const lastProtocolStoragePrefix = 'termkit:last-protocol:';
 
 export function rememberedWorkspaceProtocol({
 	storage,

@@ -42,7 +42,7 @@ vi.mock('$lib/termix/automation-template', async (importOriginal) => {
 		description: 'Deploy service',
 		kind: 'ssh_command',
 		version: '1.0.0',
-		author: 'TermixKit',
+		author: 'TermKit',
 		visibility: 'private',
 		workspaceId: null,
 		tags: ['deploy'],

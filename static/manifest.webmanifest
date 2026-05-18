@@ -1,6 +1,6 @@
 {
-	"name": "TermixKit",
-	"short_name": "TermixKit",
+	"name": "TermKit",
+	"short_name": "TermKit",
 	"description": "Secure browser workspace for SSH, RDP, VNC, SFTP, FTP and tunnel operations.",
 	"start_url": "/sessions",
 	"scope": "/",

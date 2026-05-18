@@ -47,7 +47,7 @@ jobs:
         run: docker compose config --quiet
         env:
           ORIGIN: http://localhost:3000
-          TERMIXKIT_INSECURE_LOCAL_HTTP: '1'
+          TERMKIT_INSECURE_LOCAL_HTTP: '1'
           APP_SECRET: ci-app-secret-ci-app-secret-ci-app-secret
           CREDENTIAL_MASTER_KEY: ci-credential-master-key-ci-credential-master-key
           POSTGRES_PASSWORD: ci-postgres-password

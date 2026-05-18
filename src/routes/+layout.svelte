@@ -10,14 +10,14 @@
 	<link rel="icon" href={favicon} />
 	<link rel="manifest" href="/manifest.webmanifest" />
 	<link rel="apple-touch-icon" href="/pwa/icon.svg" />
-	<meta name="application-name" content="TermixKit" />
-	<meta name="apple-mobile-web-app-title" content="TermixKit" />
+	<meta name="application-name" content="TermKit" />
+	<meta name="apple-mobile-web-app-title" content="TermKit" />
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="mobile-web-app-capable" content="yes" />
 </svelte:head>
 <ModeWatcher
 	defaultMode="system"
-	modeStorageKey="termixkit:theme-mode"
+	modeStorageKey="termkit:theme-mode"
 	themeColors={{ light: '#ffffff', dark: '#18181b' }}
 />
 {@render children()}

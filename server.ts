@@ -102,11 +102,11 @@ export function createTermixServer({
 }
 
 function installLiveSshMaintenance(server: Server, serverEnv: NodeJS.ProcessEnv): void {
-	if (serverEnv.VITEST || serverEnv.TERMIXKIT_LIVE_SSH_MAINTENANCE === '0') return;
+	if (serverEnv.VITEST || serverEnv.TERMKIT_LIVE_SSH_MAINTENANCE === '0') return;
 
 	void sshLiveSessionService.markStaleOnStartup().catch(logLiveSshMaintenanceError);
 
-	const intervalMs = Math.max(5_000, Number(serverEnv.TERMIXKIT_LIVE_SSH_IDLE_SWEEP_MS ?? 60_000));
+	const intervalMs = Math.max(5_000, Number(serverEnv.TERMKIT_LIVE_SSH_IDLE_SWEEP_MS ?? 60_000));
 	const interval = setInterval(() => {
 		void sshLiveSessionService
 			.expireIdleDetachedSessions()
@@ -135,7 +135,7 @@ export async function startTermixServer(serverEnv: NodeJS.ProcessEnv = env): Pro
 
 	server.listen(port, host, () => {
 		const address = server.address() as AddressInfo;
-		console.log(`TermixKit listening on http://${host}:${address.port}`);
+		console.log(`TermKit listening on http://${host}:${address.port}`);
 	});
 
 	return server;

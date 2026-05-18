@@ -1,6 +1,6 @@
 # Agent Instructions
 
-TermixKit is a SvelteKit/TypeScript app for remote access workflows. Keep changes small,
+TermKit is a SvelteKit/TypeScript app for remote access workflows. Keep changes small,
 focused, and easy to review.
 
 ## Search first

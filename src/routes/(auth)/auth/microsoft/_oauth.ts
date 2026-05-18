@@ -32,9 +32,9 @@ import {
 } from '$lib/server/auth/oidc';
 
 const provider = 'microsoft';
-const stateCookieName = 'termixkit_microsoft_oauth_state';
-const nonceCookieName = 'termixkit_microsoft_oauth_nonce';
-const pkceCookieName = 'termixkit_microsoft_oauth_pkce';
+const stateCookieName = 'termkit_microsoft_oauth_state';
+const nonceCookieName = 'termkit_microsoft_oauth_nonce';
+const pkceCookieName = 'termkit_microsoft_oauth_pkce';
 const oauthCookieMaxAgeSeconds = 10 * 60;
 
 type TokenResponse = {

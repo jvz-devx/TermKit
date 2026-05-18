@@ -8,7 +8,7 @@ export type BookmarkEntry = {
 };
 
 export function bookmarkStorageKey(apiBase: string, hostId: string) {
-	return `termixkit:file-manager:${apiBase}:${hostId}:bookmarks`;
+	return `termkit:file-manager:${apiBase}:${hostId}:bookmarks`;
 }
 
 export function createBookmark(path: string, id: string = crypto.randomUUID(), now = new Date()) {

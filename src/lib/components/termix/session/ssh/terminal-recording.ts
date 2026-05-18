@@ -12,7 +12,7 @@ export type StoredTerminalRecording = {
 	bytes: number;
 };
 
-const metadataKey = 'termixkit:terminal-recordings';
+const metadataKey = 'termkit:terminal-recordings';
 
 export function createTerminalRecordingId(now = new Date()): string {
 	return `terminal-${now

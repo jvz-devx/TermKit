@@ -95,7 +95,7 @@ function preflight(env) {
 
 function writeNotesTemplate(path, result) {
 	const template = `TODO replace every TODO line before recording proof. The final notes must include the exact audit fragments listed in README.
-TODO allowed domain user: replace with redacted proof that an allowed Microsoft user signed in and received a TermixKit session at ${result.origin ?? '<origin>'}.
+TODO allowed domain user: replace with redacted proof that an allowed Microsoft user signed in and received a TermKit session at ${result.origin ?? '<origin>'}.
 TODO blocked external domain user: replace with redacted proof that a user outside MICROSOFT_ALLOWED_DOMAINS was denied.
 TODO configured admin email user: replace with redacted proof that a MICROSOFT_ADMIN_EMAILS user provisioned or was promoted as admin.
 TODO local username password login: replace with redacted proof that username/password login still works after Microsoft auth is enabled.

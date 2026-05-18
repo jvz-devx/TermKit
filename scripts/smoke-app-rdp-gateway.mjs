@@ -10,7 +10,7 @@ import {
 } from './smoke-app-runtime.mjs';
 
 export async function startMockRdpGateway() {
-	const provisionerSubject = process.env.GATEWAY_PROVISIONER_SUBJECT ?? 'TermixKit';
+	const provisionerSubject = process.env.GATEWAY_PROVISIONER_SUBJECT ?? 'TermKit';
 	const provisionerKey = process.env.GATEWAY_PROVISIONER_KEY ?? 'app-smoke-local-key';
 	const appToken = 'app-smoke-gateway-app-token';
 	const associationToken = 'app-smoke-gateway-association-token';

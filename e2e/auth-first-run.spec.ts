@@ -127,14 +127,14 @@ test.describe.serial('application onboarding and navigation', () => {
 
 		await chooseTheme(page, 'Dark');
 		await expect(page.locator('html')).toHaveClass(/dark/);
-		expect(await page.evaluate(() => localStorage.getItem('termixkit:theme-mode'))).toBe('dark');
+		expect(await page.evaluate(() => localStorage.getItem('termkit:theme-mode'))).toBe('dark');
 
 		await page.reload();
 		await expect(page.locator('html')).toHaveClass(/dark/);
 
 		await chooseTheme(page, 'Light');
 		await expect(page.locator('html')).not.toHaveClass(/dark/);
-		expect(await page.evaluate(() => localStorage.getItem('termixkit:theme-mode'))).toBe('light');
+		expect(await page.evaluate(() => localStorage.getItem('termkit:theme-mode'))).toBe('light');
 
 		await page.reload();
 		await expect(page.locator('html')).not.toHaveClass(/dark/);
@@ -150,7 +150,7 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(page).toHaveURL(/\/hosts$/);
 
 		await chooseTheme(page, 'System');
-		expect(await page.evaluate(() => localStorage.getItem('termixkit:theme-mode'))).toBe('system');
+		expect(await page.evaluate(() => localStorage.getItem('termkit:theme-mode'))).toBe('system');
 	});
 
 	test('saves settings and reloads the persisted values', async ({ context, page }) => {
@@ -231,7 +231,7 @@ async function ensureAdminSession(page: Page, context: BrowserContext) {
 
 async function expectAuthenticatedHostsApi(page: Page, context: BrowserContext) {
 	const cookies = await context.cookies();
-	expect(cookies.some((cookie) => cookie.name === 'termixkit_session')).toBe(true);
+	expect(cookies.some((cookie) => cookie.name === 'termkit_session')).toBe(true);
 
 	const response = await page.request.get('/api/hosts');
 

@@ -209,8 +209,8 @@ export function loadRdpGatewayConfig(
 	const gatewayUrl = normalizeUrl(env.GATEWAY_URL);
 	const gatewayPublicUrl = normalizeUrl(env.GATEWAY_PUBLIC_URL);
 	const provisionerKey = env.GATEWAY_PROVISIONER_KEY?.trim();
-	const allowInsecureLocalHttp = isEnabled(env.TERMIXKIT_INSECURE_LOCAL_HTTP);
-	const provisionerSubject = env.GATEWAY_PROVISIONER_SUBJECT?.trim() || 'TermixKit';
+	const allowInsecureLocalHttp = isEnabled(env.TERMKIT_INSECURE_LOCAL_HTTP);
+	const provisionerSubject = env.GATEWAY_PROVISIONER_SUBJECT?.trim() || 'TermKit';
 	const sessionLifetimeSeconds = readPositiveInteger(
 		env.GATEWAY_RDP_SESSION_TTL_SECONDS,
 		60,
@@ -218,8 +218,8 @@ export function loadRdpGatewayConfig(
 		60
 	);
 	const audioRedirectionEnabled =
-		!isEnabled(env.TERMIXKIT_RDP_DISABLE_AUDIO) &&
-		!isExplicitFalse(env.TERMIXKIT_RDP_AUDIO_REDIRECTION);
+		!isEnabled(env.TERMKIT_RDP_DISABLE_AUDIO) &&
+		!isExplicitFalse(env.TERMKIT_RDP_AUDIO_REDIRECTION);
 	const width = readPositiveInteger(env.GATEWAY_RDP_WIDTH, 640, 7680, 1440);
 	const height = readPositiveInteger(env.GATEWAY_RDP_HEIGHT, 480, 4320, 900);
 	const issues: string[] = [];
@@ -321,11 +321,11 @@ function validateGatewayPublicUrl(
 
 	if (production && url.protocol !== 'https:') {
 		if (!allowInsecureLocalHttp) {
-			return 'GATEWAY_PUBLIC_URL must use https:// in production. For direct local HTTP only, set TERMIXKIT_INSECURE_LOCAL_HTTP=1';
+			return 'GATEWAY_PUBLIC_URL must use https:// in production. For direct local HTTP only, set TERMKIT_INSECURE_LOCAL_HTTP=1';
 		}
 
 		if (url.protocol !== 'http:' || !isLocalHostname(url.hostname)) {
-			return 'TERMIXKIT_INSECURE_LOCAL_HTTP=1 only permits local http://localhost or loopback GATEWAY_PUBLIC_URL values';
+			return 'TERMKIT_INSECURE_LOCAL_HTTP=1 only permits local http://localhost or loopback GATEWAY_PUBLIC_URL values';
 		}
 
 		optedInLocalHttp = true;

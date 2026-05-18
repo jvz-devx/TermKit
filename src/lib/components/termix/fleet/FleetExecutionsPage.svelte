@@ -8,7 +8,7 @@
 </script>
 
 <svelte:head>
-	<title>Fleet Executions · TermixKit</title>
+	<title>Fleet Executions · TermKit</title>
 </svelte:head>
 
 <section class="space-y-4 p-4">

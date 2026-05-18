@@ -79,7 +79,7 @@
 	<Resizable.PaneGroup
 		direction={controller.desktop && controller.wideLayout ? 'horizontal' : 'vertical'}
 		keyboardResizeBy={5}
-		autoSaveId={`termixkit-file-manager:${controller.apiBase}:${controller.hostId}:${controller.desktop && controller.wideLayout ? 'wide' : 'stacked'}`}
+		autoSaveId={`termkit-file-manager:${controller.apiBase}:${controller.hostId}:${controller.desktop && controller.wideLayout ? 'wide' : 'stacked'}`}
 		class="min-h-0 min-w-0"
 	>
 		<Resizable.Pane

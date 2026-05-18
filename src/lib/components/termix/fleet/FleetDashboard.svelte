@@ -31,7 +31,7 @@
 </script>
 
 <svelte:head>
-	<title>Fleet Overview · TermixKit</title>
+	<title>Fleet Overview · TermKit</title>
 </svelte:head>
 
 <section class="space-y-5 p-4">

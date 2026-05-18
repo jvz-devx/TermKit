@@ -7,7 +7,7 @@
 </script>
 
 <svelte:head>
-	<title>{execution?.name ?? 'Execution'} · TermixKit</title>
+	<title>{execution?.name ?? 'Execution'} · TermKit</title>
 </svelte:head>
 
 <section class="space-y-4 p-4">

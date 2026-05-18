@@ -40,7 +40,7 @@ describe('Gateway proxy hardening', () => {
 		const response = await fetch(serverUrl(app.server, '/gateway/jet/rdp'), {
 			headers: {
 				Origin: 'https://evil.example',
-				Cookie: 'termixkit_session=valid'
+				Cookie: 'termkit_session=valid'
 			}
 		});
 
@@ -59,14 +59,14 @@ describe('Gateway proxy hardening', () => {
 		const response = await fetch(serverUrl(app.server, '/gateway/jet/rdp?association=1'), {
 			headers: {
 				Origin: 'https://termix.example',
-				Cookie: 'termixkit_session=valid'
+				Cookie: 'termkit_session=valid'
 			}
 		});
 		const rejectedPost = await fetch(serverUrl(app.server, '/gateway/jet/rdp'), {
 			method: 'POST',
 			headers: {
 				Origin: 'https://termix.example',
-				Cookie: 'termixkit_session=valid'
+				Cookie: 'termkit_session=valid'
 			}
 		});
 		const rejectedProvisioningPath = await fetch(
@@ -74,7 +74,7 @@ describe('Gateway proxy hardening', () => {
 			{
 				headers: {
 					Origin: 'https://termix.example',
-					Cookie: 'termixkit_session=valid'
+					Cookie: 'termkit_session=valid'
 				}
 			}
 		);
@@ -114,7 +114,7 @@ describe('Gateway proxy hardening', () => {
 
 		const response = await rawUpgrade(app.server, '/gateway/jet/rdp', {
 			Origin: 'https://evil.example',
-			Cookie: 'termixkit_session=valid'
+			Cookie: 'termkit_session=valid'
 		});
 
 		expect(response).toContain('403 Gateway origin is not allowed');
@@ -130,11 +130,11 @@ describe('Gateway proxy hardening', () => {
 
 		const accepted = await rawUpgrade(app.server, '/gateway/jet/rdp?association=1', {
 			Origin: 'https://termix.example',
-			Cookie: 'termixkit_session=valid'
+			Cookie: 'termkit_session=valid'
 		});
 		const rejectedProvisioningPath = await rawUpgrade(app.server, '/gateway/jet/webapp/app-token', {
 			Origin: 'https://termix.example',
-			Cookie: 'termixkit_session=valid'
+			Cookie: 'termkit_session=valid'
 		});
 
 		expect(accepted).toContain('101 Switching Protocols');
@@ -213,7 +213,7 @@ const testSessionAuthenticator: GatewayProxySessionAuthenticator = async (reques
 			? [request.headers.cookie]
 			: [];
 
-	return cookies.some((cookie) => cookie.includes('termixkit_session=valid'))
+	return cookies.some((cookie) => cookie.includes('termkit_session=valid'))
 		? { sessionId: 'session-1', userId: 'user-1' }
 		: null;
 };

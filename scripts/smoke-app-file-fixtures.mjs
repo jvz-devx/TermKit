@@ -64,7 +64,7 @@ export function createFileFixtureHelpers(statusCode) {
 		};
 
 		attach(socket);
-		sendFtp(socket, 220, `TermixKit ${fixture.label} fixture ready`);
+		sendFtp(socket, 220, `TermKit ${fixture.label} fixture ready`);
 
 		async function handleFtpCommand(rawLine) {
 			if (!rawLine.trim()) return;

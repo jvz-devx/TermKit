@@ -8,7 +8,7 @@ export function validateProductionEnv(env = process.env) {
 	if (env.NODE_ENV !== 'production') return;
 
 	const origin = parseOrigin(env.ORIGIN);
-	const allowInsecureLocalHttp = isEnabled(env.TERMIXKIT_INSECURE_LOCAL_HTTP);
+	const allowInsecureLocalHttp = isEnabled(env.TERMKIT_INSECURE_LOCAL_HTTP);
 
 	validateAppSecret(env.APP_SECRET);
 	validateCredentialMasterKey(env.CREDENTIAL_MASTER_KEY);
@@ -22,13 +22,13 @@ export function validateProductionEnv(env = process.env) {
 
 	if (!allowInsecureLocalHttp) {
 		throw new Error(
-			'ORIGIN must use https:// in production. For direct local HTTP only, set TERMIXKIT_INSECURE_LOCAL_HTTP=1.'
+			'ORIGIN must use https:// in production. For direct local HTTP only, set TERMKIT_INSECURE_LOCAL_HTTP=1.'
 		);
 	}
 
 	if (origin.protocol !== 'http:' || !isLocalHostname(origin.hostname)) {
 		throw new Error(
-			'TERMIXKIT_INSECURE_LOCAL_HTTP=1 only permits local http://localhost or loopback ORIGIN values.'
+			'TERMKIT_INSECURE_LOCAL_HTTP=1 only permits local http://localhost or loopback ORIGIN values.'
 		);
 	}
 }
@@ -166,13 +166,13 @@ function validateGatewayPublicUrl(value, allowInsecureLocalHttp) {
 	if (url.protocol !== 'https:') {
 		if (!allowInsecureLocalHttp) {
 			throw new Error(
-				'GATEWAY_PUBLIC_URL must use https:// in production. For direct local HTTP only, set TERMIXKIT_INSECURE_LOCAL_HTTP=1.'
+				'GATEWAY_PUBLIC_URL must use https:// in production. For direct local HTTP only, set TERMKIT_INSECURE_LOCAL_HTTP=1.'
 			);
 		}
 
 		if (url.protocol !== 'http:' || !isLocalHostname(url.hostname)) {
 			throw new Error(
-				'TERMIXKIT_INSECURE_LOCAL_HTTP=1 only permits local http://localhost or loopback GATEWAY_PUBLIC_URL values.'
+				'TERMKIT_INSECURE_LOCAL_HTTP=1 only permits local http://localhost or loopback GATEWAY_PUBLIC_URL values.'
 			);
 		}
 
@@ -214,7 +214,7 @@ function validateMicrosoftAuth(env) {
 	validateMicrosoftAdminEmails(env.MICROSOFT_ADMIN_EMAILS);
 	validateMicrosoftRedirectUri(
 		env.MICROSOFT_REDIRECT_URI,
-		isEnabled(env.TERMIXKIT_INSECURE_LOCAL_HTTP)
+		isEnabled(env.TERMKIT_INSECURE_LOCAL_HTTP)
 	);
 	validateMicrosoftScopes(env.MICROSOFT_SCOPES);
 }
@@ -354,7 +354,7 @@ function isStrongProductionSecret(value) {
 			'password',
 			'secret',
 			'test-master-key',
-			'termixkit'
+			'termkit'
 		].some((placeholder) => lower.includes(placeholder))
 	) {
 		return false;

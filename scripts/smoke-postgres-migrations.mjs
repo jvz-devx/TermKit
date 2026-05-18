@@ -6,11 +6,11 @@ import postgres from 'postgres';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const migrateScript = resolve(root, 'scripts/migrate.mjs');
-const image = process.env.TERMIXKIT_SMOKE_POSTGRES_IMAGE ?? 'postgres:17-alpine';
-const database = 'termixkit_migration_smoke';
-const username = 'termixkit_migration_smoke';
-const password = `termixkit-smoke-${randomBytes(18).toString('base64url')}`;
-const containerName = `termixkit-postgres-migration-smoke-${process.pid}-${Date.now().toString(36)}`;
+const image = process.env.TERMKIT_SMOKE_POSTGRES_IMAGE ?? 'postgres:17-alpine';
+const database = 'termkit_migration_smoke';
+const username = 'termkit_migration_smoke';
+const password = `termkit-smoke-${randomBytes(18).toString('base64url')}`;
+const containerName = `termkit-postgres-migration-smoke-${process.pid}-${Date.now().toString(36)}`;
 const expectedTables = [
 	'approval_requests',
 	'auth_identities',

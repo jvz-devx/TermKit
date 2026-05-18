@@ -74,7 +74,7 @@
 </script>
 
 <svelte:head>
-	<title>New Fleet Execution · TermixKit</title>
+	<title>New Fleet Execution · TermKit</title>
 </svelte:head>
 
 <section class="space-y-4 p-4">

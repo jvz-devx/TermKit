@@ -70,8 +70,8 @@ describe('acceptance proof scripts', () => {
 		const directory = tempDirectory();
 		const proofPath = writeProofFile(directory);
 		const result = runNodeScript(['scripts/record-microsoft-interactive-proof.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES:
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_MICROSOFT_INTERACTIVE_NOTES:
 				'allowed-domain: TODO; blocked-domain: TODO; admin-email: TODO; local login: TODO'
 		});
 
@@ -84,9 +84,9 @@ describe('acceptance proof scripts', () => {
 		const directory = tempDirectory();
 		const proofPath = writeProofFile(directory);
 		const result = runNodeScript(['scripts/record-microsoft-interactive-proof.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES:
-				'allowed-domain: redacted approved user received a TermixKit session; blocked-domain: redacted outside user was denied; admin-email: redacted configured admin became admin; local login: redacted local credential sign-in still works'
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_MICROSOFT_INTERACTIVE_NOTES:
+				'allowed-domain: redacted approved user received a TermKit session; blocked-domain: redacted outside user was denied; admin-email: redacted configured admin became admin; local login: redacted local credential sign-in still works'
 		});
 
 		expect(result.status).toBe(0);
@@ -99,23 +99,23 @@ describe('acceptance proof scripts', () => {
 		const directory = tempDirectory();
 		const proofPath = writeProofFile(directory);
 		const ftpResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_REAL_FTP_HOST: 'ftp.example.test',
-			TERMIXKIT_REAL_FTP_PORT: '21',
-			TERMIXKIT_REAL_FTP_USERNAME: 'ftp-operator',
-			TERMIXKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
-			TERMIXKIT_REAL_FTP_PROOF_NOTES:
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_REAL_FTP_HOST: 'ftp.example.test',
+			TERMKIT_REAL_FTP_PORT: '21',
+			TERMKIT_REAL_FTP_USERNAME: 'ftp-operator',
+			TERMKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
+			TERMKIT_REAL_FTP_PROOF_NOTES:
 				'ftp login verified against a real server; ftp list showed the fixture directory; ftp download matched the fixture file; ftp upload created a redacted file; ftp mkdir created a directory; ftp rename moved the file; ftp delete removed created files; ftp text edit saved redacted content; connection history recorded the session'
 		});
 		const ftpsResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtps'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_REAL_FTPS_HOST: 'ftps.example.test',
-			TERMIXKIT_REAL_FTPS_PORT: '990',
-			TERMIXKIT_REAL_FTPS_USERNAME: 'ftps-operator',
-			TERMIXKIT_REAL_FTPS_MODE: 'explicit',
-			TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY: 'verified',
-			TERMIXKIT_REAL_FTPS_EVIDENCE_ID: 'ftps-proof-ticket-456',
-			TERMIXKIT_REAL_FTPS_PROOF_NOTES:
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_REAL_FTPS_HOST: 'ftps.example.test',
+			TERMKIT_REAL_FTPS_PORT: '990',
+			TERMKIT_REAL_FTPS_USERNAME: 'ftps-operator',
+			TERMKIT_REAL_FTPS_MODE: 'explicit',
+			TERMKIT_REAL_FTPS_CERTIFICATE_POLICY: 'verified',
+			TERMKIT_REAL_FTPS_EVIDENCE_ID: 'ftps-proof-ticket-456',
+			TERMKIT_REAL_FTPS_PROOF_NOTES:
 				'ftps login verified against a real server; ftps tls negotiated successfully; ftps certificate policy was observed; ftps list showed the fixture directory; ftps download matched the fixture file; ftps upload created a redacted file; ftps mkdir created a directory; ftps rename moved the file; ftps delete removed created files; ftps text edit saved redacted content; connection history recorded the session'
 		});
 
@@ -135,10 +135,10 @@ describe('acceptance proof scripts', () => {
 			GATEWAY_URL: 'http://127.0.0.1:1',
 			GATEWAY_PUBLIC_URL: 'http://127.0.0.1:3000/gateway',
 			GATEWAY_PROVISIONER_KEY: 'dummy-proof-key',
-			TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
-			TERMIXKIT_SMOKE_RDP_HOST: '127.0.0.1',
-			TERMIXKIT_SMOKE_RDP_PORT: String(closedPort),
-			TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS: '1000'
+			TERMKIT_INSECURE_LOCAL_HTTP: '1',
+			TERMKIT_SMOKE_RDP_HOST: '127.0.0.1',
+			TERMKIT_SMOKE_RDP_PORT: String(closedPort),
+			TERMKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS: '1000'
 		});
 
 		expect(result.status).toBe(1);
@@ -151,12 +151,12 @@ describe('acceptance proof scripts', () => {
 		const directory = tempDirectory();
 		const proofPath = writeProofFile(directory);
 		const result = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_REAL_FTP_HOST: 'ftp.example.test',
-			TERMIXKIT_REAL_FTP_PORT: '21',
-			TERMIXKIT_REAL_FTP_USERNAME: 'ftp-operator',
-			TERMIXKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
-			TERMIXKIT_REAL_FTP_PROOF_NOTES:
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_REAL_FTP_HOST: 'ftp.example.test',
+			TERMKIT_REAL_FTP_PORT: '21',
+			TERMKIT_REAL_FTP_USERNAME: 'ftp-operator',
+			TERMKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
+			TERMKIT_REAL_FTP_PROOF_NOTES:
 				'ftp login TODO; ftp list TODO; ftp download TODO; ftp upload TODO; ftp mkdir TODO; ftp rename TODO; ftp delete TODO; ftp text edit TODO; connection history TODO'
 		});
 
@@ -172,28 +172,28 @@ describe('acceptance proof scripts', () => {
 			'ftp login verified against a real server; ftp list showed the fixture directory; ftp download matched the fixture file; ftp upload created a redacted file; ftp mkdir created a directory; ftp rename moved the file; ftp delete removed created files; ftp text edit saved redacted content; connection history recorded the session';
 
 		const missingTargetResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_REAL_FTP_PROOF_NOTES: notes
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_REAL_FTP_PROOF_NOTES: notes
 		});
 		const secretLabelResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_REAL_FTP_HOST: 'ftp.example.test',
-			TERMIXKIT_REAL_FTP_PORT: '21',
-			TERMIXKIT_REAL_FTP_USERNAME: 'ftp-operator',
-			TERMIXKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
-			TERMIXKIT_REAL_FTP_PROOF_NOTES: `${notes}; TERMIXKIT_REAL_FTP_PASSWORD=hunter2`
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_REAL_FTP_HOST: 'ftp.example.test',
+			TERMKIT_REAL_FTP_PORT: '21',
+			TERMKIT_REAL_FTP_USERNAME: 'ftp-operator',
+			TERMKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
+			TERMKIT_REAL_FTP_PROOF_NOTES: `${notes}; TERMKIT_REAL_FTP_PASSWORD=hunter2`
 		});
 		const keyLabelResult = runNodeScript(['scripts/record-external-proof.mjs', 'realFtp'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_REAL_FTP_HOST: 'ftp.example.test',
-			TERMIXKIT_REAL_FTP_PORT: '21',
-			TERMIXKIT_REAL_FTP_USERNAME: 'ftp-operator',
-			TERMIXKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
-			TERMIXKIT_REAL_FTP_PROOF_NOTES: `${notes}; GATEWAY_PROVISIONER_KEY=hunter2`
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_REAL_FTP_HOST: 'ftp.example.test',
+			TERMKIT_REAL_FTP_PORT: '21',
+			TERMKIT_REAL_FTP_USERNAME: 'ftp-operator',
+			TERMKIT_REAL_FTP_EVIDENCE_ID: 'ftp-proof-ticket-123',
+			TERMKIT_REAL_FTP_PROOF_NOTES: `${notes}; GATEWAY_PROVISIONER_KEY=hunter2`
 		});
 
 		expect(missingTargetResult.status).toBe(1);
-		expect(missingTargetResult.stderr).toContain('TERMIXKIT_REAL_FTP_HOST');
+		expect(missingTargetResult.stderr).toContain('TERMKIT_REAL_FTP_HOST');
 		expect(secretLabelResult.status).toBe(1);
 		expect(secretLabelResult.stderr).toContain('env-style secret label');
 		expect(keyLabelResult.status).toBe(1);
@@ -205,9 +205,9 @@ describe('acceptance proof scripts', () => {
 		const directory = tempDirectory();
 		const proofPath = writeProofFile(directory);
 		const result = runNodeScript(['scripts/record-microsoft-interactive-proof.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_MICROSOFT_INTERACTIVE_NOTES:
-				'allowed-domain: redacted approved user received a TermixKit session; blocked-domain: redacted outside user was denied; admin-email: redacted configured admin became admin; local login: redacted password: hunter2'
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_MICROSOFT_INTERACTIVE_NOTES:
+				'allowed-domain: redacted approved user received a TermKit session; blocked-domain: redacted outside user was denied; admin-email: redacted configured admin became admin; local login: redacted password: hunter2'
 		});
 
 		expect(result.status).toBe(1);
@@ -223,7 +223,7 @@ describe('acceptance proof scripts', () => {
 		const microsoftSmoke = {
 			passed: true,
 			timestamp: '2026-05-14T00:00:00.000Z',
-			command: 'TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft',
+			command: 'TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft',
 			redactedEnv: [
 				'MICROSOFT_AUTH_ENABLED',
 				'MICROSOFT_TENANT_ID',
@@ -278,12 +278,12 @@ describe('acceptance proof scripts', () => {
 		const directory = tempDirectory();
 		const proofPath = writeProofFile(directory);
 		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath,
-			TERMIXKIT_ACCEPTANCE_REAL_SSH_PASSED: 'not-a-proof',
-			TERMIXKIT_ACCEPTANCE_REAL_VNC_PASSED: 'not-a-proof',
-			TERMIXKIT_ACCEPTANCE_REAL_RDP_PASSED: 'not-a-proof',
-			TERMIXKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED: 'not-a-proof',
-			TERMIXKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF: 'not-a-proof'
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath,
+			TERMKIT_ACCEPTANCE_REAL_SSH_PASSED: 'not-a-proof',
+			TERMKIT_ACCEPTANCE_REAL_VNC_PASSED: 'not-a-proof',
+			TERMKIT_ACCEPTANCE_REAL_RDP_PASSED: 'not-a-proof',
+			TERMKIT_ACCEPTANCE_MICROSOFT_SMOKE_PASSED: 'not-a-proof',
+			TERMKIT_SMOKE_MICROSOFT_INTERACTIVE_PROOF: 'not-a-proof'
 		});
 
 		expect(result.status).toBe(2);
@@ -296,7 +296,7 @@ describe('acceptance proof scripts', () => {
 		const directory = tempDirectory();
 		const proofPath = writeAcceptanceProofFile(directory, validAcceptanceProofs());
 		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath
 		});
 
 		expect(result.status).toBe(0);
@@ -336,7 +336,7 @@ describe('acceptance proof scripts', () => {
 		const directory = tempDirectory();
 		const proofPath = writeAcceptanceProofFile(directory, validAcceptanceProofs());
 		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath
 		});
 		const spec = readFileSync('spec.md', 'utf8');
 		const readme = readFileSync('README.md', 'utf8');
@@ -416,19 +416,19 @@ describe('acceptance proof scripts', () => {
 		});
 
 		const skippedResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: skippedSftpProofPath
+			TERMKIT_ACCEPTANCE_PROOF_FILE: skippedSftpProofPath
 		});
 		const secretResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: secretProofPath
+			TERMKIT_ACCEPTANCE_PROOF_FILE: secretProofPath
 		});
 		const passwordResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: passwordProofPath
+			TERMKIT_ACCEPTANCE_PROOF_FILE: passwordProofPath
 		});
 		const keyResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: keyProofPath
+			TERMKIT_ACCEPTANCE_PROOF_FILE: keyProofPath
 		});
 		const incompleteFtpsResult = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: incompleteFtpsProofPath
+			TERMKIT_ACCEPTANCE_PROOF_FILE: incompleteFtpsProofPath
 		});
 
 		expect(skippedResult.status).toBe(2);
@@ -455,7 +455,7 @@ describe('acceptance proof scripts', () => {
 		} = validAcceptanceProofs();
 		const proofPath = writeAcceptanceProofFile(directory, proofs);
 		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath
 		});
 
 		expect(result.status).toBe(0);
@@ -487,7 +487,7 @@ describe('acceptance proof scripts', () => {
 		const { realFtp: _realFtp, realFtps: _realFtps, ...proofs } = validAcceptanceProofs();
 		const proofPath = writeAcceptanceProofFile(directory, proofs);
 		const result = runNodeScript(['scripts/acceptance-audit.mjs'], {
-			TERMIXKIT_ACCEPTANCE_PROOF_FILE: proofPath
+			TERMKIT_ACCEPTANCE_PROOF_FILE: proofPath
 		});
 
 		expect(result.status).toBe(0);
@@ -533,7 +533,7 @@ function runNodeScript(args: string[], env: NodeJS.ProcessEnv) {
 }
 
 function tempDirectory() {
-	const directory = mkdtempSync(join(tmpdir(), 'termixkit-proof-scripts-'));
+	const directory = mkdtempSync(join(tmpdir(), 'termkit-proof-scripts-'));
 	cleanupPaths.push(directory);
 	return directory;
 }
@@ -581,43 +581,42 @@ function validAcceptanceProofs() {
 		realSsh: {
 			passed: true,
 			timestamp,
-			command: 'TERMIXKIT_SMOKE_SSH_HOST=<redacted> npm run smoke:protocols',
+			command: 'TERMKIT_SMOKE_SSH_HOST=<redacted> npm run smoke:protocols',
 			redactedEnv: [
-				'TERMIXKIT_SMOKE_SSH_HOST',
-				'TERMIXKIT_SMOKE_SSH_USERNAME',
-				'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
+				'TERMKIT_SMOKE_SSH_HOST',
+				'TERMKIT_SMOKE_SSH_USERNAME',
+				'TERMKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
 			],
 			output: '[pass] real SSH target exec and SFTP - exec and SFTP verified'
 		},
 		realVnc: {
 			passed: true,
 			timestamp,
-			command: 'TERMIXKIT_SMOKE_VNC_HOST=<redacted> npm run smoke:protocols',
-			redactedEnv: ['TERMIXKIT_SMOKE_VNC_HOST', 'TERMIXKIT_SMOKE_VNC_PORT'],
+			command: 'TERMKIT_SMOKE_VNC_HOST=<redacted> npm run smoke:protocols',
+			redactedEnv: ['TERMKIT_SMOKE_VNC_HOST', 'TERMKIT_SMOKE_VNC_PORT'],
 			output: '[pass] real VNC target framebuffer handshake'
 		},
 		realRdp: {
 			passed: true,
 			timestamp,
-			command:
-				'GATEWAY_URL=<redacted> TERMIXKIT_SMOKE_RDP_HOST=<redacted> npm run smoke:rdp-gateway',
+			command: 'GATEWAY_URL=<redacted> TERMKIT_SMOKE_RDP_HOST=<redacted> npm run smoke:rdp-gateway',
 			redactedEnv: [
 				'GATEWAY_URL',
 				'GATEWAY_PUBLIC_URL',
 				'GATEWAY_PROVISIONER_KEY',
-				'TERMIXKIT_SMOKE_RDP_HOST'
+				'TERMKIT_SMOKE_RDP_HOST'
 			],
 			output: '[pass] real Devolutions Gateway RDP bootstrap - provisioned tcp://127.0.0.1:3389'
 		},
 		realFtp: {
 			passed: true,
 			timestamp,
-			command: 'TERMIXKIT_REAL_FTP_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftp',
+			command: 'TERMKIT_REAL_FTP_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftp',
 			redactedEnv: [
-				'TERMIXKIT_REAL_FTP_HOST',
-				'TERMIXKIT_REAL_FTP_PORT',
-				'TERMIXKIT_REAL_FTP_USERNAME',
-				'TERMIXKIT_REAL_FTP_EVIDENCE_ID'
+				'TERMKIT_REAL_FTP_HOST',
+				'TERMKIT_REAL_FTP_PORT',
+				'TERMKIT_REAL_FTP_USERNAME',
+				'TERMKIT_REAL_FTP_EVIDENCE_ID'
 			],
 			evidenceId: 'ftp-proof-ticket-123',
 			notes:
@@ -626,14 +625,14 @@ function validAcceptanceProofs() {
 		realFtps: {
 			passed: true,
 			timestamp,
-			command: 'TERMIXKIT_REAL_FTPS_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftps',
+			command: 'TERMKIT_REAL_FTPS_PROOF_NOTES=<redacted> npm run acceptance:record-real-ftps',
 			redactedEnv: [
-				'TERMIXKIT_REAL_FTPS_HOST',
-				'TERMIXKIT_REAL_FTPS_PORT',
-				'TERMIXKIT_REAL_FTPS_USERNAME',
-				'TERMIXKIT_REAL_FTPS_MODE',
-				'TERMIXKIT_REAL_FTPS_CERTIFICATE_POLICY',
-				'TERMIXKIT_REAL_FTPS_EVIDENCE_ID'
+				'TERMKIT_REAL_FTPS_HOST',
+				'TERMKIT_REAL_FTPS_PORT',
+				'TERMKIT_REAL_FTPS_USERNAME',
+				'TERMKIT_REAL_FTPS_MODE',
+				'TERMKIT_REAL_FTPS_CERTIFICATE_POLICY',
+				'TERMKIT_REAL_FTPS_EVIDENCE_ID'
 			],
 			evidenceId: 'ftps-proof-ticket-456',
 			notes:
@@ -642,7 +641,7 @@ function validAcceptanceProofs() {
 		microsoftSmoke: {
 			passed: true,
 			timestamp,
-			command: 'TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft',
+			command: 'TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1 npm run smoke:microsoft',
 			redactedEnv: [
 				'MICROSOFT_AUTH_ENABLED',
 				'MICROSOFT_TENANT_ID',

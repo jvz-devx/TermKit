@@ -41,10 +41,10 @@ const execFile = promisify(execFileCallback);
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const builtServerEntry = resolve(root, 'build/server.js');
-const timeoutMs = Number(process.env.TERMIXKIT_SMOKE_APP_TIMEOUT_MS ?? 15_000);
-const smokeUsername = process.env.TERMIXKIT_SMOKE_APP_USERNAME ?? 'smoke-admin';
+const timeoutMs = Number(process.env.TERMKIT_SMOKE_APP_TIMEOUT_MS ?? 15_000);
+const smokeUsername = process.env.TERMKIT_SMOKE_APP_USERNAME ?? 'smoke-admin';
 const smokePassword =
-	process.env.TERMIXKIT_SMOKE_APP_PASSWORD ?? `Smoke-Admin-${process.pid}-${Date.now()}!`;
+	process.env.TERMKIT_SMOKE_APP_PASSWORD ?? `Smoke-Admin-${process.pid}-${Date.now()}!`;
 
 const cleanup = [];
 const results = [];
@@ -54,25 +54,22 @@ let tempDir;
 const { runChecked, waitForHttp, waitFor } = createSmokeRuntime({ root, timeoutMs });
 
 try {
-	if (
-		!process.env.TERMIXKIT_SMOKE_APP_BASE_URL &&
-		process.env.TERMIXKIT_SMOKE_APP_SKIP_BUILD !== '1'
-	) {
+	if (!process.env.TERMKIT_SMOKE_APP_BASE_URL && process.env.TERMKIT_SMOKE_APP_SKIP_BUILD !== '1') {
 		await runChecked('npm', ['run', 'build'], process.env);
 	}
 
-	if (!process.env.TERMIXKIT_SMOKE_APP_BASE_URL && !existsSync(builtServerEntry)) {
+	if (!process.env.TERMKIT_SMOKE_APP_BASE_URL && !existsSync(builtServerEntry)) {
 		throw new Error('build/server.js is missing. Run npm run build before this smoke test.');
 	}
 
-	tempDir = await mkdtemp(join(tmpdir(), 'termixkit-app-smoke-'));
+	tempDir = await mkdtemp(join(tmpdir(), 'termkit-app-smoke-'));
 	cleanup.push(() => rm(tempDir, { recursive: true, force: true }));
 
 	const fixtures = await startProtocolFixtures({ tempDir, execFile });
 	cleanup.push(fixtures.close);
 	pass('local protocol fixtures', fixtures.summary);
 
-	const gateway = process.env.TERMIXKIT_SMOKE_APP_BASE_URL ? null : await startMockRdpGateway();
+	const gateway = process.env.TERMKIT_SMOKE_APP_BASE_URL ? null : await startMockRdpGateway();
 	if (gateway) {
 		cleanup.push(gateway.close);
 		pass('mock RDP Gateway', gateway.url);

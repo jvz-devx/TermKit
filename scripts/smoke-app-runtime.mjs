@@ -20,9 +20,7 @@ export function createSmokeRuntime({ root, timeoutMs }) {
 			const deadline = Date.now() + timeoutMs;
 			const failIfExited = (code, signal) => {
 				reject(
-					new Error(
-						`TermixKit exited before becoming ready: ${code ?? signal}\n${formatLogs(logs)}`
-					)
+					new Error(`TermKit exited before becoming ready: ${code ?? signal}\n${formatLogs(logs)}`)
 				);
 			};
 			child.once('exit', failIfExited);
@@ -37,7 +35,7 @@ export function createSmokeRuntime({ root, timeoutMs }) {
 				} catch {
 					if (Date.now() >= deadline) {
 						child.off('exit', failIfExited);
-						reject(new Error(`Timed out waiting for TermixKit.\n${formatLogs(logs)}`));
+						reject(new Error(`Timed out waiting for TermKit.\n${formatLogs(logs)}`));
 						return;
 					}
 					setTimeout(poll, 100);

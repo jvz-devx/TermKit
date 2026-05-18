@@ -1,4 +1,4 @@
-export const sessionPauseStorageKey = 'termixkit:session-pauses';
+export const sessionPauseStorageKey = 'termkit:session-pauses';
 
 type SessionPauseStorage = Pick<Storage, 'getItem' | 'removeItem' | 'setItem'>;
 

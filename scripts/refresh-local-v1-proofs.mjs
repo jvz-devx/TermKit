@@ -2,31 +2,31 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 
-const proofFilePath = process.env.TERMIXKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
-const sshHost = process.env.TERMIXKIT_LOCAL_PROOF_SSH_HOST?.trim() || 'localhost';
+const proofFilePath = process.env.TERMKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
+const sshHost = process.env.TERMKIT_LOCAL_PROOF_SSH_HOST?.trim() || 'localhost';
 const sshUsername =
-	process.env.TERMIXKIT_LOCAL_PROOF_SSH_USERNAME?.trim() || process.env.USER?.trim() || 'jens';
+	process.env.TERMKIT_LOCAL_PROOF_SSH_USERNAME?.trim() || process.env.USER?.trim() || 'jens';
 const sshPrivateKeyPath =
-	process.env.TERMIXKIT_LOCAL_PROOF_SSH_PRIVATE_KEY_PATH?.trim() ||
+	process.env.TERMKIT_LOCAL_PROOF_SSH_PRIVATE_KEY_PATH?.trim() ||
 	`${process.env.HOME}/.ssh/id_ed25519`;
-const vncPort = parsePort('TERMIXKIT_LOCAL_PROOF_VNC_PORT', 5977);
-const vncDisplay = process.env.TERMIXKIT_LOCAL_PROOF_VNC_DISPLAY?.trim() || ':77';
+const vncPort = parsePort('TERMKIT_LOCAL_PROOF_VNC_PORT', 5977);
+const vncDisplay = process.env.TERMKIT_LOCAL_PROOF_VNC_DISPLAY?.trim() || ':77';
 const rdpContainerImage =
-	process.env.TERMIXKIT_LOCAL_PROOF_RDP_CONTAINER_IMAGE?.trim() ||
+	process.env.TERMKIT_LOCAL_PROOF_RDP_CONTAINER_IMAGE?.trim() ||
 	(localDockerImageExists('guacd-rs-xrdp-test:latest') ? 'guacd-rs-xrdp-test:latest' : '');
-const rdpHost = process.env.TERMIXKIT_LOCAL_PROOF_RDP_HOST?.trim() || '127.0.0.1';
-const rdpPort = parsePort('TERMIXKIT_LOCAL_PROOF_RDP_PORT', rdpContainerImage ? 3390 : 3389);
+const rdpHost = process.env.TERMKIT_LOCAL_PROOF_RDP_HOST?.trim() || '127.0.0.1';
+const rdpPort = parsePort('TERMKIT_LOCAL_PROOF_RDP_PORT', rdpContainerImage ? 3390 : 3389);
 const rdpUsername =
-	process.env.TERMIXKIT_LOCAL_PROOF_RDP_USERNAME?.trim() ||
+	process.env.TERMKIT_LOCAL_PROOF_RDP_USERNAME?.trim() ||
 	(rdpContainerImage ? 'testuser' : sshUsername);
 const rdpPassword =
-	process.env.TERMIXKIT_LOCAL_PROOF_RDP_PASSWORD ?? (rdpContainerImage ? 'testpass' : '');
-const gatewayPort = parsePort('TERMIXKIT_LOCAL_PROOF_GATEWAY_PORT', 7171);
+	process.env.TERMKIT_LOCAL_PROOF_RDP_PASSWORD ?? (rdpContainerImage ? 'testpass' : '');
+const gatewayPort = parsePort('TERMKIT_LOCAL_PROOF_GATEWAY_PORT', 7171);
 const gatewayImage =
-	process.env.TERMIXKIT_LOCAL_PROOF_GATEWAY_IMAGE?.trim() ||
+	process.env.TERMKIT_LOCAL_PROOF_GATEWAY_IMAGE?.trim() ||
 	'devolutions/devolutions-gateway:2026.1.1';
-const gatewayName = `termixkit-proof-gateway-${process.pid}`;
-const rdpContainerName = `termixkit-proof-rdp-${process.pid}`;
+const gatewayName = `termkit-proof-gateway-${process.pid}`;
+const rdpContainerName = `termkit-proof-rdp-${process.pid}`;
 
 const cleanup = [];
 process.on('exit', runCleanup);
@@ -56,17 +56,17 @@ async function main() {
 	ensureFreshProofFile();
 	resetLocalV1Proofs();
 	run('nix', ['develop', '-c', 'npm', 'run', 'acceptance:record-real-ssh'], {
-		TERMIXKIT_SMOKE_SSH_HOST: sshHost,
-		TERMIXKIT_SMOKE_SSH_USERNAME: sshUsername,
-		TERMIXKIT_SMOKE_SSH_PRIVATE_KEY_PATH: sshPrivateKeyPath,
-		TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256: fingerprint,
-		TERMIXKIT_SMOKE_SSH_COMMAND: 'printf termixkit-real-ssh-proof'
+		TERMKIT_SMOKE_SSH_HOST: sshHost,
+		TERMKIT_SMOKE_SSH_USERNAME: sshUsername,
+		TERMKIT_SMOKE_SSH_PRIVATE_KEY_PATH: sshPrivateKeyPath,
+		TERMKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256: fingerprint,
+		TERMKIT_SMOKE_SSH_COMMAND: 'printf termkit-real-ssh-proof'
 	});
 
 	await withVncServer(async () => {
 		run('nix', ['develop', '-c', 'npm', 'run', 'acceptance:record-real-vnc'], {
-			TERMIXKIT_SMOKE_VNC_HOST: '127.0.0.1',
-			TERMIXKIT_SMOKE_VNC_PORT: String(vncPort)
+			TERMKIT_SMOKE_VNC_HOST: '127.0.0.1',
+			TERMKIT_SMOKE_VNC_PORT: String(vncPort)
 		});
 	});
 
@@ -76,14 +76,14 @@ async function main() {
 			run('nix', ['develop', '-c', 'npm', 'run', 'acceptance:record-real-rdp'], {
 				GATEWAY_URL: `http://127.0.0.1:${gatewayPort}`,
 				GATEWAY_PUBLIC_URL: 'http://127.0.0.1:3000/gateway',
-				GATEWAY_PROVISIONER_SUBJECT: 'TermixKit',
-				GATEWAY_PROVISIONER_KEY: 'termixkit-local-proof-key',
-				TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
-				TERMIXKIT_SMOKE_RDP_HOST: rdpHost,
-				TERMIXKIT_SMOKE_RDP_PORT: String(rdpPort),
-				TERMIXKIT_SMOKE_RDP_USERNAME: rdpUsername,
-				TERMIXKIT_SMOKE_RDP_PASSWORD: rdpPassword,
-				TERMIXKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS: '30000'
+				GATEWAY_PROVISIONER_SUBJECT: 'TermKit',
+				GATEWAY_PROVISIONER_KEY: 'termkit-local-proof-key',
+				TERMKIT_INSECURE_LOCAL_HTTP: '1',
+				TERMKIT_SMOKE_RDP_HOST: rdpHost,
+				TERMKIT_SMOKE_RDP_PORT: String(rdpPort),
+				TERMKIT_SMOKE_RDP_USERNAME: rdpUsername,
+				TERMKIT_SMOKE_RDP_PASSWORD: rdpPassword,
+				TERMKIT_SMOKE_RDP_GATEWAY_TIMEOUT_MS: '30000'
 			});
 		});
 	});
@@ -215,22 +215,22 @@ function resetLocalV1Proofs() {
 	proofFile.proofs ??= {};
 	proofFile.proofs.realSsh = pendingProof(
 		timestamp,
-		'TERMIXKIT_SMOKE_SSH_HOST=<redacted> npm run smoke:protocols',
+		'TERMKIT_SMOKE_SSH_HOST=<redacted> npm run smoke:protocols',
 		[
-			'TERMIXKIT_SMOKE_SSH_HOST',
-			'TERMIXKIT_SMOKE_SSH_USERNAME',
-			'TERMIXKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
+			'TERMKIT_SMOKE_SSH_HOST',
+			'TERMKIT_SMOKE_SSH_USERNAME',
+			'TERMKIT_SMOKE_SSH_HOST_FINGERPRINT_SHA256'
 		]
 	);
 	proofFile.proofs.realVnc = pendingProof(
 		timestamp,
-		'TERMIXKIT_SMOKE_VNC_HOST=<redacted> npm run smoke:protocols',
-		['TERMIXKIT_SMOKE_VNC_HOST', 'TERMIXKIT_SMOKE_VNC_PORT']
+		'TERMKIT_SMOKE_VNC_HOST=<redacted> npm run smoke:protocols',
+		['TERMKIT_SMOKE_VNC_HOST', 'TERMKIT_SMOKE_VNC_PORT']
 	);
 	proofFile.proofs.realRdp = pendingProof(
 		timestamp,
-		'GATEWAY_URL=<redacted> TERMIXKIT_SMOKE_RDP_HOST=<redacted> npm run smoke:rdp-gateway',
-		['GATEWAY_URL', 'GATEWAY_PUBLIC_URL', 'GATEWAY_PROVISIONER_KEY', 'TERMIXKIT_SMOKE_RDP_HOST']
+		'GATEWAY_URL=<redacted> TERMKIT_SMOKE_RDP_HOST=<redacted> npm run smoke:rdp-gateway',
+		['GATEWAY_URL', 'GATEWAY_PUBLIC_URL', 'GATEWAY_PROVISIONER_KEY', 'TERMKIT_SMOKE_RDP_HOST']
 	);
 	writeFileSync(proofFilePath, `${JSON.stringify(proofFile, null, 2)}\n`);
 }

@@ -23,7 +23,7 @@
 </script>
 
 <svelte:head>
-	<title>Fleet Runbooks · TermixKit</title>
+	<title>Fleet Runbooks · TermKit</title>
 </svelte:head>
 
 <section class="space-y-4 p-4">

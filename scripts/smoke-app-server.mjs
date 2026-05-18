@@ -3,10 +3,10 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { delay, findAvailablePort, stopChild } from './smoke-app-runtime.mjs';
 
-const postgresImage = process.env.TERMIXKIT_SMOKE_POSTGRES_IMAGE ?? 'postgres:17-alpine';
-const postgresUser = 'termixkit';
-const postgresPassword = 'termixkit_app_smoke_password';
-const postgresDb = 'termixkit_app_smoke';
+const postgresImage = process.env.TERMKIT_SMOKE_POSTGRES_IMAGE ?? 'postgres:17-alpine';
+const postgresUser = 'termkit';
+const postgresPassword = 'termkit_app_smoke_password';
+const postgresDb = 'termkit_app_smoke';
 
 export async function startOrUseApp({
 	gatewayUrl,
@@ -17,25 +17,25 @@ export async function startOrUseApp({
 	runChecked,
 	waitForHttp
 }) {
-	const existingBaseUrl = process.env.TERMIXKIT_SMOKE_APP_BASE_URL;
+	const existingBaseUrl = process.env.TERMKIT_SMOKE_APP_BASE_URL;
 	if (existingBaseUrl) {
 		return {
 			baseUrl: existingBaseUrl.replace(/\/$/, ''),
-			databaseUrl: process.env.TERMIXKIT_SMOKE_DATABASE_URL ?? process.env.DATABASE_URL ?? null,
+			databaseUrl: process.env.TERMKIT_SMOKE_DATABASE_URL ?? process.env.DATABASE_URL ?? null,
 			logs: null,
 			close: async () => {}
 		};
 	}
 
 	const postgres =
-		process.env.TERMIXKIT_SMOKE_DATABASE_URL === undefined
+		process.env.TERMKIT_SMOKE_DATABASE_URL === undefined
 			? await startIsolatedPostgres({ tempDir, timeoutMs, execFile })
 			: null;
-	const databaseUrl = process.env.TERMIXKIT_SMOKE_DATABASE_URL ?? postgres?.databaseUrl;
+	const databaseUrl = process.env.TERMKIT_SMOKE_DATABASE_URL ?? postgres?.databaseUrl;
 	if (!databaseUrl) throw new Error('Smoke app database URL could not be resolved.');
 	await runMigrations({ databaseUrl, execFile, runChecked });
 
-	const port = Number(process.env.TERMIXKIT_SMOKE_APP_PORT ?? (await findAvailablePort()));
+	const port = Number(process.env.TERMKIT_SMOKE_APP_PORT ?? (await findAvailablePort()));
 	const baseUrl = `http://127.0.0.1:${port}`;
 	const logs = { stdout: '', stderr: '' };
 	const appEnv = {
@@ -44,15 +44,15 @@ export async function startOrUseApp({
 		HOST: '127.0.0.1',
 		PORT: String(port),
 		ORIGIN: baseUrl,
-		TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
+		TERMKIT_INSECURE_LOCAL_HTTP: '1',
 		BODY_SIZE_LIMIT: process.env.BODY_SIZE_LIMIT ?? '55M',
 		DATABASE_URL: databaseUrl,
 		APP_SECRET: process.env.APP_SECRET ?? 'B8dF1hJ3kL5mN7pR9tV2wX4yZ6aC8eG0',
 		CREDENTIAL_MASTER_KEY: process.env.CREDENTIAL_MASTER_KEY ?? 'H7jK9mN2pQ4rS6tV8wX0yZ1aB3cD5eF6',
-		TERMIXKIT_SSH_KNOWN_HOSTS_PATH:
-			process.env.TERMIXKIT_SSH_KNOWN_HOSTS_PATH ?? join(tempDir, 'ssh-known-hosts.json'),
-		TERMIXKIT_SSH_TRUST_ON_FIRST_USE: process.env.TERMIXKIT_SSH_TRUST_ON_FIRST_USE ?? '1',
-		TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: process.env.TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU ?? '1',
+		TERMKIT_SSH_KNOWN_HOSTS_PATH:
+			process.env.TERMKIT_SSH_KNOWN_HOSTS_PATH ?? join(tempDir, 'ssh-known-hosts.json'),
+		TERMKIT_SSH_TRUST_ON_FIRST_USE: process.env.TERMKIT_SSH_TRUST_ON_FIRST_USE ?? '1',
+		TERMKIT_SSH_ALLOW_PRODUCTION_TOFU: process.env.TERMKIT_SSH_ALLOW_PRODUCTION_TOFU ?? '1',
 		GATEWAY_URL: process.env.GATEWAY_URL ?? gatewayUrl ?? 'http://127.0.0.1:7171',
 		GATEWAY_PUBLIC_URL: process.env.GATEWAY_PUBLIC_URL ?? `${baseUrl}/gateway`,
 		GATEWAY_PROVISIONER_KEY: process.env.GATEWAY_PROVISIONER_KEY ?? 'app-smoke-local-key'
@@ -102,7 +102,7 @@ function productionStartSource() {
 }
 
 async function startIsolatedPostgres({ tempDir, timeoutMs, execFile }) {
-	const postgresContainerName = `termixkit-app-smoke-${process.pid}-${Date.now()}`;
+	const postgresContainerName = `termkit-app-smoke-${process.pid}-${Date.now()}`;
 	const close = async () => {
 		await execFile('docker', ['stop', '--time', '5', postgresContainerName]).catch(() => {});
 	};
@@ -158,8 +158,8 @@ async function waitForPostgres({ name, timeoutMs, execFile }) {
 }
 
 async function runMigrations({ databaseUrl, runChecked }) {
-	if (process.env.TERMIXKIT_SMOKE_SKIP_MIGRATIONS === '1') return;
-	const attempts = Number(process.env.TERMIXKIT_SMOKE_MIGRATION_ATTEMPTS ?? '5');
+	if (process.env.TERMKIT_SMOKE_SKIP_MIGRATIONS === '1') return;
+	const attempts = Number(process.env.TERMKIT_SMOKE_MIGRATION_ATTEMPTS ?? '5');
 	for (let attempt = 1; attempt <= attempts; attempt += 1) {
 		try {
 			await runChecked(process.execPath, ['scripts/migrate.mjs'], {

@@ -28,7 +28,7 @@ describe('automation templates', () => {
 
 		expect(summary).toMatchObject({
 			version: '1.0.0',
-			author: 'TermixKit',
+			author: 'TermKit',
 			visibility: 'workspace_shared',
 			private: false,
 			workspaceShared: true,

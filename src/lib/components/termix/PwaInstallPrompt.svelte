@@ -9,7 +9,7 @@
 		userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 	};
 
-	const dismissedStorageKey = 'termixkit:pwa-install-dismissed-at';
+	const dismissedStorageKey = 'termkit:pwa-install-dismissed-at';
 	const dismissedTtlMs = 7 * 24 * 60 * 60 * 1000;
 
 	let installPrompt = $state<BeforeInstallPromptEvent | null>(null);
@@ -77,7 +77,7 @@
 {#if visible && installPrompt}
 	<section
 		class="fixed right-3 bottom-3 z-50 w-[min(calc(100vw-1.5rem),24rem)] overflow-hidden rounded-md border bg-background shadow-xl"
-		aria-label="Install TermixKit"
+		aria-label="Install TermKit"
 	>
 		<div class="flex items-start gap-3 border-b bg-muted/30 p-3">
 			<div
@@ -87,7 +87,7 @@
 			</div>
 			<div class="min-w-0 flex-1">
 				<div class="flex items-center gap-2">
-					<h2 class="truncate text-sm font-semibold">Install TermixKit</h2>
+					<h2 class="truncate text-sm font-semibold">Install TermKit</h2>
 					<Badge variant="secondary">PWA</Badge>
 				</div>
 				<p class="mt-1 text-xs text-muted-foreground">

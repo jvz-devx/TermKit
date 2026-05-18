@@ -11,7 +11,7 @@ describe('app build info', () => {
 				buildDate: '2026-05-15T12:00:00Z'
 			})
 		).toEqual({
-			name: 'TermixKit',
+			name: 'TermKit',
 			packageVersion: '1.2.3+1234567890ab',
 			commitSha: '1234567890abcdef',
 			shortCommitSha: '1234567890ab',
@@ -23,7 +23,7 @@ describe('app build info', () => {
 
 	it('falls back to local development metadata when build inputs are absent', () => {
 		expect(createAppBuildInfo({ packageVersion: '1.2.3' })).toEqual({
-			name: 'TermixKit',
+			name: 'TermKit',
 			packageVersion: '1.2.3',
 			commitSha: 'dev',
 			shortCommitSha: 'dev',

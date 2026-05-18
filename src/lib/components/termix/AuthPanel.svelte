@@ -34,7 +34,7 @@
 				<h1 class="text-base font-semibold">{mode === 'login' ? 'Sign in' : 'Create admin'}</h1>
 				<p class="text-xs text-muted-foreground">
 					{mode === 'login'
-						? 'Use a local TermixKit account.'
+						? 'Use a local TermKit account.'
 						: 'First-run local administrator setup.'}
 				</p>
 			</div>

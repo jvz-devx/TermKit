@@ -14,10 +14,10 @@ const requiredEnv = [
 const options = parseArgs(process.argv.slice(2));
 const artifactPath =
 	options.artifact ??
-	process.env.TERMIXKIT_MICROSOFT_SMOKE_ARTIFACT_PROOF_FILE ??
+	process.env.TERMKIT_MICROSOFT_SMOKE_ARTIFACT_PROOF_FILE ??
 	defaultArtifactPath;
 const proofFilePath =
-	options.proof ?? process.env.TERMIXKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
+	options.proof ?? process.env.TERMKIT_ACCEPTANCE_PROOF_FILE ?? 'acceptance-proof.local.json';
 const currentCommit = currentGitCommit();
 
 if (options.help) {
@@ -78,10 +78,10 @@ function validateMicrosoftSmoke(proof) {
 	}
 	if (
 		typeof proof.command !== 'string' ||
-		!proof.command.includes('TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1')
+		!proof.command.includes('TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1')
 	) {
 		errors.push(
-			'proofs.microsoftSmoke.command must include TERMIXKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1'
+			'proofs.microsoftSmoke.command must include TERMKIT_SMOKE_MICROSOFT_REQUIRE_REAL=1'
 		);
 	}
 	if (!Array.isArray(proof.redactedEnv)) {

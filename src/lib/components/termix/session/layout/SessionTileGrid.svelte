@@ -35,7 +35,7 @@
 
 	function storageKey(suffix: string) {
 		return [
-			'termixkit-session-layout',
+			'termkit-session-layout',
 			layout,
 			desktop ? 'desktop' : 'compact',
 			paneKey(),

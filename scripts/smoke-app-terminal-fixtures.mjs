@@ -117,7 +117,7 @@ export function createVncFixtureServer() {
 				buffer = buffer.subarray(1);
 				stage = 'auth-response';
 				state.lastStage = stage;
-				socket.write(Buffer.from('termixkit-vnc-00'));
+				socket.write(Buffer.from('termkit-vnc-00'));
 				recordVncEvent(state, 'challenge-sent');
 			}
 
@@ -128,7 +128,7 @@ export function createVncFixtureServer() {
 				buffer = buffer.subarray(16);
 				stage = 'server-init';
 				state.lastStage = stage;
-				socket.write(Buffer.concat([Buffer.alloc(4), rfbServerInit('TermixKit smoke VNC')]));
+				socket.write(Buffer.concat([Buffer.alloc(4), rfbServerInit('TermKit smoke VNC')]));
 				recordVncEvent(state, 'auth-response-received');
 			}
 		});

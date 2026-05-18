@@ -13,9 +13,9 @@ const host = process.env.PLAYWRIGHT_HOST ?? '127.0.0.1';
 const port = process.env.PLAYWRIGHT_PORT ?? process.env.PORT ?? '4173';
 const origin = process.env.PLAYWRIGHT_BASE_URL ?? `http://${host}:${port}`;
 const postgresImage = process.env.PLAYWRIGHT_POSTGRES_IMAGE ?? 'postgres:17-alpine';
-const postgresUser = 'termixkit';
-const postgresPassword = 'termixkit_e2e_password';
-const postgresDb = 'termixkit_e2e';
+const postgresUser = 'termkit';
+const postgresPassword = 'termkit_e2e_password';
+const postgresDb = 'termkit_e2e';
 const statePath = playwrightStatePath(root);
 
 let containerName;
@@ -24,7 +24,7 @@ let tempDir;
 let shuttingDown = false;
 
 try {
-	tempDir = await mkdtemp(join(tmpdir(), 'termixkit-e2e-'));
+	tempDir = await mkdtemp(join(tmpdir(), 'termkit-e2e-'));
 	const databaseUrl = process.env.PLAYWRIGHT_DATABASE_URL ?? (await startIsolatedPostgres());
 
 	await runMigrations(databaseUrl);
@@ -39,7 +39,7 @@ process.on('SIGINT', () => void shutdown(130));
 process.on('SIGTERM', () => void shutdown(143));
 
 async function startIsolatedPostgres() {
-	containerName = `termixkit-e2e-${process.pid}-${Date.now()}`;
+	containerName = `termkit-e2e-${process.pid}-${Date.now()}`;
 
 	await execFile('docker', [
 		'run',
@@ -129,16 +129,16 @@ function startApp(databaseUrl) {
 		HOST: host,
 		PORT: port,
 		ORIGIN: origin,
-		TERMIXKIT_INSECURE_LOCAL_HTTP: '1',
+		TERMKIT_INSECURE_LOCAL_HTTP: '1',
 		BODY_SIZE_LIMIT: process.env.BODY_SIZE_LIMIT ?? '55M',
 		DATABASE_URL: databaseUrl,
 		APP_SECRET: process.env.APP_SECRET ?? 'd4YmG5uVPKHLb4xikqu47GzDL8RQXmyC4k53YmgW',
 		CREDENTIAL_MASTER_KEY:
 			process.env.CREDENTIAL_MASTER_KEY ?? 'v6iJdWKrREfzCd9vxRSYKSBQg35bNyamzsUGq2VL',
-		TERMIXKIT_SSH_KNOWN_HOSTS_PATH:
-			process.env.TERMIXKIT_SSH_KNOWN_HOSTS_PATH ?? join(tempDir, 'ssh-known-hosts.json'),
-		TERMIXKIT_SSH_TRUST_ON_FIRST_USE: process.env.TERMIXKIT_SSH_TRUST_ON_FIRST_USE ?? '1',
-		TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU: process.env.TERMIXKIT_SSH_ALLOW_PRODUCTION_TOFU ?? '1',
+		TERMKIT_SSH_KNOWN_HOSTS_PATH:
+			process.env.TERMKIT_SSH_KNOWN_HOSTS_PATH ?? join(tempDir, 'ssh-known-hosts.json'),
+		TERMKIT_SSH_TRUST_ON_FIRST_USE: process.env.TERMKIT_SSH_TRUST_ON_FIRST_USE ?? '1',
+		TERMKIT_SSH_ALLOW_PRODUCTION_TOFU: process.env.TERMKIT_SSH_ALLOW_PRODUCTION_TOFU ?? '1',
 		GATEWAY_URL: process.env.GATEWAY_URL ?? 'http://127.0.0.1:7171',
 		GATEWAY_PUBLIC_URL: process.env.GATEWAY_PUBLIC_URL ?? `${origin}/gateway`,
 		GATEWAY_PROVISIONER_KEY: process.env.GATEWAY_PROVISIONER_KEY ?? 'playwright-local-key'
@@ -154,7 +154,7 @@ function startApp(databaseUrl) {
 		if (shuttingDown) return;
 
 		if (signal) {
-			console.error(`TermixKit exited from signal ${signal}.`);
+			console.error(`TermKit exited from signal ${signal}.`);
 			void shutdown(1);
 			return;
 		}
