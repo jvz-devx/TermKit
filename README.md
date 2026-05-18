@@ -344,58 +344,6 @@ TERMIXKIT_SMOKE_MICROSOFT_CLIENT_CREDENTIALS_SCOPE=https://graph.microsoft.com/.
 	npm run acceptance:record-microsoft-smoke
 ```
 
-The same real discovery/JWKS smoke can be run from GitHub Actions with the manual
-`Microsoft Acceptance Smoke` workflow. Configure these repository secrets first:
-`MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`,
-`MICROSOFT_ALLOWED_DOMAINS`, and `MICROSOFT_ADMIN_EMAILS`. Optionally set the
-repository variable `MICROSOFT_ACCEPTANCE_ORIGIN` if the redirect origin should
-not use the workflow default placeholder. The workflow never writes proof files
-to the repository or prints secret values. When it passes, download the
-`microsoft-smoke-proof` artifact and use its `microsoftSmoke` proof entry for the
-current commit.
-
-Check the repository-side setup before dispatching the workflow:
-
-```sh
-npm run acceptance:github-microsoft
-```
-
-If the Microsoft values are already exported in the current shell, sync the
-required GitHub Actions secrets without printing their values:
-
-```sh
-npm run acceptance:github-microsoft -- --sync-secrets
-```
-
-Optionally sync the workflow origin variable from `MICROSOFT_ACCEPTANCE_ORIGIN`
-or `ORIGIN`:
-
-```sh
-npm run acceptance:github-microsoft -- --sync-origin
-```
-
-After all required secrets are configured, dispatch it from the same preflight
-script:
-
-```sh
-npm run acceptance:github-microsoft -- --dispatch
-```
-
-After the workflow passes, download and merge the proof artifact without
-hand-editing the local proof JSON. The local proof file must already target the
-current commit; the importer refuses to re-stamp older proof records.
-
-```sh
-npm run acceptance:github-microsoft -- --import-latest-proof
-```
-
-You can also download a specific run manually:
-
-```sh
-gh run download <run-id> --repo jvz-devx/TermixKit -n microsoft-smoke-proof -D microsoft-smoke-proof
-npm run acceptance:import-microsoft-smoke
-```
-
 The browser-only V2 Microsoft proof is manual because it must use real tenant users. Start TermixKit with Microsoft auth enabled, then record operator notes or redacted screenshots proving that an allowed-domain user can sign in and receives a TermixKit session, a blocked-domain user is denied, a configured `MICROSOFT_ADMIN_EMAILS` account covers the admin-email provisioning or promotion case, and local login through username/password remains available. The proof narrative must include the exact fragments `allowed-domain`, `blocked-domain`, `admin-email`, and `local login` so `npm run audit:acceptance` can validate the local proof file.
 
 Before starting the browser proof, check that the environment is ready and write

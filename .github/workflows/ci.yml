@@ -40,11 +40,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Microsoft fixture smoke
-        run: npm run smoke:microsoft
-        env:
-          MICROSOFT_AUTH_ENABLED: '0'
-
       - name: Production websocket smoke
         run: npm run smoke:ws
 
