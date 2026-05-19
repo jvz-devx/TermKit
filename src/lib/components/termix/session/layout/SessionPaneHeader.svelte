@@ -43,6 +43,7 @@
 		host,
 		hosts,
 		index,
+		compact = false,
 		onKindChange,
 		onHostChange,
 		onReconnect,
@@ -53,6 +54,7 @@
 		host: HostSummary | null;
 		hosts: HostSummary[];
 		index: number;
+		compact?: boolean;
 		onKindChange: (paneId: string, kind: SessionPaneKind) => void;
 		onHostChange: (paneId: string, hostId: string) => void;
 		onReconnect: (paneId: string) => void;
@@ -62,17 +64,27 @@
 	let Icon = $derived(paneIcons[kind]);
 </script>
 
-<header class="flex min-h-11 items-center justify-between gap-2 border-b bg-muted/20 px-2.5">
+<header
+	class={compact
+		? 'flex min-h-9 items-center justify-between gap-2 border-b bg-muted/10 px-2'
+		: 'flex min-h-11 items-center justify-between gap-2 border-b bg-muted/20 px-2.5'}
+>
 	<div class="flex min-w-0 items-center gap-2">
-		<div class="flex size-7 shrink-0 items-center justify-center rounded-md border bg-background">
+		<div
+			class={compact
+				? 'flex size-6 shrink-0 items-center justify-center rounded-md border bg-background'
+				: 'flex size-7 shrink-0 items-center justify-center rounded-md border bg-background'}
+		>
 			<Icon class="size-4 text-muted-foreground" />
 		</div>
 		<div class="min-w-0">
 			<div class="flex min-w-0 items-center gap-1.5">
 				<span class="truncate text-xs font-semibold">{paneLabels[kind]}</span>
-				<Badge variant="outline" class="hidden sm:inline-flex">Pane {index + 1}</Badge>
+				{#if !compact}
+					<Badge variant="outline" class="hidden sm:inline-flex">Pane {index + 1}</Badge>
+				{/if}
 			</div>
-			<div class="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+			<div class="flex min-w-0 items-center gap-1 text-[11px] leading-tight text-muted-foreground">
 				<Server class="size-3 shrink-0" />
 				<span class="truncate font-mono">
 					{#if host}

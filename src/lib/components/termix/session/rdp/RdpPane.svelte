@@ -51,7 +51,24 @@
 		onScaleChange={rdp.changeScale}
 		onReconnect={rdp.onReconnect}
 		onDisconnect={rdp.disconnectRdpSession}
-	/>
+	>
+		{#snippet clipboardControls()}
+			<RdpClipboardControls
+				variant="popover"
+				fileTransferState={rdp.fileTransferState}
+				fileTransferDetail={rdp.fileTransferDetail}
+				clipboardPolicyDetail={rdp.clipboardPolicyDetail}
+				effectiveClipboardPolicy={rdp.effectiveClipboardPolicy}
+				canCopyFileToRemote={rdp.canCopyFileToRemote}
+				canSaveRemoteClipboard={rdp.canSaveRemoteClipboard}
+				apiReady={Boolean(rdp.api)}
+				clipboardTelemetry={rdp.clipboardTelemetry}
+				copyFileToRemoteClipboard={rdp.copyFileToRemoteClipboard}
+				saveRemoteClipboardLocally={rdp.saveRemoteClipboardLocally}
+				requestClipboardPush={rdp.requestClipboardPush}
+			/>
+		{/snippet}
+	</RdpToolbar>
 
 	{#if rdp.error}
 		<div class="relative min-h-0 min-w-0 flex-1">
@@ -114,30 +131,13 @@
 				{/if}
 			</div>
 
-			<RdpStatusBar
-				rdpFocused={rdp.rdpFocused}
-				focusDetail={rdp.focusDetail}
-				multiMonitorLabel={rdp.multiMonitorLabel}
-				audioStatusLabel={rdp.audioStatusLabel}
-			/>
-
-			{#if rdp.connectionState === 'connected'}
-				<RdpClipboardControls
-					bind:fileInputElement={rdp.fileInputElement}
-					fileTransferState={rdp.fileTransferState}
-					fileTransferDetail={rdp.fileTransferDetail}
-					clipboardPolicyDetail={rdp.clipboardPolicyDetail}
-					effectiveClipboardPolicy={rdp.effectiveClipboardPolicy}
-					canCopyFileToRemote={rdp.canCopyFileToRemote}
-					canSaveRemoteClipboard={rdp.canSaveRemoteClipboard}
-					apiReady={Boolean(rdp.api)}
-					clipboardTelemetry={rdp.clipboardTelemetry}
-					copyFileToRemoteClipboard={rdp.copyFileToRemoteClipboard}
-					pickFileForRemoteClipboard={rdp.pickFileForRemoteClipboard}
-					saveRemoteClipboardLocally={rdp.saveRemoteClipboardLocally}
-					requestClipboardPush={rdp.requestClipboardPush}
+			{#if rdp.connectionState !== 'connected'}
+				<RdpStatusBar
+					rdpFocused={rdp.rdpFocused}
+					focusDetail={rdp.focusDetail}
+					multiMonitorLabel={rdp.multiMonitorLabel}
+					audioStatusLabel={rdp.audioStatusLabel}
 				/>
-			{:else}
 				<RdpCredentialsPanel
 					bind:sessionUsername={rdp.sessionUsername}
 					bind:sessionDomain={rdp.sessionDomain}

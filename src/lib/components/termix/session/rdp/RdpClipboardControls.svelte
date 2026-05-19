@@ -3,6 +3,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import type { RdpClipboardPolicy } from '$lib/remotes/settings.remote';
+	import type { Attachment } from 'svelte/attachments';
 
 	type FileTransferState = 'idle' | 'copying' | 'saving' | 'complete' | 'failed';
 	type ClipboardTelemetry = {
@@ -13,7 +14,6 @@
 	};
 
 	let {
-		fileInputElement = $bindable<HTMLInputElement | null>(null),
 		fileTransferState,
 		fileTransferDetail,
 		clipboardPolicyDetail,
@@ -23,11 +23,10 @@
 		apiReady,
 		clipboardTelemetry,
 		copyFileToRemoteClipboard,
-		pickFileForRemoteClipboard,
 		saveRemoteClipboardLocally,
-		requestClipboardPush
+		requestClipboardPush,
+		variant = 'panel'
 	}: {
-		fileInputElement: HTMLInputElement | null;
 		fileTransferState: FileTransferState;
 		fileTransferDetail: string;
 		clipboardPolicyDetail: string;
@@ -37,66 +36,86 @@
 		apiReady: boolean;
 		clipboardTelemetry: ClipboardTelemetry[];
 		copyFileToRemoteClipboard: (event: Event) => void | Promise<void>;
-		pickFileForRemoteClipboard: () => void | Promise<void>;
 		saveRemoteClipboardLocally: () => void | Promise<void>;
 		requestClipboardPush: () => void | Promise<void>;
+		variant?: 'panel' | 'popover';
 	} = $props();
+
+	let fileInputElement: HTMLInputElement | null = null;
+
+	const captureFileInput: Attachment<HTMLInputElement> = (node) => {
+		fileInputElement = node;
+
+		return () => {
+			if (fileInputElement === node) fileInputElement = null;
+		};
+	};
+
+	function pickFileForRemoteClipboard() {
+		fileInputElement?.click();
+	}
 </script>
 
-<div class="border-t bg-background p-3">
-	<div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
-		<div class="min-w-0">
-			<div class="flex items-center gap-2">
-				<Clipboard class="size-4 text-muted-foreground" />
-				<p class="text-sm font-medium">RDP clipboard feedback</p>
-			</div>
-			<p
-				class:text-destructive={fileTransferState === 'failed'}
-				class="mt-1 truncate text-xs text-muted-foreground"
-			>
-				{effectiveClipboardPolicy.files ? fileTransferDetail : clipboardPolicyDetail}
-			</p>
+{#snippet clipboardSummary()}
+	<div class="min-w-0">
+		<div class="flex items-center gap-2">
+			<Clipboard class="size-4 text-muted-foreground" />
+			<p class="text-sm font-medium">RDP clipboard feedback</p>
 		</div>
-		<input
-			bind:this={fileInputElement}
-			type="file"
-			class="hidden"
-			onchange={copyFileToRemoteClipboard}
-			aria-label="Choose file for RDP clipboard"
-		/>
-		<Button
-			size="sm"
-			variant="outline"
-			disabled={!canCopyFileToRemote || !effectiveClipboardPolicy.files}
-			onclick={pickFileForRemoteClipboard}
+		<p
+			class:text-destructive={fileTransferState === 'failed'}
+			class="mt-1 truncate text-xs text-muted-foreground"
 		>
-			<FileUp class="size-4" />
-			Copy file to remote
-		</Button>
-		<Button
-			size="sm"
-			variant="outline"
-			disabled={!canSaveRemoteClipboard || !effectiveClipboardPolicy.files}
-			onclick={saveRemoteClipboardLocally}
-		>
-			<FileDown class="size-4" />
-			Save remote clipboard
-		</Button>
-		<Button
-			size="sm"
-			variant="outline"
-			disabled={!apiReady ||
-				!effectiveClipboardPolicy.text ||
-				!effectiveClipboardPolicy.clientToRemote}
-			onclick={requestClipboardPush}
-		>
-			<Clipboard class="size-4" />
-			Sync text
-		</Button>
+			{effectiveClipboardPolicy.files ? fileTransferDetail : clipboardPolicyDetail}
+		</p>
 	</div>
+{/snippet}
 
+{#snippet clipboardActions(actionClass = '')}
+	<input
+		{@attach captureFileInput}
+		type="file"
+		class="hidden"
+		onchange={copyFileToRemoteClipboard}
+		aria-label="Choose file for RDP clipboard"
+	/>
+	<Button
+		size="sm"
+		variant="outline"
+		class={actionClass}
+		disabled={!canCopyFileToRemote || !effectiveClipboardPolicy.files}
+		onclick={pickFileForRemoteClipboard}
+	>
+		<FileUp class="size-4" />
+		Copy file to remote
+	</Button>
+	<Button
+		size="sm"
+		variant="outline"
+		class={actionClass}
+		disabled={!canSaveRemoteClipboard || !effectiveClipboardPolicy.files}
+		onclick={saveRemoteClipboardLocally}
+	>
+		<FileDown class="size-4" />
+		Save remote clipboard
+	</Button>
+	<Button
+		size="sm"
+		variant="outline"
+		class={actionClass}
+		disabled={!apiReady ||
+			!effectiveClipboardPolicy.text ||
+			!effectiveClipboardPolicy.clientToRemote}
+		onclick={requestClipboardPush}
+	>
+		<Clipboard class="size-4" />
+		Sync text
+	</Button>
+{/snippet}
+
+{#snippet clipboardTelemetryList()}
 	{#if clipboardTelemetry.length}
-		<div class="mt-3 grid gap-2 md:grid-cols-2">
+		<div class="grid gap-2 md:grid-cols-2">
 			{#each clipboardTelemetry as entry (entry.at + entry.direction)}
 				<div class="rounded-md border bg-muted/20 px-2.5 py-2 text-xs">
 					<div class="flex items-center justify-between gap-2">
@@ -112,9 +131,29 @@
 			{/each}
 		</div>
 	{:else}
-		<p class="mt-3 text-xs text-muted-foreground">
+		<p class="text-xs text-muted-foreground">
 			Clipboard telemetry records direction, size, and status only; clipboard contents are not
 			inspected or logged.
 		</p>
 	{/if}
-</div>
+{/snippet}
+
+{#if variant === 'popover'}
+	<div class="grid gap-3">
+		{@render clipboardSummary()}
+		<div class="grid gap-2 sm:grid-cols-3">
+			{@render clipboardActions('w-full justify-start sm:justify-center')}
+		</div>
+		{@render clipboardTelemetryList()}
+	</div>
+{:else}
+	<div class="border-t bg-background p-3">
+		<div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
+			{@render clipboardSummary()}
+			{@render clipboardActions()}
+		</div>
+		<div class="mt-3">
+			{@render clipboardTelemetryList()}
+		</div>
+	</div>
+{/if}

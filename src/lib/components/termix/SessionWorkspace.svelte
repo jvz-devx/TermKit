@@ -131,6 +131,7 @@
 						onHostChange={workspace.selectPaneHost}
 						onReconnect={workspace.reconnectPane}
 						onClose={workspace.closePane}
+						compact={pane.kind === 'rdp'}
 					/>
 					{#if !paneHost}
 						<div class="min-h-0 flex-1 p-3">
@@ -282,7 +283,7 @@
 							<SshTunnelPane host={paneHost} />
 						</div>
 					{:else if pane.kind === 'rdp'}
-						<div class="min-h-0 flex-1 p-3">
+						<div class="min-h-0 flex-1 p-1">
 							{#if workspace.isPanePaused(paneHost, pane.kind)}
 								<RdpPane
 									launch={null}

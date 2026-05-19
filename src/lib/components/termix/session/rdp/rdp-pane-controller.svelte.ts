@@ -103,7 +103,6 @@ export function createRdpPaneController({
 	let savedPasswordCleared = $state(false);
 	let viewportElement = $state<HTMLDivElement | null>(null);
 	let remoteDesktopElement = $state<HTMLElement | null>(null);
-	let fileInputElement = $state<HTMLInputElement | null>(null);
 	let activeClipboardSession = $state<RdpSessionClipboardBridge | null>(null);
 	let fullscreenElement = $state<Element | null>(null);
 	let activeElement = $state<Element | null>(null);
@@ -757,10 +756,6 @@ export function createRdpPaneController({
 		});
 	}
 
-	function pickFileForRemoteClipboard() {
-		fileInputElement?.click();
-	}
-
 	async function copyFileToRemoteClipboard(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
@@ -923,12 +918,6 @@ export function createRdpPaneController({
 		get focusDetail() {
 			return focusDetail;
 		},
-		get fileInputElement() {
-			return fileInputElement;
-		},
-		set fileInputElement(value) {
-			fileInputElement = value;
-		},
 		get fileTransferState() {
 			return fileTransferState;
 		},
@@ -952,9 +941,6 @@ export function createRdpPaneController({
 		},
 		get copyFileToRemoteClipboard() {
 			return copyFileToRemoteClipboard;
-		},
-		get pickFileForRemoteClipboard() {
-			return pickFileForRemoteClipboard;
 		},
 		get saveRemoteClipboardLocally() {
 			return saveRemoteClipboardLocally;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		Clipboard,
 		Command,
 		Gauge,
 		Keyboard,
@@ -17,7 +18,9 @@
 	import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as NativeSelect from '$lib/components/ui/native-select';
+	import * as Popover from '$lib/components/ui/popover';
 	import type { RdpPerformancePreset } from '$lib/remotes/settings.remote';
+	import type { Snippet } from 'svelte';
 	import type { RdpScaleMode } from './rdp-operator-controls';
 
 	let {
@@ -45,7 +48,8 @@
 		onPresetChange,
 		onScaleChange,
 		onReconnect,
-		onDisconnect
+		onDisconnect,
+		clipboardControls
 	}: {
 		statusVariant: BadgeVariant;
 		statusTitle: string;
@@ -72,6 +76,7 @@
 		onScaleChange: (scale: string) => void;
 		onReconnect: () => void;
 		onDisconnect: () => void;
+		clipboardControls?: Snippet;
 	} = $props();
 
 	const FullscreenIcon = $derived(fullscreenActive ? Minimize2 : Maximize2);
@@ -79,14 +84,14 @@
 </script>
 
 <div
-	class="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5"
+	class="flex min-h-9 shrink-0 items-center justify-between gap-2 overflow-x-auto border-b px-2 py-1"
 >
-	<div class="flex min-w-0 flex-wrap items-center gap-2">
+	<div class="flex min-w-0 shrink items-center gap-1.5">
 		<Monitor class="size-4 shrink-0 text-muted-foreground" />
 		<span class="truncate text-sm font-medium">RDP</span>
 		<Badge variant={statusVariant} class="shrink truncate">{statusTitle}</Badge>
 		<Badge variant={clipboardStatusVariant} class="shrink truncate">{clipboardStatusLabel}</Badge>
-		<Badge variant="outline" class="shrink truncate">
+		<Badge variant="outline" class="hidden shrink truncate sm:inline-flex">
 			<Gauge class="size-3" />
 			{displayPresetLabel}
 		</Badge>
@@ -102,7 +107,28 @@
 			{audioStatusLabel}
 		</Badge>
 	</div>
-	<div class="flex shrink-0 flex-wrap items-center justify-end gap-1">
+	<div class="flex shrink-0 items-center justify-end gap-1">
+		{#if clipboardControls}
+			<Popover.Root>
+				<Popover.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							size="icon-sm"
+							variant="ghost"
+							disabled={!apiReady || !connected}
+							aria-label="RDP clipboard controls"
+							title="Clipboard"
+						>
+							<Clipboard class="size-4" />
+						</Button>
+					{/snippet}
+				</Popover.Trigger>
+				<Popover.Content align="end" class="w-[min(28rem,calc(100vw-2rem))] p-3">
+					{@render clipboardControls()}
+				</Popover.Content>
+			</Popover.Root>
+		{/if}
 		<Button
 			size="icon-sm"
 			variant="ghost"
