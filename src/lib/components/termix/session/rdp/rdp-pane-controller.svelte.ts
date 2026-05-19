@@ -282,6 +282,15 @@ export function createRdpPaneController({
 		detail = targetCredentialState;
 		focusRemoteDesktop();
 		startResizeObserver();
+		if (stagedSavedPassword) {
+			console.info('RDP auto-connect starting with staged saved password', {
+				connectionSessionId: bootstrap?.connectionSessionId ?? null,
+				destination: bootstrap?.destination ?? null,
+				usernameProvided: Boolean(sessionUsername.trim()),
+				domainProvided: Boolean(sessionDomain.trim())
+			});
+			void connect();
+		}
 	}
 
 	async function connect() {
