@@ -215,248 +215,261 @@
 	{:else}
 		<Button size="sm" onclick={openDialog}><Plus class="size-4" />Host</Button>
 	{/if}
-	<Dialog.Content class="max-w-2xl">
+	<Dialog.Content
+		class="flex max-h-[min(calc(100dvh-2rem),52rem)] max-w-2xl flex-col overflow-hidden"
+	>
 		<Dialog.Header>
 			<Dialog.Title>{title}</Dialog.Title>
 			<Dialog.Description>{description}</Dialog.Description>
 		</Dialog.Header>
-		<form class="space-y-4" onsubmit={(event) => (event.preventDefault(), submit())}>
-			<div class="grid gap-4 sm:grid-cols-2">
-				<div class="space-y-2">
-					<Label for={isEditing ? `host-name-${host?.id}` : 'host-name'}>Name</Label>
-					<Input
-						id={isEditing ? `host-name-${host?.id}` : 'host-name'}
-						bind:value={form.name}
-						required
-					/>
-				</div>
-				<div class="space-y-2">
-					<Label>Protocol</Label>
-					<Select.Root type="single" value={form.protocol} onValueChange={changeProtocol}>
-						<Select.Trigger class="w-full">{protocolLabels[form.protocol]}</Select.Trigger>
-						<Select.Content>
-							<Select.Item value="ssh">SSH</Select.Item>
-							<Select.Item value="rdp">RDP</Select.Item>
-							<Select.Item value="vnc">VNC</Select.Item>
-							<Select.Item value="telnet">Telnet</Select.Item>
-							<Select.Item value="ftp">FTP</Select.Item>
-							<Select.Item value="ftps">FTPS</Select.Item>
-						</Select.Content>
-					</Select.Root>
-				</div>
-				<div class="space-y-2">
-					<Label for={isEditing ? `hostname-${host?.id}` : 'hostname'}>Hostname</Label>
-					<Input
-						id={isEditing ? `hostname-${host?.id}` : 'hostname'}
-						bind:value={form.hostname}
-						required
-					/>
-				</div>
-				<div class="space-y-2">
-					<Label for={isEditing ? `port-${host?.id}` : 'port'}>Port</Label>
-					<Input
-						id={isEditing ? `port-${host?.id}` : 'port'}
-						type="number"
-						min="1"
-						max="65535"
-						bind:value={form.port}
-						required
-					/>
-				</div>
-				<div class="space-y-2">
-					<Label for={isEditing ? `username-${host?.id}` : 'username'}>Username</Label>
-					<Input id={isEditing ? `username-${host?.id}` : 'username'} bind:value={form.username} />
-				</div>
-				<div class="space-y-2">
-					<Label>Credential</Label>
-					<Select.Root type="single" bind:value={form.credentialId}>
-						<Select.Trigger class="w-full">
-							{form.credentialId === 'none'
-								? 'No credential'
-								: credentials.find((credential) => credential.id === form.credentialId)?.name}
-						</Select.Trigger>
-						<Select.Content>
-							<Select.Item value="none">No credential</Select.Item>
-							{#each compatibleCredentials as credential (credential.id)}
-								<Select.Item value={credential.id}>{credential.name}</Select.Item>
-							{/each}
-						</Select.Content>
-					</Select.Root>
-				</div>
-				<div class="space-y-2">
-					<Label for={isEditing ? `folder-${host?.id}` : 'folder'}>Folder</Label>
-					<Input id={isEditing ? `folder-${host?.id}` : 'folder'} bind:value={form.folder} />
-				</div>
-				<div class="space-y-2">
-					<Label for={isEditing ? `tags-${host?.id}` : 'tags'}>Tags</Label>
-					<Input
-						id={isEditing ? `tags-${host?.id}` : 'tags'}
-						bind:value={form.tags}
-						placeholder="linux, gateway"
-					/>
-				</div>
-				<div class="space-y-2 sm:col-span-2">
-					<Label for={isEditing ? `notes-${host?.id}` : 'notes'}>Notes</Label>
-					<Textarea id={isEditing ? `notes-${host?.id}` : 'notes'} bind:value={form.notes} />
-				</div>
-				{#if groups.length}
-					<div class="space-y-3 rounded-md border p-3 sm:col-span-2">
-						<div>
-							<h3 class="text-sm font-medium">Groups</h3>
-							<p class="text-xs text-muted-foreground">Organize this host in one or more groups.</p>
-						</div>
-						<div class="grid gap-2 sm:grid-cols-2">
-							{#each groups as group (group.id)}
-								<label class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-									<Checkbox
-										checked={form.groupIds.includes(group.id)}
-										onCheckedChange={(checked) => toggleGroup(group.id, checked === true)}
-									/>
-									<span class="truncate">{group.name}</span>
-								</label>
-							{/each}
-						</div>
-					</div>
-				{/if}
-				<div class="space-y-3 rounded-md border p-3 sm:col-span-2">
-					<div>
-						<h3 class="text-sm font-medium">Terminal preferences</h3>
-						<p class="text-xs text-muted-foreground">Per-host terminal defaults.</p>
-					</div>
-					<div class="grid gap-4 sm:grid-cols-4">
-						<div class="space-y-2">
-							<Label for={isEditing ? `terminal-font-${host?.id}` : 'terminal-font'}>
-								Font size
-							</Label>
-							<Input
-								id={isEditing ? `terminal-font-${host?.id}` : 'terminal-font'}
-								type="number"
-								min="8"
-								max="32"
-								placeholder="App default"
-								bind:value={form.terminalFontSize}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label for={isEditing ? `terminal-scrollback-${host?.id}` : 'terminal-scrollback'}>
-								Scrollback
-							</Label>
-							<Input
-								id={isEditing ? `terminal-scrollback-${host?.id}` : 'terminal-scrollback'}
-								type="number"
-								min="500"
-								max="50000"
-								step="500"
-								bind:value={form.terminalScrollback}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label>Theme</Label>
-							<Select.Root type="single" bind:value={form.terminalTheme}>
-								<Select.Trigger class="w-full capitalize">{form.terminalTheme}</Select.Trigger>
-								<Select.Content>
-									<Select.Item value="dark">Dark</Select.Item>
-									<Select.Item value="light">Light</Select.Item>
-									<Select.Item value="system">System</Select.Item>
-								</Select.Content>
-							</Select.Root>
-						</div>
-						<div class="flex items-end justify-between gap-3">
-							<div>
-								<Label for={isEditing ? `terminal-cursor-${host?.id}` : 'terminal-cursor'}>
-									Blink cursor
-								</Label>
-								<p class="text-xs text-muted-foreground">Session default</p>
-							</div>
-							<Switch
-								id={isEditing ? `terminal-cursor-${host?.id}` : 'terminal-cursor'}
-								bind:checked={form.terminalCursorBlink}
-							/>
-						</div>
-					</div>
-				</div>
-				<div class="space-y-3 rounded-md border p-3 sm:col-span-2">
-					<div class="flex items-center justify-between gap-3">
-						<div>
-							<h3 class="text-sm font-medium">Jump host</h3>
-							<p class="text-xs text-muted-foreground">
-								Bastion metadata for SSH, SFTP, and tunnels.
-							</p>
-						</div>
-						<Switch bind:checked={form.jumpEnabled} disabled={!availableJumpHosts.length} />
+		<form
+			class="flex min-h-0 flex-1 flex-col"
+			onsubmit={(event) => (event.preventDefault(), submit())}
+		>
+			<div class="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 pr-2">
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="space-y-2">
+						<Label for={isEditing ? `host-name-${host?.id}` : 'host-name'}>Name</Label>
+						<Input
+							id={isEditing ? `host-name-${host?.id}` : 'host-name'}
+							bind:value={form.name}
+							required
+						/>
 					</div>
 					<div class="space-y-2">
-						<Label>Saved SSH host</Label>
-						<Select.Root
-							type="single"
-							bind:value={form.jumpHostId}
-							disabled={!form.jumpEnabled || !availableJumpHosts.length}
-						>
+						<Label>Protocol</Label>
+						<Select.Root type="single" value={form.protocol} onValueChange={changeProtocol}>
+							<Select.Trigger class="w-full">{protocolLabels[form.protocol]}</Select.Trigger>
+							<Select.Content>
+								<Select.Item value="ssh">SSH</Select.Item>
+								<Select.Item value="rdp">RDP</Select.Item>
+								<Select.Item value="vnc">VNC</Select.Item>
+								<Select.Item value="telnet">Telnet</Select.Item>
+								<Select.Item value="ftp">FTP</Select.Item>
+								<Select.Item value="ftps">FTPS</Select.Item>
+							</Select.Content>
+						</Select.Root>
+					</div>
+					<div class="space-y-2">
+						<Label for={isEditing ? `hostname-${host?.id}` : 'hostname'}>Hostname</Label>
+						<Input
+							id={isEditing ? `hostname-${host?.id}` : 'hostname'}
+							bind:value={form.hostname}
+							required
+						/>
+					</div>
+					<div class="space-y-2">
+						<Label for={isEditing ? `port-${host?.id}` : 'port'}>Port</Label>
+						<Input
+							id={isEditing ? `port-${host?.id}` : 'port'}
+							type="number"
+							min="1"
+							max="65535"
+							bind:value={form.port}
+							required
+						/>
+					</div>
+					<div class="space-y-2">
+						<Label for={isEditing ? `username-${host?.id}` : 'username'}>Username</Label>
+						<Input
+							id={isEditing ? `username-${host?.id}` : 'username'}
+							bind:value={form.username}
+						/>
+					</div>
+					<div class="space-y-2">
+						<Label>Credential</Label>
+						<Select.Root type="single" bind:value={form.credentialId}>
 							<Select.Trigger class="w-full">
-								{form.jumpHostId === 'none'
-									? 'No jump host'
-									: availableJumpHosts.find((candidate) => candidate.id === form.jumpHostId)?.name}
+								{form.credentialId === 'none'
+									? 'No credential'
+									: credentials.find((credential) => credential.id === form.credentialId)?.name}
 							</Select.Trigger>
 							<Select.Content>
-								<Select.Item value="none">No jump host</Select.Item>
-								{#each availableJumpHosts as candidate (candidate.id)}
-									<Select.Item value={candidate.id}>
-										{candidate.name} ({candidate.hostname})
-									</Select.Item>
+								<Select.Item value="none">No credential</Select.Item>
+								{#each compatibleCredentials as credential (credential.id)}
+									<Select.Item value={credential.id}>{credential.name}</Select.Item>
 								{/each}
 							</Select.Content>
 						</Select.Root>
 					</div>
-				</div>
-				{#if form.protocol === 'ftps'}
+					<div class="space-y-2">
+						<Label for={isEditing ? `folder-${host?.id}` : 'folder'}>Folder</Label>
+						<Input id={isEditing ? `folder-${host?.id}` : 'folder'} bind:value={form.folder} />
+					</div>
+					<div class="space-y-2">
+						<Label for={isEditing ? `tags-${host?.id}` : 'tags'}>Tags</Label>
+						<Input
+							id={isEditing ? `tags-${host?.id}` : 'tags'}
+							bind:value={form.tags}
+							placeholder="linux, gateway"
+						/>
+					</div>
+					<div class="space-y-2 sm:col-span-2">
+						<Label for={isEditing ? `notes-${host?.id}` : 'notes'}>Notes</Label>
+						<Textarea id={isEditing ? `notes-${host?.id}` : 'notes'} bind:value={form.notes} />
+					</div>
+					{#if groups.length}
+						<div class="space-y-3 rounded-md border p-3 sm:col-span-2">
+							<div>
+								<h3 class="text-sm font-medium">Groups</h3>
+								<p class="text-xs text-muted-foreground">
+									Organize this host in one or more groups.
+								</p>
+							</div>
+							<div class="grid gap-2 sm:grid-cols-2">
+								{#each groups as group (group.id)}
+									<label class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+										<Checkbox
+											checked={form.groupIds.includes(group.id)}
+											onCheckedChange={(checked) => toggleGroup(group.id, checked === true)}
+										/>
+										<span class="truncate">{group.name}</span>
+									</label>
+								{/each}
+							</div>
+						</div>
+					{/if}
 					<div class="space-y-3 rounded-md border p-3 sm:col-span-2">
 						<div>
-							<h3 class="text-sm font-medium">FTPS security</h3>
-							<p class="text-xs text-muted-foreground">TLS mode and certificate validation.</p>
+							<h3 class="text-sm font-medium">Terminal preferences</h3>
+							<p class="text-xs text-muted-foreground">Per-host terminal defaults.</p>
 						</div>
-						<div class="grid gap-4 sm:grid-cols-2">
+						<div class="grid gap-4 sm:grid-cols-4">
 							<div class="space-y-2">
-								<Label>Mode</Label>
-								<Select.Root type="single" bind:value={form.ftpsMode}>
-									<Select.Trigger class="w-full">
-										{form.ftpsMode === 'explicit' ? 'Explicit TLS' : 'Implicit TLS'}
-									</Select.Trigger>
+								<Label for={isEditing ? `terminal-font-${host?.id}` : 'terminal-font'}>
+									Font size
+								</Label>
+								<Input
+									id={isEditing ? `terminal-font-${host?.id}` : 'terminal-font'}
+									type="number"
+									min="8"
+									max="32"
+									placeholder="App default"
+									bind:value={form.terminalFontSize}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for={isEditing ? `terminal-scrollback-${host?.id}` : 'terminal-scrollback'}>
+									Scrollback
+								</Label>
+								<Input
+									id={isEditing ? `terminal-scrollback-${host?.id}` : 'terminal-scrollback'}
+									type="number"
+									min="500"
+									max="50000"
+									step="500"
+									bind:value={form.terminalScrollback}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label>Theme</Label>
+								<Select.Root type="single" bind:value={form.terminalTheme}>
+									<Select.Trigger class="w-full capitalize">{form.terminalTheme}</Select.Trigger>
 									<Select.Content>
-										<Select.Item value="explicit">Explicit TLS</Select.Item>
-										<Select.Item value="implicit">Implicit TLS</Select.Item>
+										<Select.Item value="dark">Dark</Select.Item>
+										<Select.Item value="light">Light</Select.Item>
+										<Select.Item value="system">System</Select.Item>
 									</Select.Content>
 								</Select.Root>
 							</div>
 							<div class="flex items-end justify-between gap-3">
 								<div>
-									<Label for={isEditing ? `ftps-cert-${host?.id}` : 'ftps-cert'}>
-										Verify certificate
+									<Label for={isEditing ? `terminal-cursor-${host?.id}` : 'terminal-cursor'}>
+										Blink cursor
 									</Label>
-									<p class="text-xs text-muted-foreground">Reject invalid server certificates.</p>
+									<p class="text-xs text-muted-foreground">Session default</p>
 								</div>
 								<Switch
-									id={isEditing ? `ftps-cert-${host?.id}` : 'ftps-cert'}
-									bind:checked={form.ftpsRejectUnauthorized}
-								/>
-							</div>
-							<div class="space-y-2 sm:col-span-2">
-								<Label for={isEditing ? `ftps-hostname-${host?.id}` : 'ftps-hostname'}>
-									Certificate hostname
-								</Label>
-								<Input
-									id={isEditing ? `ftps-hostname-${host?.id}` : 'ftps-hostname'}
-									bind:value={form.ftpsCertificateHostname}
-									placeholder={form.hostname || 'files.example.test'}
+									id={isEditing ? `terminal-cursor-${host?.id}` : 'terminal-cursor'}
+									bind:checked={form.terminalCursorBlink}
 								/>
 							</div>
 						</div>
 					</div>
+					<div class="space-y-3 rounded-md border p-3 sm:col-span-2">
+						<div class="flex items-center justify-between gap-3">
+							<div>
+								<h3 class="text-sm font-medium">Jump host</h3>
+								<p class="text-xs text-muted-foreground">
+									Bastion metadata for SSH, SFTP, and tunnels.
+								</p>
+							</div>
+							<Switch bind:checked={form.jumpEnabled} disabled={!availableJumpHosts.length} />
+						</div>
+						<div class="space-y-2">
+							<Label>Saved SSH host</Label>
+							<Select.Root
+								type="single"
+								bind:value={form.jumpHostId}
+								disabled={!form.jumpEnabled || !availableJumpHosts.length}
+							>
+								<Select.Trigger class="w-full">
+									{form.jumpHostId === 'none'
+										? 'No jump host'
+										: availableJumpHosts.find((candidate) => candidate.id === form.jumpHostId)
+												?.name}
+								</Select.Trigger>
+								<Select.Content>
+									<Select.Item value="none">No jump host</Select.Item>
+									{#each availableJumpHosts as candidate (candidate.id)}
+										<Select.Item value={candidate.id}>
+											{candidate.name} ({candidate.hostname})
+										</Select.Item>
+									{/each}
+								</Select.Content>
+							</Select.Root>
+						</div>
+					</div>
+					{#if form.protocol === 'ftps'}
+						<div class="space-y-3 rounded-md border p-3 sm:col-span-2">
+							<div>
+								<h3 class="text-sm font-medium">FTPS security</h3>
+								<p class="text-xs text-muted-foreground">TLS mode and certificate validation.</p>
+							</div>
+							<div class="grid gap-4 sm:grid-cols-2">
+								<div class="space-y-2">
+									<Label>Mode</Label>
+									<Select.Root type="single" bind:value={form.ftpsMode}>
+										<Select.Trigger class="w-full">
+											{form.ftpsMode === 'explicit' ? 'Explicit TLS' : 'Implicit TLS'}
+										</Select.Trigger>
+										<Select.Content>
+											<Select.Item value="explicit">Explicit TLS</Select.Item>
+											<Select.Item value="implicit">Implicit TLS</Select.Item>
+										</Select.Content>
+									</Select.Root>
+								</div>
+								<div class="flex items-end justify-between gap-3">
+									<div>
+										<Label for={isEditing ? `ftps-cert-${host?.id}` : 'ftps-cert'}>
+											Verify certificate
+										</Label>
+										<p class="text-xs text-muted-foreground">Reject invalid server certificates.</p>
+									</div>
+									<Switch
+										id={isEditing ? `ftps-cert-${host?.id}` : 'ftps-cert'}
+										bind:checked={form.ftpsRejectUnauthorized}
+									/>
+								</div>
+								<div class="space-y-2 sm:col-span-2">
+									<Label for={isEditing ? `ftps-hostname-${host?.id}` : 'ftps-hostname'}>
+										Certificate hostname
+									</Label>
+									<Input
+										id={isEditing ? `ftps-hostname-${host?.id}` : 'ftps-hostname'}
+										bind:value={form.ftpsCertificateHostname}
+										placeholder={form.hostname || 'files.example.test'}
+									/>
+								</div>
+							</div>
+						</div>
+					{/if}
+				</div>
+				{#if error}
+					<p class="mt-4 text-sm text-destructive">{error}</p>
 				{/if}
 			</div>
-			{#if error}
-				<p class="text-sm text-destructive">{error}</p>
-			{/if}
-			<Dialog.Footer>
+			<Dialog.Footer class="mt-4 shrink-0 border-t pt-4">
 				<Button type="button" variant="outline" onclick={closeDialog}>Cancel</Button>
 				<Button type="submit" disabled={saving}>
 					{saving ? 'Saving...' : isEditing ? 'Save changes' : 'Save host'}
