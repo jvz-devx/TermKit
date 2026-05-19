@@ -4,7 +4,6 @@
 		BadgeCheck,
 		Ban,
 		Cable,
-		FolderKanban,
 		MailPlus,
 		Server,
 		Settings2,
@@ -27,8 +26,7 @@
 		type AdminLiveSshSessionSummary,
 		type AdminOverview,
 		type AdminSshTunnelSummary,
-		type AdminUserSummary,
-		type AdminWorkspaceSummary
+		type AdminUserSummary
 	} from '$lib/remotes/admin.remote';
 	import * as Alert from '$lib/components/ui/alert';
 	import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
@@ -167,9 +165,7 @@
 	<div class="flex flex-wrap items-start justify-between gap-3">
 		<div>
 			<h1 class="text-lg font-semibold">Admin</h1>
-			<p class="text-sm text-muted-foreground">
-				Users, workspaces, sessions, history, and settings.
-			</p>
+			<p class="text-sm text-muted-foreground">Users, sessions, history, and settings.</p>
 		</div>
 		<Button href="/settings" variant="outline">
 			<Settings2 class="size-4" />
@@ -177,14 +173,8 @@
 		</Button>
 	</div>
 
-	<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+	<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
 		<AdminMetricCard icon={Users} label="Users" value={overview.users.length} detail="Accounts" />
-		<AdminMetricCard
-			icon={FolderKanban}
-			label="Workspaces"
-			value={overview.workspaces.length}
-			detail="Host folders"
-		/>
 		<AdminMetricCard
 			icon={SquareTerminal}
 			label="Live SSH"
@@ -222,10 +212,6 @@
 
 		<Tabs.Content value="users">
 			{@render UsersTable({ overview, pendingAction, promoteUser, disableUser, revokeInvitation })}
-		</Tabs.Content>
-
-		<Tabs.Content value="workspaces">
-			{@render WorkspacesTable({ workspaces: overview.workspaces })}
 		</Tabs.Content>
 
 		<Tabs.Content value="live">
@@ -508,53 +494,6 @@
 					</Table.Body>
 				</Table.Root>
 			</div>
-		</Card.Content>
-	</Card.Root>
-{/snippet}
-{#snippet WorkspacesTable({ workspaces }: { workspaces: AdminWorkspaceSummary[] })}
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>Workspace inventory</Card.Title>
-			<Card.Description>{workspaces.length} shared workspaces</Card.Description>
-		</Card.Header>
-		<Card.Content class="overflow-x-auto">
-			<Table.Root>
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Workspace</Table.Head>
-						<Table.Head>Owner</Table.Head>
-						<Table.Head>Hosts</Table.Head>
-						<Table.Head>Credentials</Table.Head>
-						<Table.Head>Live SSH</Table.Head>
-						<Table.Head>Updated</Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each workspaces as workspace (workspace.id)}
-						<Table.Row>
-							<Table.Cell>
-								<div class="font-medium">{workspace.name}</div>
-								<div class="text-xs text-muted-foreground">Shared workspace</div>
-							</Table.Cell>
-							<Table.Cell>{workspace.ownerUsername}</Table.Cell>
-							<Table.Cell>
-								<div class="flex flex-wrap gap-1">
-									<Badge variant="outline">{workspace.sshHosts} SSH</Badge>
-									<Badge variant="outline">{workspace.rdpHosts} RDP</Badge>
-									<Badge variant="outline">{workspace.vncHosts} VNC</Badge>
-									<Badge variant="outline">{workspace.telnetHosts} Telnet</Badge>
-								</div>
-							</Table.Cell>
-							<Table.Cell>
-								<div>{workspace.credentialCount} credentials</div>
-								<div class="text-xs text-muted-foreground">{workspace.memberCount} members</div>
-							</Table.Cell>
-							<Table.Cell>{workspace.activeLiveSshSessions}</Table.Cell>
-							<Table.Cell>{formatDate(workspace.updatedAt)}</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
 		</Card.Content>
 	</Card.Root>
 {/snippet}

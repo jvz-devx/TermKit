@@ -50,7 +50,16 @@ export type HostSummary = {
 	terminalPreferences: TerminalPreferences;
 	sshJumpHost: SshJumpHostMetadata;
 	ftps: FtpsHostMetadata;
+	groups: HostGroupSummary[];
 	hostKeyTrust: SshHostKeyTrustSummary | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type HostGroupSummary = {
+	id: string;
+	name: string;
+	hostCount: number;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -74,6 +83,7 @@ export type HostMutationInput = {
 	port?: unknown;
 	username?: unknown;
 	credentialId?: unknown;
+	groupIds?: unknown;
 	folder?: unknown;
 	tags?: unknown;
 	notes?: unknown;
@@ -251,7 +261,8 @@ export async function assertSshHostKeyLaunchAllowed(userId: string, hostId: stri
 export function toHostSummary(
 	host: HostRecord,
 	credentialName: string | null | undefined,
-	hostKeyTrust: SshHostKeyTrustSummary | null = null
+	hostKeyTrust: SshHostKeyTrustSummary | null = null,
+	groups: HostGroupSummary[] = []
 ): HostSummary {
 	const metadata = normalizeHostMetadata(host.metadata);
 	return {
@@ -270,6 +281,7 @@ export function toHostSummary(
 		terminalPreferences: metadata.terminalPreferences,
 		sshJumpHost: metadata.sshJumpHost,
 		ftps: metadata.ftps,
+		groups,
 		hostKeyTrust,
 		createdAt: host.createdAt.toISOString(),
 		updatedAt: host.updatedAt.toISOString()

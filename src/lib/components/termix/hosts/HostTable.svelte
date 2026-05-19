@@ -1,26 +1,34 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { Play, Search, SlidersHorizontal, Trash2, X } from '@lucide/svelte';
+	import { FolderPlus, Play, Search, SlidersHorizontal, Trash2, X } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Table from '$lib/components/ui/table';
 	import { listCredentials } from '$lib/remotes/credentials.remote';
+	import {
+		createHostGroup,
+		deleteHostGroup,
+		listHostGroups
+	} from '$lib/remotes/host-groups.remote';
 	import { deleteHost, listHosts, type HostSummary } from '$lib/remotes/hosts.remote';
 	import HostDialog from './HostDialog.svelte';
 
 	type HostProtocol = HostSummary['protocol'];
 	type ProtocolFilter = HostProtocol | 'all';
 	type ActiveFilter = {
-		key: 'protocol' | 'credential' | 'folder' | 'tag';
+		key: 'protocol' | 'credential' | 'folder' | 'group' | 'tag';
 		label: string;
 	};
 
 	const hostsQuery = listHosts();
 	const credentialsQuery = listCredentials();
+	const groupsQuery = listHostGroups();
 	const hostProtocols: HostProtocol[] = ['ssh', 'rdp', 'vnc', 'telnet', 'ftp', 'ftps'];
 	const protocolLabels: Record<HostProtocol, string> = {
 		ssh: 'SSH',
@@ -35,7 +43,11 @@
 	let protocolFilter = $state<ProtocolFilter>('all');
 	let credentialFilter = $state('all');
 	let folderFilter = $state('all');
+	let groupFilter = $state('all');
 	let tagFilter = $state('all');
+	let groupDialogOpen = $state(false);
+	let groupName = $state('');
+	let savingGroup = $state(false);
 	let launchingId = $state<string | null>(null);
 	let deletingId = $state<string | null>(null);
 	let error = $state<string | null>(null);
@@ -43,6 +55,7 @@
 	let deleteDialogOpen = $state(false);
 	let hosts = $derived(hostsQuery.current ?? []);
 	let credentials = $derived(credentialsQuery.current ?? []);
+	let groups = $derived(groupsQuery.current ?? []);
 	let credentialOptions = $derived.by(() => {
 		const options: Array<[string, string]> = [];
 		const setOption = (id: string, name: string) => {
@@ -73,6 +86,9 @@
 	let selectedFolder = $derived(
 		folderFilter.startsWith('folder:') ? folderFilter.slice('folder:'.length) : null
 	);
+	let selectedGroupId = $derived(
+		groupFilter.startsWith('group:id:') ? groupFilter.slice('group:id:'.length) : null
+	);
 	let selectedTag = $derived(tagFilter.startsWith('tag:') ? tagFilter.slice('tag:'.length) : null);
 	let selectedCredentialLabel = $derived.by(() => {
 		if (credentialFilter === 'credential:saved') return 'Has credential';
@@ -91,6 +107,12 @@
 			filters.push({ key: 'credential', label: selectedCredentialLabel });
 		}
 		if (selectedFolder) filters.push({ key: 'folder', label: selectedFolder });
+		if (selectedGroupId) {
+			filters.push({
+				key: 'group',
+				label: groups.find((group) => group.id === selectedGroupId)?.name ?? 'Selected group'
+			});
+		}
 		if (selectedTag) filters.push({ key: 'tag', label: selectedTag });
 		return filters;
 	});
@@ -104,6 +126,7 @@
 			if (credentialFilter === 'credential:none' && host.credentialId) return false;
 			if (selectedCredentialId && host.credentialId !== selectedCredentialId) return false;
 			if (selectedFolder && host.folder !== selectedFolder) return false;
+			if (selectedGroupId && !host.groups.some((group) => group.id === selectedGroupId)) return false;
 			if (selectedTag && !host.tags.includes(selectedTag)) return false;
 			if (!needle) return true;
 
@@ -114,6 +137,7 @@
 				host.folder,
 				host.credentialName,
 				host.protocol,
+				...host.groups.map((group) => group.name),
 				...host.tags
 			]
 				.filter(Boolean)
@@ -141,6 +165,10 @@
 		return `folder:${folder}`;
 	}
 
+	function groupValue(groupId: string) {
+		return `group:id:${groupId}`;
+	}
+
 	function tagValue(tag: string) {
 		return `tag:${tag}`;
 	}
@@ -149,6 +177,7 @@
 		if (key === 'protocol') protocolFilter = 'all';
 		if (key === 'credential') credentialFilter = 'all';
 		if (key === 'folder') folderFilter = 'all';
+		if (key === 'group') groupFilter = 'all';
 		if (key === 'tag') tagFilter = 'all';
 	}
 
@@ -156,7 +185,36 @@
 		protocolFilter = 'all';
 		credentialFilter = 'all';
 		folderFilter = 'all';
+		groupFilter = 'all';
 		tagFilter = 'all';
+	}
+
+	async function submitGroup() {
+		savingGroup = true;
+		error = null;
+		try {
+			await createHostGroup({ name: groupName }).updates(listHostGroups);
+			groupName = '';
+			groupDialogOpen = false;
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Could not save group';
+		} finally {
+			savingGroup = false;
+		}
+	}
+
+	async function removeGroup(groupId: string) {
+		error = null;
+		try {
+			await deleteHostGroup(groupId).updates(listHostGroups, listHosts);
+			if (selectedGroupId === groupId) groupFilter = 'all';
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Could not delete group';
+		}
+	}
+
+	async function refreshInventory() {
+		await Promise.all([hostsQuery.refresh(), groupsQuery.refresh()]);
 	}
 
 	async function launch(host: HostSummary) {
@@ -201,8 +259,52 @@
 				Searchable connection inventory for protocol launches.
 			</p>
 		</div>
-		<HostDialog {credentials} {hosts} onSaved={() => hostsQuery.refresh()} />
+		<div class="flex flex-wrap gap-2">
+			<Dialog.Root bind:open={groupDialogOpen}>
+				<Button size="sm" variant="outline" onclick={() => (groupDialogOpen = true)}>
+					<FolderPlus class="size-4" />
+					Group
+				</Button>
+				<Dialog.Content class="max-w-md">
+					<Dialog.Header>
+						<Dialog.Title>Create group</Dialog.Title>
+						<Dialog.Description>Groups organize hosts without changing access.</Dialog.Description>
+					</Dialog.Header>
+					<form class="space-y-4" onsubmit={(event) => (event.preventDefault(), submitGroup())}>
+						<div class="space-y-2">
+							<Label for="host-group-name">Name</Label>
+							<Input id="host-group-name" bind:value={groupName} required />
+						</div>
+						<Dialog.Footer>
+							<Button type="button" variant="outline" onclick={() => (groupDialogOpen = false)}
+								>Cancel</Button
+							>
+							<Button type="submit" disabled={savingGroup}>
+								{savingGroup ? 'Saving...' : 'Create group'}
+							</Button>
+						</Dialog.Footer>
+					</form>
+				</Dialog.Content>
+			</Dialog.Root>
+			<HostDialog {credentials} {groups} {hosts} onSaved={refreshInventory} />
+		</div>
 	</div>
+
+	{#if groups.length}
+		<div class="flex flex-wrap gap-1.5">
+			{#each groups as group (group.id)}
+				<Button
+					size="xs"
+					variant={selectedGroupId === group.id ? 'secondary' : 'outline'}
+					class="h-7 max-w-52 gap-1 rounded-full px-2"
+					onclick={() => (groupFilter = selectedGroupId === group.id ? 'all' : groupValue(group.id))}
+				>
+					<span class="truncate">{group.name}</span>
+					<Badge variant="outline" class="h-4 px-1 text-[10px]">{group.hostCount}</Badge>
+				</Button>
+			{/each}
+		</div>
+	{/if}
 
 	<div class="flex gap-2">
 		<div class="relative min-w-0 flex-1">
@@ -260,6 +362,16 @@
 						<DropdownMenu.RadioItem value="all">All folders</DropdownMenu.RadioItem>
 						{#each folderOptions as folder (folder)}
 							<DropdownMenu.RadioItem value={folderValue(folder)}>{folder}</DropdownMenu.RadioItem>
+						{/each}
+					</DropdownMenu.RadioGroup>
+				{/if}
+				{#if groups.length}
+					<DropdownMenu.Separator />
+					<DropdownMenu.Label>Group</DropdownMenu.Label>
+					<DropdownMenu.RadioGroup bind:value={groupFilter}>
+						<DropdownMenu.RadioItem value="all">All groups</DropdownMenu.RadioItem>
+						{#each groups as group (group.id)}
+							<DropdownMenu.RadioItem value={groupValue(group.id)}>{group.name}</DropdownMenu.RadioItem>
 						{/each}
 					</DropdownMenu.RadioGroup>
 				{/if}
@@ -334,6 +446,13 @@
 								<div class="text-xs text-muted-foreground">
 									{host.folder ?? 'No folder'}{host.tags.length ? ` · ${host.tags.join(', ')}` : ''}
 								</div>
+								{#if host.groups.length}
+									<div class="mt-1 flex flex-wrap gap-1">
+										{#each host.groups as group (group.id)}
+											<Badge variant="secondary">{group.name}</Badge>
+										{/each}
+									</div>
+								{/if}
 							</Table.Cell>
 							<Table.Cell><Badge variant="outline">{host.protocol.toUpperCase()}</Badge></Table.Cell
 							>
@@ -355,7 +474,13 @@
 									>
 										<Play class="size-4" />
 									</Button>
-									<HostDialog {credentials} {hosts} {host} onSaved={() => hostsQuery.refresh()} />
+									<HostDialog
+										{credentials}
+										{groups}
+										{hosts}
+										{host}
+										onSaved={refreshInventory}
+									/>
 									<Button
 										size="icon"
 										variant="ghost"
@@ -408,4 +533,12 @@
 			</AlertDialog.Footer>
 		</AlertDialog.Content>
 	</AlertDialog.Root>
+
+	{#if selectedGroupId}
+		<div class="flex justify-end">
+			<Button size="sm" variant="ghost" onclick={() => removeGroup(selectedGroupId)}>
+				Delete selected group
+			</Button>
+		</div>
+	{/if}
 </section>

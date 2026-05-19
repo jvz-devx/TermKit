@@ -6,6 +6,7 @@ import {
 	enrollSshHostKey as enrollSshHostKeyForUser
 } from '$lib/server/protocols/ssh-host-key-enrollment';
 import { ServiceValidationError } from '$lib/server/services/errors';
+import { hostGroupsByHostId, setHostGroupIdsForHost } from '$lib/server/services/host-groups';
 import { listCredentials } from './credentials.impl.remote';
 import {
 	requireRemoteUser,
@@ -24,6 +25,7 @@ export const listHosts = query(async () => {
 		hostService.list(userId),
 		credentialService.list(userId)
 	]);
+	const groupsByHostId = await hostGroupsByHostId(userId);
 	const credentialNames = new Map(
 		credentials.map((credential) => [credential.id, credential.name])
 	);
@@ -32,7 +34,12 @@ export const listHosts = query(async () => {
 		hosts.map(async (host): Promise<HostSummary> => {
 			const hostKeyTrust =
 				host.protocol === 'ssh' ? await safeSshHostKeyTrustSummary(userId, host.id) : null;
-			return toHostSummary(host, credentialNames.get(host.credentialId ?? ''), hostKeyTrust);
+			return toHostSummary(
+				host,
+				credentialNames.get(host.credentialId ?? ''),
+				hostKeyTrust,
+				groupsByHostId.get(host.id) ?? []
+			);
 		})
 	);
 
@@ -57,6 +64,13 @@ export const saveHost = command<HostMutationInput, HostSummary>('unchecked', asy
 		typeof input.id === 'string' && input.id
 			? await hostService.update(userId, input.id, normalized)
 			: await hostService.create(userId, normalized);
+	if (Array.isArray(input.groupIds)) {
+		await setHostGroupIdsForHost(
+			userId,
+			host.id,
+			input.groupIds.filter((groupId): groupId is string => typeof groupId === 'string')
+		);
+	}
 
 	void listHosts().refresh();
 	void listCredentials().refresh();

@@ -154,7 +154,15 @@ export function createSessionWorkspaceController() {
 			const needle = sessionSearch.trim().toLowerCase();
 			if (!needle) return true;
 
-			return [host.name, host.hostname, host.username, host.folder, host.protocol, ...host.tags]
+			return [
+				host.name,
+				host.hostname,
+				host.username,
+				host.folder,
+				host.protocol,
+				...host.groups.map((group) => group.name),
+				...host.tags
+			]
 				.filter(Boolean)
 				.join(' ')
 				.toLowerCase()

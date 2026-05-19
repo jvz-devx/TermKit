@@ -13,9 +13,7 @@ import {
 	sessions,
 	sshLiveSessions,
 	sshTunnelSessions,
-	users,
-	workspaces,
-	workspaceMemberships
+	users
 } from '$lib/server/db/schema';
 import { settingsService } from '$lib/server/services/settings';
 import { ServiceValidationError } from '$lib/server/services/errors';
@@ -56,23 +54,6 @@ export type AdminMicrosoftInvitationSummary = {
 	updatedAt: string;
 	acceptedAt: string | null;
 	revokedAt: string | null;
-};
-
-export type AdminWorkspaceSummary = {
-	id: string;
-	ownerId: string;
-	ownerUsername: string;
-	name: string;
-	source: 'workspace';
-	memberCount: number;
-	hostCount: number;
-	sshHosts: number;
-	rdpHosts: number;
-	vncHosts: number;
-	telnetHosts: number;
-	credentialCount: number;
-	activeLiveSshSessions: number;
-	updatedAt: string;
 };
 
 export type AdminLiveSshSessionSummary = {
@@ -154,7 +135,6 @@ export type AdminConnectionHistoryEntry = {
 export type AdminOverview = {
 	users: AdminUserSummary[];
 	microsoftInvitations: AdminMicrosoftInvitationSummary[];
-	workspaces: AdminWorkspaceSummary[];
 	liveSshSessions: AdminLiveSshSessionSummary[];
 	sshTunnels: AdminSshTunnelSummary[];
 	fileTransferActivity: AdminFileTransferActivitySummary[];
@@ -168,7 +148,6 @@ export type AdminOverview = {
 		promoteUsers: true;
 		terminateLiveSshSessions: true;
 		terminateSshTunnels: true;
-		workspacesSource: 'workspace';
 	};
 };
 
@@ -195,8 +174,6 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 		invitationRows,
 		hostRows,
 		credentialRows,
-		workspaceRows,
-		workspaceMembershipRows,
 		liveSshRows,
 		sshTunnelRows,
 		activeConnectionRows,
@@ -209,8 +186,6 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 		db.select().from(microsoftInvitations).orderBy(microsoftInvitations.email),
 		db.select().from(hosts),
 		db.select().from(credentials),
-		db.select().from(workspaces),
-		db.select().from(workspaceMemberships),
 		db.select().from(sshLiveSessions).orderBy(desc(sshLiveSessions.updatedAt)),
 		db
 			.select()
@@ -281,14 +256,6 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 			acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
 			revokedAt: invitation.revokedAt?.toISOString() ?? null
 		})),
-		workspaces: toWorkspaceSummaries(
-			userRows,
-			hostRows,
-			credentialRows,
-			workspaceRows,
-			workspaceMembershipRows,
-			liveSshRows
-		),
 		liveSshSessions: liveSshRows.map((session) => {
 			const owner = usersById.get(session.userId);
 			const host = hostsById.get(session.hostId);
@@ -333,8 +300,7 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 			disableUsers: true,
 			promoteUsers: true,
 			terminateLiveSshSessions: true,
-			terminateSshTunnels: true,
-			workspacesSource: 'workspace'
+			terminateSshTunnels: true
 		}
 	};
 });
@@ -606,59 +572,4 @@ function toAdminFailureReason(
 		return { code, category: 'network', message: `Network failure: ${text}` };
 	}
 	return { code, category: 'unknown', message: text };
-}
-
-function toWorkspaceSummaries(
-	userRows: (typeof users.$inferSelect)[],
-	hostRows: (typeof hosts.$inferSelect)[],
-	credentialRows: (typeof credentials.$inferSelect)[],
-	workspaceRows: (typeof workspaces.$inferSelect)[],
-	workspaceMembershipRows: (typeof workspaceMemberships.$inferSelect)[],
-	liveSshRows: (typeof sshLiveSessions.$inferSelect)[]
-): AdminWorkspaceSummary[] {
-	const usersById = new Map(userRows.map((user) => [user.id, user]));
-	return workspaceRows
-		.map((workspace): AdminWorkspaceSummary => {
-			const memberships = workspaceMembershipRows.filter(
-				(membership) => membership.workspaceId === workspace.id
-			);
-			const ownerMembership =
-				memberships.find((membership) => membership.role === 'owner') ?? memberships[0];
-			const owner = ownerMembership ? usersById.get(ownerMembership.userId) : null;
-			const workspaceHosts = hostRows.filter((host) => host.workspaceId === workspace.id);
-			const workspaceCredentials = credentialRows.filter(
-				(credential) => credential.workspaceId === workspace.id
-			);
-			const activeLiveSshSessions = liveSshRows.filter(
-				(session) =>
-					openLiveSshStatuses.includes(session.status as (typeof openLiveSshStatuses)[number]) &&
-					workspaceHosts.some((host) => host.id === session.hostId)
-			).length;
-			const updatedAt = [
-				workspace.updatedAt,
-				...workspaceHosts.map((host) => host.updatedAt),
-				...workspaceCredentials.map((credential) => credential.updatedAt),
-				...memberships.map((membership) => membership.updatedAt)
-			].sort((left, right) => right.getTime() - left.getTime())[0];
-
-			return {
-				id: workspace.id,
-				ownerId: ownerMembership?.userId ?? '',
-				ownerUsername: owner?.username ?? 'Unknown owner',
-				name: workspace.name,
-				source: 'workspace',
-				memberCount: memberships.length,
-				hostCount: workspaceHosts.length,
-				sshHosts: workspaceHosts.filter((host) => host.protocol === 'ssh').length,
-				rdpHosts: workspaceHosts.filter((host) => host.protocol === 'rdp').length,
-				vncHosts: workspaceHosts.filter((host) => host.protocol === 'vnc').length,
-				telnetHosts: workspaceHosts.filter((host) => host.protocol === 'telnet').length,
-				credentialCount: workspaceCredentials.length,
-				activeLiveSshSessions,
-				updatedAt: updatedAt.toISOString()
-			};
-		})
-		.sort((left, right) =>
-			`${left.ownerUsername}:${left.name}`.localeCompare(`${right.ownerUsername}:${right.name}`)
-		);
 }

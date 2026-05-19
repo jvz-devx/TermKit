@@ -2,7 +2,6 @@
 	import {
 		Cable,
 		Clock3,
-		FolderKanban,
 		Server,
 		Settings2,
 		SquareTerminal,
@@ -13,7 +12,6 @@
 
 <Tabs.List class="max-w-full flex-wrap justify-start">
 	<Tabs.Trigger value="users"><Users class="size-4" />Users</Tabs.Trigger>
-	<Tabs.Trigger value="workspaces"><FolderKanban class="size-4" />Workspaces</Tabs.Trigger>
 	<Tabs.Trigger value="live"><SquareTerminal class="size-4" />Live sessions</Tabs.Trigger>
 	<Tabs.Trigger value="tunnels"><Cable class="size-4" />Tunnels</Tabs.Trigger>
 	<Tabs.Trigger value="transfers"><Server class="size-4" />FTP/FTPS</Tabs.Trigger>

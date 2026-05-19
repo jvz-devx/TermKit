@@ -49,7 +49,7 @@
 				url: '/sessions',
 				icon: SquareTerminalIcon,
 				items: [
-					{ title: 'Session workspace', url: '/sessions' },
+					{ title: 'Sessions', url: '/sessions' },
 					{ title: 'History', url: '/history' }
 				]
 			},

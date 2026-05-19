@@ -153,6 +153,23 @@ export const workspaceMemberships = pgTable(
 	]
 );
 
+export const hostGroups = pgTable(
+	'host_groups',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		...timestamps
+	},
+	(table) => [
+		uniqueIndex('host_groups_user_name_unique').on(table.userId, table.name),
+		index('host_groups_user_id_idx').on(table.userId)
+	]
+);
+
 export const credentials = pgTable(
 	'credentials',
 	{
@@ -207,6 +224,25 @@ export const hosts = pgTable(
 		index('hosts_user_id_idx').on(table.userId),
 		index('hosts_workspace_id_idx').on(table.workspaceId),
 		index('hosts_credential_id_idx').on(table.credentialId)
+	]
+);
+
+export const hostGroupMembers = pgTable(
+	'host_group_members',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		hostGroupId: uuid('host_group_id')
+			.notNull()
+			.references(() => hostGroups.id, { onDelete: 'cascade' }),
+		hostId: uuid('host_id')
+			.notNull()
+			.references(() => hosts.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(table) => [
+		uniqueIndex('host_group_members_group_host_unique').on(table.hostGroupId, table.hostId),
+		index('host_group_members_group_id_idx').on(table.hostGroupId),
+		index('host_group_members_host_id_idx').on(table.hostId)
 	]
 );
 
@@ -920,6 +956,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 	}),
 	sessions: many(sessions),
 	workspaceMemberships: many(workspaceMemberships),
+	hostGroups: many(hostGroups),
 	hosts: many(hosts),
 	credentials: many(credentials),
 	sshTunnelProfiles: many(sshTunnelProfiles),
@@ -990,10 +1027,16 @@ export const workspaceMembershipsRelations = relations(workspaceMemberships, ({ 
 	user: one(users, { fields: [workspaceMemberships.userId], references: [users.id] })
 }));
 
+export const hostGroupsRelations = relations(hostGroups, ({ one, many }) => ({
+	user: one(users, { fields: [hostGroups.userId], references: [users.id] }),
+	members: many(hostGroupMembers)
+}));
+
 export const hostsRelations = relations(hosts, ({ one, many }) => ({
 	user: one(users, { fields: [hosts.userId], references: [users.id] }),
 	workspace: one(workspaces, { fields: [hosts.workspaceId], references: [workspaces.id] }),
 	credential: one(credentials, { fields: [hosts.credentialId], references: [credentials.id] }),
+	groupMemberships: many(hostGroupMembers),
 	connectionSessions: many(connectionSessions),
 	sessionTickets: many(sessionTickets),
 	sshTunnelProfiles: many(sshTunnelProfiles),
@@ -1009,6 +1052,14 @@ export const hostsRelations = relations(hosts, ({ one, many }) => ({
 	operationReasons: many(operationReasons),
 	hostFacts: many(hostFacts),
 	hostHealth: many(hostHealth)
+}));
+
+export const hostGroupMembersRelations = relations(hostGroupMembers, ({ one }) => ({
+	group: one(hostGroups, {
+		fields: [hostGroupMembers.hostGroupId],
+		references: [hostGroups.id]
+	}),
+	host: one(hosts, { fields: [hostGroupMembers.hostId], references: [hosts.id] })
 }));
 
 export const credentialsRelations = relations(credentials, ({ one, many }) => ({

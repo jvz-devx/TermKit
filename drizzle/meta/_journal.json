@@ -85,6 +85,13 @@
       "when": 1779186993406,
       "tag": "0011_add_rdp_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779193082640,
+      "tag": "0012_mixed_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

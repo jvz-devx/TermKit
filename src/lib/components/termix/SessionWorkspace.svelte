@@ -63,7 +63,7 @@
 		<div class="relative min-h-0 flex-1">
 			<StatePanel
 				state="loading"
-				title="Loading workspace.hosts"
+				title="Loading hosts"
 				detail="Fetching connection inventory."
 				class="absolute right-3 bottom-3 left-3 bg-background"
 			/>
@@ -72,7 +72,7 @@
 		<div class="relative min-h-0 flex-1">
 			<StatePanel
 				state="error"
-				title="No workspace.hosts available"
+				title="No hosts available"
 				detail="Create a host before launching sessions."
 				class="absolute right-3 bottom-3 left-3 bg-background"
 			/>
@@ -435,6 +435,7 @@
 							expanded={rdpSidebarExpanded}
 							onOpen={workspace.selectHostProtocol}
 							onToggleExpanded={() => (rdpSidebarExpanded = !rdpSidebarExpanded)}
+							onGroupsChanged={() => workspace.hostsQuery.refresh()}
 						/>
 					</div>
 				{/if}

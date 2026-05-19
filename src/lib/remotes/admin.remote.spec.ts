@@ -149,8 +149,6 @@ function mockAdminOverviewSelects(rows: {
 	invitations?: Row[];
 	hosts?: Row[];
 	credentials?: Row[];
-	workspaces?: Row[];
-	memberships?: Row[];
 	liveSsh?: Row[];
 	sshTunnels?: Row[];
 	activeConnections?: Row[];
@@ -163,8 +161,6 @@ function mockAdminOverviewSelects(rows: {
 		.mockReturnValueOnce(chainFromOrderRows(rows.invitations ?? []))
 		.mockReturnValueOnce(chainFromRows(rows.hosts ?? []))
 		.mockReturnValueOnce(chainFromRows(rows.credentials ?? []))
-		.mockReturnValueOnce(chainFromRows(rows.workspaces ?? []))
-		.mockReturnValueOnce(chainFromRows(rows.memberships ?? []))
 		.mockReturnValueOnce(chainFromOrderRows(rows.liveSsh ?? []))
 		.mockReturnValueOnce(chainFromWhereOrderRows(rows.sshTunnels ?? []))
 		.mockReturnValueOnce(chainFromWhereOrderRows(rows.activeConnections ?? []))
@@ -215,7 +211,7 @@ afterEach(() => {
 });
 
 describe('admin overview query', () => {
-	it('summarizes users, workspaces, sessions, settings, activity, and history', async () => {
+	it('summarizes users, sessions, settings, activity, and history', async () => {
 		const now = new Date('2026-05-15T10:00:00.000Z');
 		const earlier = new Date('2026-05-14T09:00:00.000Z');
 		const later = new Date('2026-05-15T09:30:00.000Z');
@@ -293,26 +289,6 @@ describe('admin overview query', () => {
 			credentials: [
 				{ id: 'cred-1', userId: 'user-1', workspaceId: 'workspace-1', updatedAt: later },
 				{ id: 'cred-2', userId: 'admin-1', workspaceId: null, updatedAt: earlier }
-			],
-			workspaces: [
-				{ id: 'workspace-1', name: 'Ops', createdAt: earlier, updatedAt: earlier },
-				{ id: 'workspace-2', name: 'Lab', createdAt: earlier, updatedAt: earlier }
-			],
-			memberships: [
-				{
-					workspaceId: 'workspace-1',
-					userId: 'user-1',
-					role: 'owner',
-					createdAt: earlier,
-					updatedAt: later
-				},
-				{
-					workspaceId: 'workspace-1',
-					userId: 'admin-1',
-					role: 'member',
-					createdAt: earlier,
-					updatedAt: earlier
-				}
 			],
 			liveSsh: [
 				{
@@ -411,8 +387,7 @@ describe('admin overview query', () => {
 			revokeMicrosoftInvitations: true,
 			disableUsers: true,
 			promoteUsers: true,
-			terminateLiveSshSessions: true,
-			workspacesSource: 'workspace'
+			terminateLiveSshSessions: true
 		});
 		expect(overview.users).toEqual(
 			expect.arrayContaining([
@@ -437,27 +412,6 @@ describe('admin overview query', () => {
 				invitedByUsername: 'root'
 			})
 		]);
-		expect(overview.workspaces).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					id: 'workspace-1',
-					ownerId: 'user-1',
-					ownerUsername: 'ada',
-					memberCount: 2,
-					hostCount: 2,
-					sshHosts: 1,
-					rdpHosts: 1,
-					credentialCount: 1,
-					activeLiveSshSessions: 1,
-					updatedAt: '2026-05-15T09:30:00.000Z'
-				}),
-				expect.objectContaining({
-					id: 'workspace-2',
-					ownerUsername: 'Unknown owner',
-					vncHosts: 1
-				})
-			])
-		);
 		expect(overview.liveSshSessions).toEqual([
 			expect.objectContaining({
 				id: 'live-1',

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Pencil, Plus } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -9,15 +10,18 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { listHosts, saveHost, type HostSummary } from '$lib/remotes/hosts.remote';
 	import { listCredentials, type CredentialSummary } from '$lib/remotes/credentials.remote';
+	import type { HostGroupSummary } from '$lib/remotes/termix-core.shared';
 	import { normalizeHostMetadata } from '$lib/termix/host-metadata';
 
 	let {
 		credentials = [],
+		groups = [],
 		hosts = [],
 		host = null,
 		onSaved
 	}: {
 		credentials?: CredentialSummary[];
+		groups?: HostGroupSummary[];
 		hosts?: HostSummary[];
 		host?: HostSummary | null;
 		onSaved?: () => void | Promise<void>;
@@ -34,6 +38,7 @@
 		port: number;
 		username: string;
 		credentialId: string;
+		groupIds: string[];
 		folder: string;
 		tags: string;
 		notes: string;
@@ -91,6 +96,7 @@
 			port: source?.port ?? defaultPorts.ssh,
 			username: source?.username ?? '',
 			credentialId: source?.credentialId ?? 'none',
+			groupIds: source?.groups.map((group) => group.id) ?? [],
 			folder: source?.folder ?? '',
 			tags: source?.tags.join(', ') ?? '',
 			notes: source?.notes ?? '',
@@ -137,6 +143,12 @@
 		return credential.kind === 'password';
 	}
 
+	function toggleGroup(groupId: string, checked: boolean) {
+		form.groupIds = checked
+			? [...new Set([...form.groupIds, groupId])]
+			: form.groupIds.filter((id) => id !== groupId);
+	}
+
 	function openDialog() {
 		form = createForm(host);
 		error = null;
@@ -160,6 +172,7 @@
 				...form,
 				port: Number(form.port),
 				credentialId: form.credentialId === 'none' ? null : form.credentialId,
+				groupIds: form.groupIds,
 				metadata: {
 					terminalPreferences: {
 						fontSize: form.terminalFontSize,
@@ -286,6 +299,25 @@
 					<Label for={isEditing ? `notes-${host?.id}` : 'notes'}>Notes</Label>
 					<Textarea id={isEditing ? `notes-${host?.id}` : 'notes'} bind:value={form.notes} />
 				</div>
+				{#if groups.length}
+					<div class="space-y-3 rounded-md border p-3 sm:col-span-2">
+						<div>
+							<h3 class="text-sm font-medium">Groups</h3>
+							<p class="text-xs text-muted-foreground">Organize this host in one or more groups.</p>
+						</div>
+						<div class="grid gap-2 sm:grid-cols-2">
+							{#each groups as group (group.id)}
+								<label class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+									<Checkbox
+										checked={form.groupIds.includes(group.id)}
+										onCheckedChange={(checked) => toggleGroup(group.id, checked === true)}
+									/>
+									<span class="truncate">{group.name}</span>
+								</label>
+							{/each}
+						</div>
+					</div>
+				{/if}
 				<div class="space-y-3 rounded-md border p-3 sm:col-span-2">
 					<div>
 						<h3 class="text-sm font-medium">Terminal preferences</h3>

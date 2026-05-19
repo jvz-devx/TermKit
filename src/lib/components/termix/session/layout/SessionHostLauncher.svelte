@@ -99,6 +99,13 @@
 								<div class="truncate font-mono text-xs text-muted-foreground">
 									{host.username ? `${host.username}@` : ''}{host.hostname}:{host.port}
 								</div>
+								{#if host.groups.length}
+									<div class="mt-1 flex flex-wrap gap-1">
+										{#each host.groups as group (group.id)}
+											<Badge variant="secondary">{group.name}</Badge>
+										{/each}
+									</div>
+								{/if}
 								{#if host.folder || host.tags.length}
 									<div class="mt-1 truncate text-xs text-muted-foreground">
 										{host.folder ?? 'No folder'}{host.tags.length

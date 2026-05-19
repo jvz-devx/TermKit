@@ -1,10 +1,18 @@
 <script lang="ts">
-	import { Monitor, PanelRightClose, PanelRightOpen, Search, Server } from '@lucide/svelte';
+	import { FolderPlus, Monitor, PanelRightClose, PanelRightOpen, Search, Server } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { Input } from '$lib/components/ui/input';
+	import {
+		listHostGroups,
+		setHostGroupMembership
+	} from '$lib/remotes/host-groups.remote';
 	import type { HostSummary } from '$lib/remotes/hosts.remote';
+	import type { HostGroupSummary } from '$lib/remotes/termix-core.shared';
 	import { protocolsForHost, type WorkspaceProtocol } from './session-workspace-protocols';
+
+	const groupsQuery = listHostGroups();
 
 	let {
 		hosts,
@@ -12,7 +20,8 @@
 		activeProtocol,
 		expanded,
 		onOpen,
-		onToggleExpanded
+		onToggleExpanded,
+		onGroupsChanged
 	}: {
 		hosts: HostSummary[];
 		selectedHostId: string | null;
@@ -20,9 +29,12 @@
 		expanded: boolean;
 		onOpen: (host: HostSummary, protocol: WorkspaceProtocol) => void;
 		onToggleExpanded: () => void;
+		onGroupsChanged?: () => Promise<void> | void;
 	} = $props();
 
 	let search = $state('');
+	let busyGroupKey = $state<string | null>(null);
+	let groups = $derived(groupsQuery.current ?? []);
 
 	const protocolLabels: Record<WorkspaceProtocol, string> = {
 		ssh: 'SSH',
@@ -47,6 +59,7 @@
 				host.folder,
 				host.protocol,
 				host.credentialName,
+				...host.groups.map((group) => group.name),
 				...host.tags
 			]
 				.filter(Boolean)
@@ -59,6 +72,23 @@
 	function openHost(host: HostSummary) {
 		const protocols = protocolsForHost(host);
 		onOpen(host, protocols.includes(activeProtocol) ? activeProtocol : protocols[0]);
+	}
+
+	function hostHasGroup(host: HostSummary, groupId: string) {
+		return host.groups.some((group) => group.id === groupId);
+	}
+
+	async function toggleGroup(host: HostSummary, group: HostGroupSummary, assigned: boolean) {
+		const key = `${host.id}:${group.id}`;
+		busyGroupKey = key;
+		try {
+			await setHostGroupMembership({ hostId: host.id, groupId: group.id, assigned }).updates(
+				listHostGroups
+			);
+			await onGroupsChanged?.();
+		} finally {
+			if (busyGroupKey === key) busyGroupKey = null;
+		}
 	}
 </script>
 
@@ -136,6 +166,13 @@
 							<span class="block truncate font-mono text-xs text-muted-foreground">
 								{host.username ? `${host.username}@` : ''}{host.hostname}:{host.port}
 							</span>
+							{#if host.groups.length}
+								<span class="mt-1 flex flex-wrap gap-1">
+									{#each host.groups as group (group.id)}
+										<Badge variant="secondary" class="h-5">{group.name}</Badge>
+									{/each}
+								</span>
+							{/if}
 							<span class="mt-1 flex flex-wrap gap-1">
 								{#each hostProtocols as protocol (protocol)}
 									<Button
@@ -153,6 +190,41 @@
 								{/each}
 								{#if currentHost}
 									<Badge variant="outline" class="h-6">Open</Badge>
+								{/if}
+								{#if groups.length}
+									<DropdownMenu.Root>
+										<DropdownMenu.Trigger>
+											{#snippet child({ props })}
+												<Button
+													size="sm"
+													variant="ghost"
+													class="h-6 px-2 text-xs"
+													aria-label={`Manage groups for ${host.name}`}
+													onclick={(event) => event.stopPropagation()}
+													{...props}
+												>
+													<FolderPlus class="size-3" />
+													Groups
+												</Button>
+											{/snippet}
+										</DropdownMenu.Trigger>
+										<DropdownMenu.Content align="end" class="w-52">
+											<DropdownMenu.Label>{host.name}</DropdownMenu.Label>
+											<DropdownMenu.Separator />
+											{#each groups as group (group.id)}
+												{@const assigned = hostHasGroup(host, group.id)}
+												<DropdownMenu.CheckboxItem
+													checked={assigned}
+													disabled={busyGroupKey === `${host.id}:${group.id}`}
+													onclick={(event) => event.stopPropagation()}
+													onCheckedChange={(checked) =>
+														toggleGroup(host, group, checked === true)}
+												>
+													{group.name}
+												</DropdownMenu.CheckboxItem>
+											{/each}
+										</DropdownMenu.Content>
+									</DropdownMenu.Root>
 								{/if}
 							</span>
 						</span>
