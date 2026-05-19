@@ -78,6 +78,13 @@
       "when": 1779090200006,
       "tag": "0010_milky_la_nuit",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779186993406,
+      "tag": "0011_add_rdp_credentials",
+      "breakpoints": true
     }
   ]
 }

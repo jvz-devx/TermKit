@@ -282,7 +282,9 @@ function isSessionTicketTargetSnapshot(value: unknown): value is SessionTicketTa
 	const credential = value.credential;
 	return (
 		typeof credential.id === 'string' &&
-		(credential.kind === 'password' || credential.kind === 'ssh_key') &&
+		(credential.kind === 'password' ||
+			credential.kind === 'ssh_key' ||
+			credential.kind === 'rdp_password') &&
 		(typeof credential.username === 'string' || credential.username === null) &&
 		typeof credential.fingerprint === 'string'
 	);

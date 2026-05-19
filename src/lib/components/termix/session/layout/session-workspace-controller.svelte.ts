@@ -348,8 +348,11 @@ export function createSessionWorkspaceController() {
 	}
 
 	function selectHost(host: HostSummary) {
+		selectHostProtocol(host, protocolForSelectedHost(host));
+	}
+
+	function selectHostProtocol(host: HostSummary, protocol: WorkspaceProtocol) {
 		const params = new SvelteURLSearchParams(page.url.searchParams);
-		const protocol = protocolForSelectedHost(host);
 		params.set('host', host.id);
 		params.set('tab', protocol);
 		rememberProtocol(host.id, protocol);
@@ -897,6 +900,9 @@ export function createSessionWorkspaceController() {
 		},
 		get selectHost() {
 			return selectHost;
+		},
+		get selectHostProtocol() {
+			return selectHostProtocol;
 		},
 		get selectPaneHost() {
 			return selectPaneHost;

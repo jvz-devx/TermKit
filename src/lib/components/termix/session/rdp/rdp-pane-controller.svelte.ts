@@ -200,7 +200,7 @@ export function createRdpPaneController({
 		}
 
 		sessionUsername = rdpCredentials?.username ?? bootstrap.identity.username ?? '';
-		sessionDomain = bootstrap.identity.domain ?? '';
+		sessionDomain = rdpCredentials?.domain ?? bootstrap.identity.domain ?? '';
 		stagedSavedPassword =
 			rdpCredentials?.source === 'saved-password' ? (rdpCredentials.password ?? null) : null;
 		if (stagedSavedPassword) onSavedPasswordStaged?.();

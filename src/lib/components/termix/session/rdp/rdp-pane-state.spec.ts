@@ -64,6 +64,7 @@ describe('RDP pane state helpers', () => {
 		const savedCredentials = {
 			source: 'saved-password',
 			username: 'jens',
+			domain: null,
 			password: 'secret'
 		} as NonNullable<SessionLaunch['rdpCredentials']>;
 		const hintedBootstrap = { credentialHint: true } as unknown as SessionLaunch['rdp'];

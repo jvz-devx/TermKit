@@ -176,6 +176,41 @@ describe('CredentialService', () => {
 		expect(storedAfterRotation?.kind).toBe('password');
 	});
 
+	it('stores and clears RDP domain metadata without exposing the password', async () => {
+		expect.assertions(6);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const credentials = new CredentialService(
+			repository,
+			new AesGcmCredentialCrypto('test-master-key')
+		);
+
+		const created = await credentials.create('user-1', {
+			name: 'Domain admin',
+			kind: 'rdp_password',
+			username: 'adminje',
+			rdpDomain: ' DOMAIN ',
+			secret: '12Qw12Qwe!*'
+		});
+
+		expect(created).toMatchObject({
+			kind: 'rdp_password',
+			username: 'adminje',
+			metadata: { domain: 'DOMAIN' }
+		});
+		expect(JSON.stringify(created)).not.toContain('12Qw12Qwe!*');
+
+		const [stored] = await repository.listCredentials('user-1');
+		expect(stored?.metadata.domain).toBe('DOMAIN');
+		expect(stored?.encryptedSecret).not.toBe('12Qw12Qwe!*');
+
+		const updated = await credentials.update('user-1', created.id, { rdpDomain: '' });
+		const [storedAfterClear] = await repository.listCredentials('user-1');
+
+		expect(updated.metadata.domain).toBeUndefined();
+		expect(storedAfterClear?.metadata.domain).toBeUndefined();
+	});
+
 	it('requires a replacement secret when changing credential kind', async () => {
 		expect.assertions(3);
 

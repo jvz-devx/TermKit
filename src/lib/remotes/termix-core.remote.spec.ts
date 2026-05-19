@@ -577,6 +577,7 @@ describe('termix remote functions', () => {
 		} as never);
 		vi.mocked(resolveRdpLaunchCredentials).mockResolvedValueOnce({
 			username: 'desktop',
+			domain: 'DOMAIN',
 			password: 'launch-secret',
 			source: 'saved-password',
 			unavailableReason: null
@@ -617,6 +618,7 @@ describe('termix remote functions', () => {
 			},
 			rdpCredentials: {
 				username: 'desktop',
+				domain: 'DOMAIN',
 				password: 'launch-secret',
 				source: 'saved-password'
 			}
@@ -635,6 +637,7 @@ describe('termix remote functions', () => {
 		} as never);
 		vi.mocked(resolveRdpLaunchCredentials).mockResolvedValueOnce({
 			username: 'desktop',
+			domain: null,
 			password: null,
 			source: 'none',
 			unavailableReason: null
@@ -660,6 +663,7 @@ describe('termix remote functions', () => {
 		} as never);
 		vi.mocked(resolveRdpLaunchCredentials).mockResolvedValueOnce({
 			username: 'desktop',
+			domain: null,
 			password: null,
 			source: 'none',
 			unavailableReason: null
@@ -981,9 +985,9 @@ describe('termix remote functions', () => {
 			'Connection failed',
 			{}
 		);
-		expect(vi.mocked(connectionSessionService.failForUserWithDetails).mock.calls[0][2]).toHaveLength(
-			120
-		);
+		expect(
+			vi.mocked(connectionSessionService.failForUserWithDetails).mock.calls[0][2]
+		).toHaveLength(120);
 	});
 
 	it('rejects unsupported connection lifecycle events without mutating sessions', async () => {

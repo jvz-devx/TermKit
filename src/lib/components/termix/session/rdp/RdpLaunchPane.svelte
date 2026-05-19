@@ -13,7 +13,9 @@
 		performancePreset = 'balanced',
 		audioRedirection = false,
 		detailsControls,
-		immersive = false
+		immersive = false,
+		sidebarOpen = false,
+		onToggleSidebar
 	}: {
 		hostId: string;
 		onReconnect: () => void;
@@ -23,6 +25,8 @@
 		audioRedirection?: boolean;
 		detailsControls?: Snippet;
 		immersive?: boolean;
+		sidebarOpen?: boolean;
+		onToggleSidebar?: () => void;
 	} = $props();
 
 	let launch = $state<SessionLaunch | null>(null);
@@ -74,5 +78,7 @@
 		{audioRedirection}
 		{detailsControls}
 		{immersive}
+		{sidebarOpen}
+		{onToggleSidebar}
 	/>
 {/key}

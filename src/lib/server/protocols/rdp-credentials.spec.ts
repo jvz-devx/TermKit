@@ -18,6 +18,7 @@ describe('RDP launch credentials', () => {
 
 		expect(credentials).toEqual({
 			username: 'host-user',
+			domain: null,
 			password: null,
 			source: 'none',
 			unavailableReason: null
@@ -40,6 +41,30 @@ describe('RDP launch credentials', () => {
 		expect(credential.encryptedSecret).not.toBe('rdp-password');
 		expect(credentials).toEqual({
 			username: 'credential-user',
+			domain: null,
+			password: 'rdp-password',
+			source: 'saved-password',
+			unavailableReason: null
+		});
+	});
+
+	it('decrypts saved RDP credentials and returns their domain', async () => {
+		const { repository, crypto, credential } = await createEncryptedCredential({
+			kind: 'rdp_password',
+			secret: 'rdp-password',
+			metadata: { domain: ' DOMAIN ' }
+		});
+
+		const credentials = await resolveRdpLaunchCredentials(
+			'user-1',
+			testTargetSnapshot({ username: 'host-user', credentialId: credential.id }),
+			repository,
+			crypto
+		);
+
+		expect(credentials).toEqual({
+			username: 'credential-user',
+			domain: 'DOMAIN',
 			password: 'rdp-password',
 			source: 'saved-password',
 			unavailableReason: null
@@ -61,6 +86,7 @@ describe('RDP launch credentials', () => {
 		);
 
 		expect(credentials.username).toBe('host-user');
+		expect(credentials.domain).toBeNull();
 		expect(credentials.password).toBe('rdp-password');
 		expect(credentials.source).toBe('saved-password');
 		expect(credentials.unavailableReason).toBeNull();
@@ -99,9 +125,10 @@ describe('RDP launch credentials', () => {
 });
 
 async function createEncryptedCredential(input: {
-	kind: 'password' | 'ssh_key';
+	kind: 'password' | 'ssh_key' | 'rdp_password';
 	secret: string;
 	username?: string | null;
+	metadata?: Record<string, unknown>;
 }): Promise<{
 	repository: InMemoryTermixServicesRepository;
 	crypto: AesGcmCredentialCrypto;
@@ -114,7 +141,8 @@ async function createEncryptedCredential(input: {
 		name: 'RDP credential',
 		kind: input.kind,
 		username: input.username === undefined ? 'credential-user' : input.username,
-		secret: input.secret
+		secret: input.secret,
+		metadata: input.metadata
 	});
 	const credential = await repository.getCredential('user-1', created.id);
 

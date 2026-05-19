@@ -7,6 +7,7 @@ import type { CredentialCrypto, CredentialRepository } from '$lib/server/service
 
 export type RdpLaunchCredentials = {
 	username: string | null;
+	domain: string | null;
 	password: string | null;
 	source: 'none' | 'saved-password';
 	unavailableReason: string | null;
@@ -23,6 +24,7 @@ export async function resolveRdpLaunchCredentials(
 	if (!credentialId) {
 		return {
 			username: target.host.username,
+			domain: readDomain(target.host.metadata),
 			password: null,
 			source: 'none',
 			unavailableReason: null
@@ -33,7 +35,7 @@ export async function resolveRdpLaunchCredentials(
 	if (!credential) {
 		throw new ServiceValidationError(['RDP credential is unavailable']);
 	}
-	if (credential.kind !== 'password') {
+	if (credential.kind !== 'password' && credential.kind !== 'rdp_password') {
 		throw new ServiceValidationError(['RDP saved credential must be a password credential']);
 	}
 
@@ -50,8 +52,14 @@ export async function resolveRdpLaunchCredentials(
 
 	return {
 		username: credential.username ?? target.host.username,
+		domain: readDomain(credential.metadata) ?? readDomain(target.host.metadata),
 		password,
 		source: 'saved-password',
 		unavailableReason: null
 	};
+}
+
+function readDomain(metadata: Record<string, unknown>): string | null {
+	const domain = metadata.domain;
+	return typeof domain === 'string' && domain.trim() ? domain.trim() : null;
 }

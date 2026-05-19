@@ -76,6 +76,9 @@
 	let availableJumpHosts = $derived(
 		hosts.filter((candidate) => candidate.protocol === 'ssh' && candidate.id !== host?.id)
 	);
+	let compatibleCredentials = $derived(
+		credentials.filter((credential) => credentialCompatibleWithProtocol(credential, form.protocol))
+	);
 
 	let form = $state(createForm());
 
@@ -112,6 +115,26 @@
 
 		form.protocol = nextProtocol;
 		if (shouldUseDefaultPort) form.port = defaultPorts[nextProtocol];
+		if (
+			form.credentialId !== 'none' &&
+			!credentials.some(
+				(credential) =>
+					credential.id === form.credentialId &&
+					credentialCompatibleWithProtocol(credential, nextProtocol)
+			)
+		) {
+			form.credentialId = 'none';
+		}
+	}
+
+	function credentialCompatibleWithProtocol(
+		credential: CredentialSummary,
+		protocol: HostProtocol
+	): boolean {
+		if (protocol === 'rdp')
+			return credential.kind === 'rdp_password' || credential.kind === 'password';
+		if (protocol === 'ssh') return credential.kind === 'password' || credential.kind === 'ssh_key';
+		return credential.kind === 'password';
 	}
 
 	function openDialog() {
@@ -241,7 +264,7 @@
 						</Select.Trigger>
 						<Select.Content>
 							<Select.Item value="none">No credential</Select.Item>
-							{#each credentials as credential (credential.id)}
+							{#each compatibleCredentials as credential (credential.id)}
 								<Select.Item value={credential.id}>{credential.name}</Select.Item>
 							{/each}
 						</Select.Content>

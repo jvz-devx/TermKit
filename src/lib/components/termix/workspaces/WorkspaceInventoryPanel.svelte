@@ -70,6 +70,12 @@
 		);
 	});
 
+	function credentialKindLabel(kind: WorkspaceCredentialSummary['kind']) {
+		if (kind === 'ssh_key') return 'SSH key';
+		if (kind === 'rdp_password') return 'RDP credential';
+		return 'Password';
+	}
+
 	function hostAssigned(host: WorkspaceHostSummary) {
 		return Boolean(workspace && host.workspaceIds.includes(workspace.id));
 	}
@@ -201,7 +207,7 @@
 									</Table.Cell>
 									<Table.Cell>
 										<Badge variant="outline">
-											{credential.kind === 'ssh_key' ? 'SSH key' : 'Password'}
+											{credentialKindLabel(credential.kind)}
 										</Badge>
 									</Table.Cell>
 									<Table.Cell>{credential.usedBy} hosts</Table.Cell>

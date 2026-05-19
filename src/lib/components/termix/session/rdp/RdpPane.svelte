@@ -15,8 +15,15 @@
 	let {
 		detailsControls,
 		immersive = false,
+		sidebarOpen = false,
+		onToggleSidebar,
 		...controllerProps
-	}: RdpPaneControllerProps & { detailsControls?: Snippet; immersive?: boolean } = $props();
+	}: RdpPaneControllerProps & {
+		detailsControls?: Snippet;
+		immersive?: boolean;
+		sidebarOpen?: boolean;
+		onToggleSidebar?: () => void;
+	} = $props();
 	// eslint-disable-next-line svelte/no-unused-svelte-ignore
 	// svelte-ignore state_referenced_locally -- RDP launch identity is fixed for this mounted pane
 	const rdp = createRdpPaneController(controllerProps);
@@ -51,6 +58,7 @@
 		selectedPreset={rdp.selectedPreset}
 		selectedScale={rdp.selectedScale}
 		reconnectLabel={rdp.reconnectLabel}
+		{sidebarOpen}
 		onSendCtrlAltDel={rdp.sendCtrlAltDel}
 		onSendWindowsKey={rdp.sendWindowsKey}
 		onFocusRemoteDesktop={rdp.focusRemoteDesktop}
@@ -60,6 +68,7 @@
 		onScaleChange={rdp.changeScale}
 		onReconnect={rdp.onReconnect}
 		onDisconnect={rdp.disconnectRdpSession}
+		{onToggleSidebar}
 		{detailsControls}
 	>
 		{#snippet clipboardControls()}

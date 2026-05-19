@@ -32,6 +32,7 @@
 		name: string;
 		kind: CredentialSummary['kind'];
 		username: string;
+		rdpDomain: string;
 		secret: string;
 	};
 
@@ -42,7 +43,7 @@
 		const needle = search.trim().toLowerCase();
 		if (!needle) return credentials;
 		return credentials.filter((credential) =>
-			[credential.name, credential.kind, credential.username]
+			[credential.name, credential.kind, credential.username, credential.rdpDomain]
 				.filter(Boolean)
 				.join(' ')
 				.toLowerCase()
@@ -51,7 +52,7 @@
 	});
 
 	function emptyForm(): CredentialForm {
-		return { name: '', kind: 'password', username: '', secret: '' };
+		return { name: '', kind: 'password', username: '', rdpDomain: '', secret: '' };
 	}
 
 	function credentialForm(credential: CredentialSummary): CredentialForm {
@@ -59,8 +60,15 @@
 			name: credential.name,
 			kind: credential.kind,
 			username: credential.username ?? '',
+			rdpDomain: credential.rdpDomain ?? '',
 			secret: ''
 		};
+	}
+
+	function kindLabel(kind: CredentialSummary['kind']) {
+		if (kind === 'ssh_key') return 'SSH key';
+		if (kind === 'rdp_password') return 'RDP credential';
+		return 'Password';
 	}
 
 	function openCreateDialog() {
@@ -90,6 +98,7 @@
 				name: form.name,
 				kind: form.kind,
 				username: form.username,
+				rdpDomain: form.kind === 'rdp_password' ? form.rdpDomain : '',
 				...(form.secret ? { secret: form.secret } : {})
 			}).updates(listCredentials);
 			editingCredential = null;
@@ -128,7 +137,7 @@
 	<div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 		<div>
 			<h1 class="text-lg font-semibold">Credentials</h1>
-			<p class="text-sm text-muted-foreground">Encrypted password and SSH key records.</p>
+			<p class="text-sm text-muted-foreground">Encrypted password, RDP, and SSH key records.</p>
 		</div>
 		<Dialog.Root bind:open>
 			<Button size="sm" onclick={openCreateDialog}><Plus class="size-4" />Credential</Button>
@@ -159,10 +168,11 @@
 							<Label>Kind</Label>
 							<Select.Root type="single" bind:value={form.kind}>
 								<Select.Trigger class="w-full">
-									{form.kind === 'ssh_key' ? 'SSH key' : 'Password'}
+									{kindLabel(form.kind)}
 								</Select.Trigger>
 								<Select.Content>
 									<Select.Item value="password">Password</Select.Item>
+									<Select.Item value="rdp_password">RDP credential</Select.Item>
 									<Select.Item value="ssh_key">SSH key</Select.Item>
 								</Select.Content>
 							</Select.Root>
@@ -182,6 +192,24 @@
 								bind:value={form.username}
 							/>
 						</div>
+						{#if form.kind === 'rdp_password'}
+							<div class="space-y-2 sm:col-span-2">
+								<Label
+									for={isEditing
+										? `credential-domain-${editingCredential?.id}`
+										: 'credential-domain'}
+								>
+									Domain
+								</Label>
+								<Input
+									id={isEditing
+										? `credential-domain-${editingCredential?.id}`
+										: 'credential-domain'}
+									bind:value={form.rdpDomain}
+									placeholder="DOMAIN"
+								/>
+							</div>
+						{/if}
 						<div class="space-y-2 sm:col-span-2">
 							<Label
 								for={isEditing ? `credential-secret-${editingCredential?.id}` : 'credential-secret'}
@@ -241,6 +269,7 @@
 							<Table.Head>Name</Table.Head>
 							<Table.Head>Kind</Table.Head>
 							<Table.Head>Username</Table.Head>
+							<Table.Head>Domain</Table.Head>
 							<Table.Head>Used by</Table.Head>
 							<Table.Head>Updated</Table.Head>
 							<Table.Head class="w-24 text-right">Actions</Table.Head>
@@ -249,7 +278,7 @@
 					<Table.Body>
 						{#if credentialsQuery.loading}
 							<Table.Row>
-								<Table.Cell colspan={6} class="h-24 text-center text-muted-foreground">
+								<Table.Cell colspan={7} class="h-24 text-center text-muted-foreground">
 									Loading credentials...
 								</Table.Cell>
 							</Table.Row>
@@ -259,10 +288,11 @@
 									<Table.Cell class="font-medium">{credential.name}</Table.Cell>
 									<Table.Cell>
 										<Badge variant="outline">
-											{credential.kind === 'ssh_key' ? 'SSH key' : 'Password'}
+											{kindLabel(credential.kind)}
 										</Badge>
 									</Table.Cell>
 									<Table.Cell>{credential.username ?? '-'}</Table.Cell>
+									<Table.Cell>{credential.rdpDomain ?? '-'}</Table.Cell>
 									<Table.Cell>{credential.usedBy} hosts</Table.Cell>
 									<Table.Cell class="text-sm text-muted-foreground">
 										{new Date(credential.updatedAt).toLocaleString()}
@@ -291,7 +321,7 @@
 								</Table.Row>
 							{:else}
 								<Table.Row>
-									<Table.Cell colspan={6} class="h-24 text-center text-muted-foreground">
+									<Table.Cell colspan={7} class="h-24 text-center text-muted-foreground">
 										No credentials found.
 									</Table.Cell>
 								</Table.Row>

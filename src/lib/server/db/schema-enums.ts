@@ -10,7 +10,7 @@ export const connectionProtocol = pgEnum('connection_protocol', [
 	'ftps',
 	'ssh_tunnel'
 ]);
-export const credentialKind = pgEnum('credential_kind', ['password', 'ssh_key']);
+export const credentialKind = pgEnum('credential_kind', ['password', 'ssh_key', 'rdp_password']);
 export const authIdentityProvider = pgEnum('auth_identity_provider', ['microsoft']);
 export const workspaceMemberRole = pgEnum('workspace_member_role', ['owner', 'member']);
 export const connectionSessionStatus = pgEnum('connection_session_status', [

@@ -11,6 +11,7 @@
 	import SessionPaneFallback from './session/layout/SessionPaneFallback.svelte';
 	import SessionPaneHeader from './session/layout/SessionPaneHeader.svelte';
 	import SessionWorkbenchBar from './session/layout/SessionWorkbenchBar.svelte';
+	import SessionHostSidebar from './session/layout/SessionHostSidebar.svelte';
 	import SessionWorkspaceHeader from './session/layout/SessionWorkspaceHeader.svelte';
 	import SessionTileGrid from './session/layout/SessionTileGrid.svelte';
 	import FtpLaunchPane from './session/ftp/FtpLaunchPane.svelte';
@@ -25,6 +26,7 @@
 	import { createSessionWorkspaceController } from './session/layout/session-workspace-controller.svelte';
 
 	const workspace = createSessionWorkspaceController();
+	let rdpSidebarOpen = $state(true);
 
 	const captureWorkspaceElement: Attachment<HTMLElement> = (node) => {
 		workspace.workspaceElement = node;
@@ -129,288 +131,322 @@
 				/>
 			{/if}
 
-			<SessionTileGrid
-				layout={workspace.activeWorkspaceLayout.layout}
-				panes={workspace.activeWorkspaceLayout.panes}
-				immersive={immersiveRdp}
+			<div
+				class={immersiveRdp
+					? 'relative flex min-h-0 min-w-0 flex-1 overflow-hidden'
+					: 'min-h-0 min-w-0 flex-1'}
 			>
-				{#snippet children(pane, index)}
-					{@const paneHost = workspace.hostForPane(pane)}
-					{#snippet rdpDetailsControls()}
-						<div class="grid gap-3 text-sm">
-							<div class="min-w-0">
-								<p class="text-xs font-medium text-muted-foreground">Session target</p>
-								<p class="truncate font-mono text-xs">
-									{#if paneHost}
-										{paneHost.username
-											? `${paneHost.username}@`
-											: ''}{paneHost.hostname}:{paneHost.port}
-									{:else}
-										No host selected
+				<div class="h-full min-h-0 min-w-0 flex-1">
+					<SessionTileGrid
+						layout={workspace.activeWorkspaceLayout.layout}
+						panes={workspace.activeWorkspaceLayout.panes}
+						immersive={immersiveRdp}
+					>
+						{#snippet children(pane, index)}
+							{@const paneHost = workspace.hostForPane(pane)}
+							{#snippet rdpDetailsControls()}
+								<div class="grid gap-3 text-sm">
+									<div class="min-w-0">
+										<p class="text-xs font-medium text-muted-foreground">Session target</p>
+										<p class="truncate font-mono text-xs">
+											{#if paneHost}
+												{paneHost.username
+													? `${paneHost.username}@`
+													: ''}{paneHost.hostname}:{paneHost.port}
+											{:else}
+												No host selected
+											{/if}
+										</p>
+									</div>
+									<div class="grid gap-2 sm:grid-cols-2">
+										<Button href={resolve('/history' as '/')} size="sm" variant="outline">
+											History
+										</Button>
+										<Button size="sm" variant="outline" onclick={workspace.returnToLauncher}>
+											Change host
+										</Button>
+									</div>
+									{#if workspace.availableTabs.length > 1}
+										<div class="grid gap-2">
+											<p class="text-xs font-medium text-muted-foreground">Protocol</p>
+											<div class="flex flex-wrap gap-1">
+												{#each workspace.availableTabs as tab (tab)}
+													<Button
+														size="sm"
+														variant={workspace.activeProtocol === tab ? 'secondary' : 'outline'}
+														aria-pressed={workspace.activeProtocol === tab}
+														onclick={() => workspace.selectProtocol(tab)}
+													>
+														{tab.toUpperCase()}
+													</Button>
+												{/each}
+											</div>
+										</div>
 									{/if}
-								</p>
-							</div>
-							<div class="grid gap-2 sm:grid-cols-2">
-								<Button href={resolve('/history' as '/')} size="sm" variant="outline">
-									History
-								</Button>
-								<Button size="sm" variant="outline" onclick={workspace.returnToLauncher}>
-									Change host
-								</Button>
-							</div>
-							{#if workspace.availableTabs.length > 1}
-								<div class="grid gap-2">
-									<p class="text-xs font-medium text-muted-foreground">Protocol</p>
-									<div class="flex flex-wrap gap-1">
-										{#each workspace.availableTabs as tab (tab)}
+								</div>
+							{/snippet}
+							{#if !immersiveRdp}
+								<SessionPaneHeader
+									paneId={pane.id}
+									kind={pane.kind}
+									host={paneHost}
+									hosts={workspace.hosts}
+									{index}
+									onKindChange={workspace.selectPaneKind}
+									onHostChange={workspace.selectPaneHost}
+									onReconnect={workspace.reconnectPane}
+									onClose={workspace.closePane}
+									compact={pane.kind === 'rdp'}
+								/>
+							{/if}
+							{#if !paneHost}
+								<div class="min-h-0 flex-1 p-3">
+									<StatePanel
+										state="disconnected"
+										title="No host selected"
+										detail="Choose a host for this pane."
+									/>
+								</div>
+							{:else if !workspace.isPaneProtocolAvailable(paneHost, pane.kind)}
+								<SessionPaneFallback kind={pane.kind} host={paneHost} />
+							{:else if pane.kind === 'ssh'}
+								{@const paneLiveSshError = workspace.liveSshErrorForHost(paneHost.id)}
+								{@const attachableSshSessions = workspace.attachableLiveSshSessionsForHost(
+									paneHost.id
+								)}
+								{@const hostKeyLaunchBlocked = workspace.isSshHostKeyLaunchBlocked(paneHost)}
+								{@const paneLiveSshAttach = workspace.liveSshAttachByPaneId[pane.id] ?? null}
+								<div class="min-h-0 flex-1 p-3">
+									{#if paneLiveSshError}
+										<StatePanel
+											state="error"
+											title={workspace.liveSshActionTitle(paneLiveSshError)}
+											detail={workspace.liveSshActionDetail(paneLiveSshError)}
+										>
+											{#if workspace.isHostKeyTrustFailure(paneLiveSshError)}
+												<SshHostKeyTrustPanel host={paneHost} onEnrolled={workspace.reconnect} />
+											{/if}
 											<Button
 												size="sm"
-												variant={workspace.activeProtocol === tab ? 'secondary' : 'outline'}
-												aria-pressed={workspace.activeProtocol === tab}
-												onclick={() => workspace.selectProtocol(tab)}
+												onclick={() =>
+													workspace.createPersistentSshTab({ host: paneHost, paneId: pane.id })}
+												disabled={workspace.liveSshBusy || hostKeyLaunchBlocked}
 											>
-												{tab.toUpperCase()}
+												<RotateCcw class="size-4" />
+												Retry SSH
 											</Button>
-										{/each}
-									</div>
-								</div>
-							{/if}
-						</div>
-					{/snippet}
-					{#if !immersiveRdp}
-						<SessionPaneHeader
-							paneId={pane.id}
-							kind={pane.kind}
-							host={paneHost}
-							hosts={workspace.hosts}
-							{index}
-							onKindChange={workspace.selectPaneKind}
-							onHostChange={workspace.selectPaneHost}
-							onReconnect={workspace.reconnectPane}
-							onClose={workspace.closePane}
-							compact={pane.kind === 'rdp'}
-						/>
-					{/if}
-					{#if !paneHost}
-						<div class="min-h-0 flex-1 p-3">
-							<StatePanel
-								state="disconnected"
-								title="No host selected"
-								detail="Choose a host for this pane."
-							/>
-						</div>
-					{:else if !workspace.isPaneProtocolAvailable(paneHost, pane.kind)}
-						<SessionPaneFallback kind={pane.kind} host={paneHost} />
-					{:else if pane.kind === 'ssh'}
-						{@const paneLiveSshError = workspace.liveSshErrorForHost(paneHost.id)}
-						{@const attachableSshSessions = workspace.attachableLiveSshSessionsForHost(paneHost.id)}
-						{@const hostKeyLaunchBlocked = workspace.isSshHostKeyLaunchBlocked(paneHost)}
-						{@const paneLiveSshAttach = workspace.liveSshAttachByPaneId[pane.id] ?? null}
-						<div class="min-h-0 flex-1 p-3">
-							{#if paneLiveSshError}
-								<StatePanel
-									state="error"
-									title={workspace.liveSshActionTitle(paneLiveSshError)}
-									detail={workspace.liveSshActionDetail(paneLiveSshError)}
-								>
-									{#if workspace.isHostKeyTrustFailure(paneLiveSshError)}
+											<Button size="sm" variant="outline" onclick={workspace.returnToLauncher}
+												>Change host</Button
+											>
+										</StatePanel>
+									{:else if workspace.liveSshBusy && workspace.liveSshBusyPaneId === pane.id}
+										<StatePanel
+											state="loading"
+											title="Opening SSH tab"
+											detail="Preparing attach ticket."
+										/>
+									{:else if paneLiveSshAttach && paneLiveSshAttach.session.hostId === paneHost.id}
 										<SshHostKeyTrustPanel host={paneHost} onEnrolled={workspace.reconnect} />
+										{#key `ssh-live:${paneLiveSshAttach.session.id}:${paneLiveSshAttach.liveTicket}:${workspace.reconnectNonce}`}
+											<TerminalPane
+												title={paneLiveSshAttach.session.title}
+												subtitle={`${paneLiveSshAttach.session.username ?? 'user'}@${paneLiveSshAttach.session.hostname}`}
+												websocketUrl={workspace.toWebSocketUrl(paneLiveSshAttach.liveWebsocketPath)}
+												welcome={workspace.sshWelcome(paneHost, paneLiveSshAttach.session.hostname)}
+												fontSize={workspace.terminalFontSize(
+													paneHost.terminalPreferences,
+													workspace.appSettings.terminalFontSize
+												)}
+												preferences={paneHost.terminalPreferences}
+												onConnectionStateChange={(state) =>
+													workspace.handleLiveSshTerminalState(state, pane.id)}
+											/>
+										{/key}
+									{:else if workspace.isPanePaused(paneHost, pane.kind)}
+										<StatePanel
+											state="disconnected"
+											title="SSH disconnected"
+											detail="Reconnect to attach the SSH tab again."
+										/>
+									{:else if workspace.liveSshSessionsQuery.loading}
+										<StatePanel
+											state="loading"
+											title="Loading SSH tabs"
+											detail="Fetching live session state."
+										/>
+									{:else if attachableSshSessions.length > 0}
+										<StatePanel
+											state="ready"
+											title="SSH tabs available"
+											detail="Attach an existing live tab or create a new SSH tab."
+										>
+											<Button
+												size="sm"
+												onclick={() =>
+													workspace.attachPersistentSshTab(attachableSshSessions[0], pane.id)}
+												disabled={workspace.liveSshBusy || hostKeyLaunchBlocked}
+											>
+												Attach tab
+											</Button>
+											<Button
+												size="sm"
+												variant="outline"
+												onclick={() =>
+													workspace.createPersistentSshTab({ host: paneHost, paneId: pane.id })}
+												disabled={workspace.liveSshBusy || hostKeyLaunchBlocked}
+											>
+												New SSH tab
+											</Button>
+										</StatePanel>
+									{:else if browser && hostKeyLaunchBlocked}
+										<StatePanel
+											state="ready"
+											title="SSH host key enrollment required"
+											detail="Enroll the host key before opening this SSH session."
+										>
+											<SshHostKeyTrustPanel host={paneHost} onEnrolled={workspace.reconnect} />
+										</StatePanel>
+									{:else if browser}
+										<SshHostKeyTrustPanel host={paneHost} onEnrolled={workspace.reconnect} />
+										{#key `ssh:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
+											<SshLaunchPane
+												host={paneHost}
+												fontSize={workspace.terminalFontSize(
+													paneHost.terminalPreferences,
+													workspace.appSettings.terminalFontSize
+												)}
+												onLaunch={(launch) => workspace.handleLiveSshLaunch(launch, pane.id)}
+												onConnectionStateChange={(state) =>
+													workspace.handleLiveSshTerminalState(state, pane.id)}
+											/>
+										{/key}
 									{/if}
-									<Button
-										size="sm"
-										onclick={() =>
-											workspace.createPersistentSshTab({ host: paneHost, paneId: pane.id })}
-										disabled={workspace.liveSshBusy || hostKeyLaunchBlocked}
-									>
-										<RotateCcw class="size-4" />
-										Retry SSH
-									</Button>
-									<Button size="sm" variant="outline" onclick={workspace.returnToLauncher}
-										>Change host</Button
-									>
-								</StatePanel>
-							{:else if workspace.liveSshBusy && workspace.liveSshBusyPaneId === pane.id}
-								<StatePanel
-									state="loading"
-									title="Opening SSH tab"
-									detail="Preparing attach ticket."
-								/>
-							{:else if paneLiveSshAttach && paneLiveSshAttach.session.hostId === paneHost.id}
-								<SshHostKeyTrustPanel host={paneHost} onEnrolled={workspace.reconnect} />
-								{#key `ssh-live:${paneLiveSshAttach.session.id}:${paneLiveSshAttach.liveTicket}:${workspace.reconnectNonce}`}
-									<TerminalPane
-										title={paneLiveSshAttach.session.title}
-										subtitle={`${paneLiveSshAttach.session.username ?? 'user'}@${paneLiveSshAttach.session.hostname}`}
-										websocketUrl={workspace.toWebSocketUrl(paneLiveSshAttach.liveWebsocketPath)}
-										welcome={workspace.sshWelcome(paneHost, paneLiveSshAttach.session.hostname)}
-										fontSize={workspace.terminalFontSize(
-											paneHost.terminalPreferences,
-											workspace.appSettings.terminalFontSize
-										)}
-										preferences={paneHost.terminalPreferences}
-										onConnectionStateChange={(state) =>
-											workspace.handleLiveSshTerminalState(state, pane.id)}
-									/>
-								{/key}
-							{:else if workspace.isPanePaused(paneHost, pane.kind)}
-								<StatePanel
-									state="disconnected"
-									title="SSH disconnected"
-									detail="Reconnect to attach the SSH tab again."
-								/>
-							{:else if workspace.liveSshSessionsQuery.loading}
-								<StatePanel
-									state="loading"
-									title="Loading SSH tabs"
-									detail="Fetching live session state."
-								/>
-							{:else if attachableSshSessions.length > 0}
-								<StatePanel
-									state="ready"
-									title="SSH tabs available"
-									detail="Attach an existing live tab or create a new SSH tab."
-								>
-									<Button
-										size="sm"
-										onclick={() =>
-											workspace.attachPersistentSshTab(attachableSshSessions[0], pane.id)}
-										disabled={workspace.liveSshBusy || hostKeyLaunchBlocked}
-									>
-										Attach tab
-									</Button>
-									<Button
-										size="sm"
-										variant="outline"
-										onclick={() =>
-											workspace.createPersistentSshTab({ host: paneHost, paneId: pane.id })}
-										disabled={workspace.liveSshBusy || hostKeyLaunchBlocked}
-									>
-										New SSH tab
-									</Button>
-								</StatePanel>
-							{:else if browser && hostKeyLaunchBlocked}
-								<StatePanel
-									state="ready"
-									title="SSH host key enrollment required"
-									detail="Enroll the host key before opening this SSH session."
-								>
-									<SshHostKeyTrustPanel host={paneHost} onEnrolled={workspace.reconnect} />
-								</StatePanel>
-							{:else if browser}
-								<SshHostKeyTrustPanel host={paneHost} onEnrolled={workspace.reconnect} />
-								{#key `ssh:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
-									<SshLaunchPane
-										host={paneHost}
-										fontSize={workspace.terminalFontSize(
-											paneHost.terminalPreferences,
-											workspace.appSettings.terminalFontSize
-										)}
-										onLaunch={(launch) => workspace.handleLiveSshLaunch(launch, pane.id)}
-										onConnectionStateChange={(state) =>
-											workspace.handleLiveSshTerminalState(state, pane.id)}
-									/>
-								{/key}
-							{/if}
-						</div>
-					{:else if pane.kind === 'sftp'}
-						<div class="min-h-0 flex-1 p-3">
-							{#if paneHost.sshJumpHost.enabled && paneHost.sshJumpHost.hostId}
-								<div
-									class="mb-2 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
-								>
-									SFTP metadata uses jump host
-									<span class="font-mono">{paneHost.sshJumpHost.hostId}</span>.
+								</div>
+							{:else if pane.kind === 'sftp'}
+								<div class="min-h-0 flex-1 p-3">
+									{#if paneHost.sshJumpHost.enabled && paneHost.sshJumpHost.hostId}
+										<div
+											class="mb-2 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+										>
+											SFTP metadata uses jump host
+											<span class="font-mono">{paneHost.sshJumpHost.hostId}</span>.
+										</div>
+									{/if}
+									{#if browser}
+										{#key `sftp:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
+											<SftpLaunchPane hostId={paneHost.id} />
+										{/key}
+									{/if}
+								</div>
+							{:else if pane.kind === 'ftp' || pane.kind === 'ftps'}
+								<div class="min-h-0 flex-1 p-3">
+									{#if browser}
+										{#key `ftp:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
+											<FtpLaunchPane host={paneHost} />
+										{/key}
+									{/if}
+								</div>
+							{:else if pane.kind === 'ssh-tunnel'}
+								<div class="min-h-0 flex-1 p-3">
+									<SshTunnelPane host={paneHost} />
+								</div>
+							{:else if pane.kind === 'rdp'}
+								<div class={immersiveRdp ? 'min-h-0 flex-1 p-0' : 'min-h-0 flex-1 p-1'}>
+									{#if workspace.isPanePaused(paneHost, pane.kind)}
+										<RdpPane
+											launch={null}
+											error="Disconnected. Reconnect to create a new session."
+											onReconnect={workspace.reconnect}
+											clipboardSync={workspace.appSettings.clipboardSync}
+											clipboardPolicy={workspace.appSettings.rdpClipboard}
+											performancePreset={workspace.appSettings.rdpPerformancePreset}
+											audioRedirection={workspace.appSettings.rdpAudioRedirection}
+											immersive={immersiveRdp}
+											sidebarOpen={rdpSidebarOpen}
+											onToggleSidebar={() => (rdpSidebarOpen = !rdpSidebarOpen)}
+										>
+											{#snippet detailsControls()}
+												{@render rdpDetailsControls()}
+											{/snippet}
+										</RdpPane>
+									{:else if browser}
+										{#key `rdp:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
+											<RdpLaunchPane
+												hostId={paneHost.id}
+												onReconnect={workspace.reconnect}
+												clipboardSync={workspace.appSettings.clipboardSync}
+												clipboardPolicy={workspace.appSettings.rdpClipboard}
+												performancePreset={workspace.appSettings.rdpPerformancePreset}
+												audioRedirection={workspace.appSettings.rdpAudioRedirection}
+												immersive={immersiveRdp}
+												sidebarOpen={rdpSidebarOpen}
+												onToggleSidebar={() => (rdpSidebarOpen = !rdpSidebarOpen)}
+											>
+												{#snippet detailsControls()}
+													{@render rdpDetailsControls()}
+												{/snippet}
+											</RdpLaunchPane>
+										{/key}
+									{/if}
+								</div>
+							{:else if pane.kind === 'vnc'}
+								<div class="min-h-0 flex-1 p-3">
+									{#if workspace.isPanePaused(paneHost, pane.kind)}
+										<StatePanel
+											state="disconnected"
+											title="VNC disconnected"
+											detail="Reconnect to create a new session."
+										/>
+									{:else if browser}
+										{#key `vnc:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
+											<VncLaunchPane hostId={paneHost.id} fallbackUsername={paneHost.username} />
+										{/key}
+									{/if}
+								</div>
+							{:else if pane.kind === 'telnet'}
+								<div class="min-h-0 flex-1 p-3">
+									{#if workspace.isPanePaused(paneHost, pane.kind)}
+										<StatePanel
+											state="disconnected"
+											title="Telnet disconnected"
+											detail="Reconnect to create a new session."
+										/>
+									{:else if browser}
+										{#key `telnet:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
+											<TelnetLaunchPane
+												hostId={paneHost.id}
+												hostname={paneHost.hostname}
+												port={paneHost.port}
+												fontSize={workspace.appSettings.terminalFontSize}
+											/>
+										{/key}
+									{/if}
 								</div>
 							{/if}
-							{#if browser}
-								{#key `sftp:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
-									<SftpLaunchPane hostId={paneHost.id} />
-								{/key}
-							{/if}
-						</div>
-					{:else if pane.kind === 'ftp' || pane.kind === 'ftps'}
-						<div class="min-h-0 flex-1 p-3">
-							{#if browser}
-								{#key `ftp:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
-									<FtpLaunchPane host={paneHost} />
-								{/key}
-							{/if}
-						</div>
-					{:else if pane.kind === 'ssh-tunnel'}
-						<div class="min-h-0 flex-1 p-3">
-							<SshTunnelPane host={paneHost} />
-						</div>
-					{:else if pane.kind === 'rdp'}
-						<div class={immersiveRdp ? 'min-h-0 flex-1 p-0' : 'min-h-0 flex-1 p-1'}>
-							{#if workspace.isPanePaused(paneHost, pane.kind)}
-								<RdpPane
-									launch={null}
-									error="Disconnected. Reconnect to create a new session."
-									onReconnect={workspace.reconnect}
-									clipboardSync={workspace.appSettings.clipboardSync}
-									clipboardPolicy={workspace.appSettings.rdpClipboard}
-									performancePreset={workspace.appSettings.rdpPerformancePreset}
-									audioRedirection={workspace.appSettings.rdpAudioRedirection}
-									immersive={immersiveRdp}
-								>
-									{#snippet detailsControls()}
-										{@render rdpDetailsControls()}
-									{/snippet}
-								</RdpPane>
-							{:else if browser}
-								{#key `rdp:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
-									<RdpLaunchPane
-										hostId={paneHost.id}
-										onReconnect={workspace.reconnect}
-										clipboardSync={workspace.appSettings.clipboardSync}
-										clipboardPolicy={workspace.appSettings.rdpClipboard}
-										performancePreset={workspace.appSettings.rdpPerformancePreset}
-										audioRedirection={workspace.appSettings.rdpAudioRedirection}
-										immersive={immersiveRdp}
-									>
-										{#snippet detailsControls()}
-											{@render rdpDetailsControls()}
-										{/snippet}
-									</RdpLaunchPane>
-								{/key}
-							{/if}
-						</div>
-					{:else if pane.kind === 'vnc'}
-						<div class="min-h-0 flex-1 p-3">
-							{#if workspace.isPanePaused(paneHost, pane.kind)}
-								<StatePanel
-									state="disconnected"
-									title="VNC disconnected"
-									detail="Reconnect to create a new session."
-								/>
-							{:else if browser}
-								{#key `vnc:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
-									<VncLaunchPane hostId={paneHost.id} fallbackUsername={paneHost.username} />
-								{/key}
-							{/if}
-						</div>
-					{:else if pane.kind === 'telnet'}
-						<div class="min-h-0 flex-1 p-3">
-							{#if workspace.isPanePaused(paneHost, pane.kind)}
-								<StatePanel
-									state="disconnected"
-									title="Telnet disconnected"
-									detail="Reconnect to create a new session."
-								/>
-							{:else if browser}
-								{#key `telnet:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
-									<TelnetLaunchPane
-										hostId={paneHost.id}
-										hostname={paneHost.hostname}
-										port={paneHost.port}
-										fontSize={workspace.appSettings.terminalFontSize}
-									/>
-								{/key}
-							{/if}
-						</div>
-					{/if}
-				{/snippet}
-			</SessionTileGrid>
+						{/snippet}
+					</SessionTileGrid>
+				</div>
+				{#if immersiveRdp && rdpSidebarOpen}
+					<div class="hidden h-full min-h-0 shrink-0 lg:block">
+						<SessionHostSidebar
+							hosts={workspace.hosts}
+							selectedHostId={workspace.selectedHost.id}
+							activeProtocol={workspace.activeProtocol}
+							onOpen={workspace.selectHostProtocol}
+							onClose={() => (rdpSidebarOpen = false)}
+						/>
+					</div>
+					<div class="absolute inset-y-0 right-0 z-20 h-full min-h-0 shadow-2xl lg:hidden">
+						<SessionHostSidebar
+							hosts={workspace.hosts}
+							selectedHostId={workspace.selectedHost.id}
+							activeProtocol={workspace.activeProtocol}
+							onOpen={workspace.selectHostProtocol}
+							onClose={() => (rdpSidebarOpen = false)}
+						/>
+					</div>
+				{/if}
+			</div>
 		</div>
 	{/if}
 </section>

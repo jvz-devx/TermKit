@@ -8,6 +8,8 @@
 		Monitor,
 		MonitorUp,
 		MousePointer2,
+		PanelRightClose,
+		PanelRightOpen,
 		Power,
 		RefreshCw,
 		Scan,
@@ -40,6 +42,7 @@
 		selectedPreset,
 		selectedScale,
 		reconnectLabel,
+		sidebarOpen = false,
 		onSendCtrlAltDel,
 		onSendWindowsKey,
 		onFocusRemoteDesktop,
@@ -49,6 +52,7 @@
 		onScaleChange,
 		onReconnect,
 		onDisconnect,
+		onToggleSidebar,
 		clipboardControls,
 		detailsControls
 	}: {
@@ -68,6 +72,7 @@
 		selectedPreset: RdpPerformancePreset;
 		selectedScale: RdpScaleMode;
 		reconnectLabel: string;
+		sidebarOpen?: boolean;
 		onSendCtrlAltDel: () => void;
 		onSendWindowsKey: () => void;
 		onFocusRemoteDesktop: () => void;
@@ -77,12 +82,14 @@
 		onScaleChange: (scale: string) => void;
 		onReconnect: () => void;
 		onDisconnect: () => void;
+		onToggleSidebar?: () => void;
 		clipboardControls?: Snippet;
 		detailsControls?: Snippet;
 	} = $props();
 
 	const FullscreenIcon = $derived(fullscreenActive ? Minimize2 : Maximize2);
 	const AudioIcon = $derived(audioRequested && audioAvailable ? Volume2 : VolumeX);
+	const SidebarIcon = $derived(sidebarOpen ? PanelRightClose : PanelRightOpen);
 </script>
 
 <div class="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-2 py-1">
@@ -93,6 +100,17 @@
 		<Badge variant={clipboardStatusVariant} class="shrink truncate">{clipboardStatusLabel}</Badge>
 	</div>
 	<div class="flex shrink-0 items-center justify-end gap-1">
+		{#if onToggleSidebar}
+			<Button
+				size="icon-sm"
+				variant="ghost"
+				onclick={onToggleSidebar}
+				aria-label={sidebarOpen ? 'Hide session sidebar' : 'Show session sidebar'}
+				title={sidebarOpen ? 'Hide sessions' : 'Show sessions'}
+			>
+				<SidebarIcon class="size-4" />
+			</Button>
+		{/if}
 		<Popover.Root>
 			<Popover.Trigger>
 				{#snippet child({ props })}

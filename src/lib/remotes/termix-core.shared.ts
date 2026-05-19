@@ -60,6 +60,7 @@ export type CredentialSummary = {
 	name: string;
 	kind: CredentialKind;
 	username: string | null;
+	rdpDomain: string | null;
 	usedBy: number;
 	createdAt: string;
 	updatedAt: string;
@@ -85,6 +86,7 @@ export type CredentialMutationInput = {
 	kind?: unknown;
 	username?: unknown;
 	secret?: unknown;
+	rdpDomain?: unknown;
 };
 
 export type LaunchProtocol = HostProtocol | 'sftp';

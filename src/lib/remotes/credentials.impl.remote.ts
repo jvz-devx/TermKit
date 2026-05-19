@@ -25,6 +25,7 @@ export const listCredentials = query(async () => {
 				name: credential.name,
 				kind: credential.kind,
 				username: credential.username,
+				rdpDomain: readRdpDomain(credential.metadata),
 				usedBy: hosts.filter((host) => host.credentialId === credential.id).length,
 				createdAt: credential.createdAt.toISOString(),
 				updatedAt: credential.updatedAt.toISOString()
@@ -49,6 +50,7 @@ export const saveCredential = command<CredentialMutationInput, CredentialSummary
 			name: credential.name,
 			kind: credential.kind,
 			username: credential.username,
+			rdpDomain: readRdpDomain(credential.metadata),
 			usedBy: 0,
 			createdAt: credential.createdAt.toISOString(),
 			updatedAt: credential.updatedAt.toISOString()
@@ -63,3 +65,8 @@ export const deleteCredential = command<string, void>('unchecked', async (id) =>
 	void listCredentials().refresh();
 	void listHosts().refresh();
 });
+
+function readRdpDomain(metadata: Record<string, unknown>): string | null {
+	const domain = metadata.domain;
+	return typeof domain === 'string' && domain.trim() ? domain.trim() : null;
+}

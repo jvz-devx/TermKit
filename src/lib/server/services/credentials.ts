@@ -33,6 +33,7 @@ export interface CredentialInput {
 	username?: unknown;
 	secret?: unknown;
 	metadata?: unknown;
+	rdpDomain?: unknown;
 }
 
 export type PublicCredentialRecord = Omit<CredentialRecord, 'encryptedSecret' | 'encryption'>;
@@ -95,7 +96,7 @@ export class CredentialService {
 		}
 
 		const metadata =
-			'metadata' in input || kindChanged
+			'metadata' in input || 'rdpDomain' in input || kindChanged
 				? this.protectMetadata(userId, id, validated.kind!, validated.metadata)
 				: current.metadata;
 		const secretPatch =
@@ -183,10 +184,17 @@ function validateCredentialInput(
 	const name = asTrimmedString(input.name);
 	const kind = input.kind;
 	const secret = typeof input.secret === 'string' ? input.secret : undefined;
+	const baseMetadata = isRecord(input.metadata) ? input.metadata : {};
+	const rdpDomain = asTrimmedString(input.rdpDomain);
+	const metadata = { ...baseMetadata };
+	if ('rdpDomain' in input) {
+		if (rdpDomain) metadata.domain = rdpDomain;
+		else delete metadata.domain;
+	}
 
 	if (!name) issues.push('name is required');
 	if (!credentialKinds.includes(kind as CredentialKind))
-		issues.push('kind must be password or ssh_key');
+		issues.push('kind must be password, ssh_key, or rdp_password');
 	if (requireSecret && !secret) issues.push('secret is required');
 	if (secret !== undefined && secret.length === 0) issues.push('secret cannot be empty');
 
@@ -198,7 +206,7 @@ function validateCredentialInput(
 		workspaceId: asTrimmedString(input.workspaceId),
 		username: asTrimmedString(input.username),
 		secret,
-		metadata: isRecord(input.metadata) ? input.metadata : {}
+		metadata
 	};
 }
 

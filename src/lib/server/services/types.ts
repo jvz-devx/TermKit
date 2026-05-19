@@ -6,7 +6,7 @@ export type HostProtocol = (typeof protocols)[number];
 export const connectionProtocols = [...protocols, 'ssh_tunnel'] as const;
 export type ConnectionProtocol = (typeof connectionProtocols)[number];
 
-export const credentialKinds = ['password', 'ssh_key'] as const;
+export const credentialKinds = ['password', 'ssh_key', 'rdp_password'] as const;
 export type CredentialKind = (typeof credentialKinds)[number];
 
 export const workspaceMemberRoles = ['owner', 'member'] as const;
