@@ -36,15 +36,25 @@ export async function recordRdpLifecycleEvent({
 	connectionSessionId,
 	event,
 	errorCode,
+	errorMessage,
+	errorDetails,
 	onError = console.warn
 }: {
 	connectionSessionId?: string | null;
 	event: RdpLifecycleEvent;
 	errorCode?: string;
+	errorMessage?: string;
+	errorDetails?: Record<string, unknown>;
 	onError?: (message: string, caught: unknown) => void;
 }) {
 	if (!connectionSessionId) return;
-	await recordRdpSessionLifecycle({ connectionSessionId, event, errorCode }).catch((caught) => {
+	await recordRdpSessionLifecycle({
+		connectionSessionId,
+		event,
+		errorCode,
+		errorMessage,
+		errorDetails
+	}).catch((caught) => {
 		onError('Could not record RDP lifecycle event', caught);
 	});
 }

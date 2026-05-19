@@ -128,6 +128,7 @@ vi.mock('$lib/server/services/connection-sessions', () => ({
 		markActiveForUser: vi.fn(),
 		endForUser: vi.fn(),
 		failForUser: vi.fn(),
+		failForUserWithDetails: vi.fn(),
 		fail: vi.fn()
 	}
 }));
@@ -910,7 +911,7 @@ describe('termix remote functions', () => {
 	});
 
 	it('records failed connection lifecycle events with sanitized error codes', async () => {
-		vi.mocked(connectionSessionService.failForUser).mockResolvedValueOnce({
+		vi.mocked(connectionSessionService.failForUserWithDetails).mockResolvedValueOnce({
 			id: 'connection-1'
 		} as never);
 
@@ -918,18 +919,29 @@ describe('termix remote functions', () => {
 			recordConnectionSessionLifecycle({
 				connectionSessionId: 'connection-1',
 				event: 'failed',
-				errorCode: 'SSH Auth Failed!'
+				errorCode: 'SSH Auth Failed!',
+				errorMessage: 'Auth failed',
+				errorDetails: {
+					phase: 'connect',
+					password: 'must not persist',
+					domainValue: 'DOMAIN'
+				}
 			})
 		).resolves.toBe(undefined);
-		expect(connectionSessionService.failForUser).toHaveBeenCalledWith(
+		expect(connectionSessionService.failForUserWithDetails).toHaveBeenCalledWith(
 			'user-1',
 			'connection-1',
-			'ssh_auth_failed_'
+			'ssh_auth_failed_',
+			'Auth failed',
+			{
+				phase: 'connect',
+				domainValue: 'DOMAIN'
+			}
 		);
 	});
 
 	it('uses sanitized fallback codes for failed connection lifecycle events without explicit errors', async () => {
-		vi.mocked(connectionSessionService.failForUser).mockResolvedValueOnce({
+		vi.mocked(connectionSessionService.failForUserWithDetails).mockResolvedValueOnce({
 			id: 'connection-1'
 		} as never);
 
@@ -940,15 +952,17 @@ describe('termix remote functions', () => {
 				errorCode: ''
 			})
 		).resolves.toBe(undefined);
-		expect(connectionSessionService.failForUser).toHaveBeenCalledWith(
+		expect(connectionSessionService.failForUserWithDetails).toHaveBeenCalledWith(
 			'user-1',
 			'connection-1',
-			'connection_failed'
+			'connection_failed',
+			'Connection failed',
+			{}
 		);
 	});
 
 	it('records RDP lifecycle failures with the RDP prefix and truncated sanitized codes', async () => {
-		vi.mocked(connectionSessionService.failForUser).mockResolvedValueOnce({
+		vi.mocked(connectionSessionService.failForUserWithDetails).mockResolvedValueOnce({
 			id: 'connection-1'
 		} as never);
 		const longCode = `RDP Gateway Offline ${'x'.repeat(160)}`;
@@ -960,12 +974,16 @@ describe('termix remote functions', () => {
 				errorCode: longCode
 			})
 		).resolves.toBe(undefined);
-		expect(connectionSessionService.failForUser).toHaveBeenCalledWith(
+		expect(connectionSessionService.failForUserWithDetails).toHaveBeenCalledWith(
 			'user-1',
 			'connection-1',
-			expect.stringMatching(/^rdp_gateway_offline_x+$/)
+			expect.stringMatching(/^rdp_gateway_offline_x+$/),
+			'Connection failed',
+			{}
 		);
-		expect(vi.mocked(connectionSessionService.failForUser).mock.calls[0][2]).toHaveLength(120);
+		expect(vi.mocked(connectionSessionService.failForUserWithDetails).mock.calls[0][2]).toHaveLength(
+			120
+		);
 	});
 
 	it('rejects unsupported connection lifecycle events without mutating sessions', async () => {
@@ -978,5 +996,6 @@ describe('termix remote functions', () => {
 		expect(connectionSessionService.markActiveForUser).not.toHaveBeenCalled();
 		expect(connectionSessionService.endForUser).not.toHaveBeenCalled();
 		expect(connectionSessionService.failForUser).not.toHaveBeenCalled();
+		expect(connectionSessionService.failForUserWithDetails).not.toHaveBeenCalled();
 	});
 });

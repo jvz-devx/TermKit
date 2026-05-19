@@ -261,6 +261,8 @@ type ConnectionSessionLifecycleInput = {
 	connectionSessionId?: unknown;
 	event?: unknown;
 	errorCode?: unknown;
+	errorMessage?: unknown;
+	errorDetails?: unknown;
 };
 
 async function recordConnectionSessionLifecycleEvent(
@@ -271,6 +273,9 @@ async function recordConnectionSessionLifecycleEvent(
 	const connectionSessionId =
 		typeof input.connectionSessionId === 'string' ? input.connectionSessionId : '';
 	const event = typeof input.event === 'string' ? input.event : '';
+	const errorCode = sanitizeConnectionErrorCode(input.errorCode, errorCodePrefix);
+	const errorMessage = sanitizeLifecycleErrorMessage(input.errorMessage);
+	const errorDetails = sanitizeLifecycleErrorDetails(input.errorDetails);
 
 	if (!connectionSessionId) throw new ServiceValidationError(['connectionSessionId is required']);
 
@@ -280,16 +285,79 @@ async function recordConnectionSessionLifecycleEvent(
 			: event === 'ended'
 				? await connectionSessionService.endForUser(userId, connectionSessionId)
 				: event === 'failed'
-					? await connectionSessionService.failForUser(
+					? await connectionSessionService.failForUserWithDetails(
 							userId,
 							connectionSessionId,
-							sanitizeConnectionErrorCode(input.errorCode, errorCodePrefix)
+							errorCode,
+							errorMessage,
+							errorDetails
 						)
 					: null;
 
 	if (!updated) {
 		throw new ServiceValidationError(['connectionSessionId is invalid or event is unsupported']);
 	}
+
+	if (event === 'failed') {
+		console.error('Connection session failed', {
+			userId,
+			connectionSessionId,
+			errorCode,
+			errorMessage,
+			errorDetails
+		});
+	}
+}
+
+function sanitizeLifecycleErrorMessage(value: unknown): string {
+	const raw = typeof value === 'string' && value.trim() ? value.trim() : 'Connection failed';
+	return raw.slice(0, 500);
+}
+
+function sanitizeLifecycleErrorDetails(value: unknown): Record<string, unknown> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+	const allowed = new Set([
+		'phase',
+		'action',
+		'gatewayExpired',
+		'errorType',
+		'errorString',
+		'ironErrorKind',
+		'connectionState',
+		'destination',
+		'gatewayPublicUrl',
+		'expiresAt',
+		'usernameProvided',
+		'domainProvided',
+		'domainValue',
+		'usingSavedPassword',
+		'desktop',
+		'userAgent'
+	]);
+	const details: Record<string, unknown> = {};
+
+	for (const [key, detailValue] of Object.entries(value)) {
+		if (!allowed.has(key)) continue;
+		details[key] = sanitizeLifecycleDetailValue(detailValue);
+	}
+
+	return details;
+}
+
+function sanitizeLifecycleDetailValue(value: unknown): unknown {
+	if (value === null || typeof value === 'boolean' || typeof value === 'number') return value;
+	if (typeof value === 'string') return value.slice(0, 1000);
+	if (Array.isArray(value)) return value.slice(0, 10).map(sanitizeLifecycleDetailValue);
+	if (typeof value === 'object') {
+		return Object.fromEntries(
+			Object.entries(value)
+				.slice(0, 20)
+				.map(([key, nestedValue]) => [key.slice(0, 80), sanitizeLifecycleDetailValue(nestedValue)])
+		);
+	}
+
+	return String(value).slice(0, 1000);
 }
 
 export const recordConnectionSessionLifecycle = command<ConnectionSessionLifecycleInput, void>(
@@ -298,6 +366,6 @@ export const recordConnectionSessionLifecycle = command<ConnectionSessionLifecyc
 );
 
 export const recordRdpSessionLifecycle = command<
-	{ connectionSessionId?: unknown; event?: unknown; errorCode?: unknown },
+	ConnectionSessionLifecycleInput,
 	void
 >('unchecked', (input) => recordConnectionSessionLifecycleEvent(input, 'rdp'));

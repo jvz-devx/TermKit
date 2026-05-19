@@ -228,10 +228,14 @@ export function createRdpPaneController({
 			webComponentReady = true;
 			detail = 'Waiting for IronRDP client readiness.';
 		} catch (caught) {
+			const diagnostics = rdpFailureDiagnostics(caught, {
+				phase: 'client',
+				action: 'mountIronRdp'
+			});
 			lastFailure = classifyRdpFailure(caught, { phase: 'client' });
 			connectionState = 'error';
 			detail = lastFailure.detail;
-			void recordRdpLifecycle('failed', lastFailure.code);
+			void recordRdpLifecycle('failed', lastFailure.code, diagnostics);
 		}
 	}
 
@@ -240,7 +244,14 @@ export function createRdpPaneController({
 		if (!userInteraction) {
 			connectionState = 'error';
 			detail = 'IronRDP client did not expose a session API.';
-			void recordRdpLifecycle('failed', 'rdp_client_missing_session_api');
+			void recordRdpLifecycle('failed', 'rdp_client_missing_session_api', {
+				message: detail,
+				details: {
+					phase: 'client',
+					action: 'handleReady',
+					hasReadyDetail: Boolean((event as CustomEvent<IronReadyDetail>).detail)
+				}
+			});
 			return;
 		}
 
@@ -321,23 +332,33 @@ export function createRdpPaneController({
 				.catch((caught: unknown) => {
 					if (disposed) return;
 					activeClipboardSession = null;
+					const diagnostics = rdpFailureDiagnostics(caught, {
+						phase: 'run',
+						action: 'session.run',
+						gatewayExpired: isGatewayExpired()
+					});
 					lastFailure = classifyRdpFailure(caught, {
 						phase: 'run',
 						gatewayExpired: isGatewayExpired()
 					});
 					connectionState = 'error';
 					detail = lastFailure.detail;
-					void recordRdpLifecycle('failed', lastFailure.code);
+					void recordRdpLifecycle('failed', lastFailure.code, diagnostics);
 				});
 		} catch (caught) {
 			clearLocalPasswordState();
+			const diagnostics = rdpFailureDiagnostics(caught, {
+				phase: 'connect',
+				action: 'api.connect',
+				gatewayExpired: isGatewayExpired()
+			});
 			lastFailure = classifyRdpFailure(caught, {
 				phase: 'connect',
 				gatewayExpired: isGatewayExpired()
 			});
 			connectionState = 'error';
 			detail = lastFailure.detail;
-			void recordRdpLifecycle('failed', lastFailure.code);
+			void recordRdpLifecycle('failed', lastFailure.code, diagnostics);
 		}
 	}
 
@@ -559,6 +580,66 @@ export function createRdpPaneController({
 		return isRdpGatewayExpired(bootstrap?.expiresAt);
 	}
 
+	function rdpFailureDiagnostics(
+		caught: unknown,
+		context: {
+			phase: 'connect' | 'run' | 'client';
+			action: string;
+			gatewayExpired?: boolean;
+		}
+	) {
+		const message = errorMessage(caught);
+		return {
+			message,
+			details: {
+				...context,
+				errorType: errorTypeName(caught),
+				errorString: safeDiagnosticString(caught),
+				ironErrorKind: ironErrorKind(caught),
+				connectionState,
+				destination: bootstrap?.destination ?? null,
+				gatewayPublicUrl: bootstrap?.gatewayPublicUrl ?? null,
+				expiresAt: bootstrap?.expiresAt ?? null,
+				usernameProvided: Boolean(sessionUsername.trim()),
+				domainProvided: Boolean(sessionDomain.trim()),
+				domainValue: sessionDomain.trim() || null,
+				usingSavedPassword: Boolean(stagedSavedPassword),
+				desktop: preferredDesktopSize(),
+				userAgent: typeof navigator === 'undefined' ? null : navigator.userAgent
+			}
+		};
+	}
+
+	function errorTypeName(value: unknown) {
+		if (value instanceof Error) return value.name;
+		if (value === null) return 'null';
+		return typeof value;
+	}
+
+	function ironErrorKind(value: unknown) {
+		if (
+			value &&
+			typeof value === 'object' &&
+			typeof (value as { kind?: unknown }).kind === 'function'
+		) {
+			try {
+				return String((value as { kind: () => unknown }).kind());
+			} catch {
+				return 'kind_unavailable';
+			}
+		}
+
+		return null;
+	}
+
+	function safeDiagnosticString(value: unknown) {
+		try {
+			return String(value);
+		} catch {
+			return 'unstringifiable_error';
+		}
+	}
+
 	function finalizeRdpLifecycleOnDispose() {
 		const lifecycleEvent = lifecycleEventOnDispose(connectionState);
 		if (lifecycleEvent) void recordRdpLifecycle(lifecycleEvent.event, lifecycleEvent.errorCode);
@@ -566,7 +647,8 @@ export function createRdpPaneController({
 
 	async function recordRdpLifecycle(
 		event: 'connected' | 'ended' | 'failed',
-		errorCode?: string
+		errorCode?: string,
+		diagnostics?: { message: string; details: Record<string, unknown> }
 	): Promise<void> {
 		const connectionSessionId = bootstrap?.connectionSessionId;
 		if (!connectionSessionId) return;
@@ -575,7 +657,13 @@ export function createRdpPaneController({
 			lifecycleFinalized = true;
 		}
 
-		await recordRdpLifecycleEvent({ connectionSessionId, event, errorCode });
+		await recordRdpLifecycleEvent({
+			connectionSessionId,
+			event,
+			errorCode,
+			errorMessage: diagnostics?.message,
+			errorDetails: diagnostics?.details
+		});
 	}
 
 	function pickFileForRemoteClipboard() {
