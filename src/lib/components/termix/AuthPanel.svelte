@@ -33,9 +33,11 @@
 			<div>
 				<h1 class="text-base font-semibold">{mode === 'login' ? 'Sign in' : 'Create admin'}</h1>
 				<p class="text-xs text-muted-foreground">
-					{mode === 'login'
-						? 'Use a local TermKit account.'
-						: 'First-run local administrator setup.'}
+					{mode === 'login' && showMicrosoftSignIn
+						? 'Use your Microsoft account.'
+						: mode === 'login'
+							? 'Use a local TermKit account.'
+							: 'First-run local administrator setup.'}
 				</p>
 			</div>
 		</div>
@@ -95,41 +97,78 @@
 			{#if showMicrosoftSignIn && microsoftAuth?.href}
 				<div class="mb-4 space-y-4">
 					<MicrosoftSignIn href={microsoftAuth.href} />
-					<div class="relative flex items-center">
-						<Separator />
-						<span
-							class="absolute left-1/2 -translate-x-1/2 bg-background px-2 text-xs text-muted-foreground"
-							>or</span
-						>
-					</div>
 				</div>
 			{/if}
-			<form class="space-y-4" {...loginForm}>
-				<div class="space-y-2">
-					<Label for="username">Username</Label>
-					<Input id="username" autocomplete="username" {...loginForm.fields.username.as('text')} />
-				</div>
-				<div class="space-y-2">
-					<Label for="password">Password</Label>
-					<Input
-						id="password"
-						autocomplete="current-password"
-						{...loginForm.fields.password.as('password')}
-					/>
-				</div>
-				{#if loginForm.fields.allIssues()?.length}
-					<div
-						class="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
+			{#if showMicrosoftSignIn}
+				<details class="group rounded-md border bg-muted/20 p-3">
+					<summary
+						class="cursor-pointer text-sm font-medium text-muted-foreground transition-colors group-open:mb-4 group-open:text-foreground"
 					>
-						{#each loginForm.fields.allIssues() ?? [] as issue, index (index)}
-							<p>{issue.message}</p>
-						{/each}
+						Local account
+					</summary>
+					<form class="space-y-4" {...loginForm}>
+						<div class="space-y-2">
+							<Label for="username">Username</Label>
+							<Input
+								id="username"
+								autocomplete="username"
+								{...loginForm.fields.username.as('text')}
+							/>
+						</div>
+						<div class="space-y-2">
+							<Label for="password">Password</Label>
+							<Input
+								id="password"
+								autocomplete="current-password"
+								{...loginForm.fields.password.as('password')}
+							/>
+						</div>
+						{#if loginForm.fields.allIssues()?.length}
+							<div
+								class="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
+							>
+								{#each loginForm.fields.allIssues() ?? [] as issue, index (index)}
+									<p>{issue.message}</p>
+								{/each}
+							</div>
+						{/if}
+						<Button class="w-full" type="submit" disabled={loginForm.pending > 0}>
+							<Lock class="size-4" />Sign in locally
+						</Button>
+					</form>
+				</details>
+			{:else}
+				<form class="space-y-4" {...loginForm}>
+					<div class="space-y-2">
+						<Label for="username">Username</Label>
+						<Input
+							id="username"
+							autocomplete="username"
+							{...loginForm.fields.username.as('text')}
+						/>
 					</div>
-				{/if}
-				<Button class="w-full" type="submit" disabled={loginForm.pending > 0}>
-					<Lock class="size-4" />Sign in
-				</Button>
-			</form>
+					<div class="space-y-2">
+						<Label for="password">Password</Label>
+						<Input
+							id="password"
+							autocomplete="current-password"
+							{...loginForm.fields.password.as('password')}
+						/>
+					</div>
+					{#if loginForm.fields.allIssues()?.length}
+						<div
+							class="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
+						>
+							{#each loginForm.fields.allIssues() ?? [] as issue, index (index)}
+								<p>{issue.message}</p>
+							{/each}
+						</div>
+					{/if}
+					<Button class="w-full" type="submit" disabled={loginForm.pending > 0}>
+						<Lock class="size-4" />Sign in
+					</Button>
+				</form>
+			{/if}
 		{/if}
 	</section>
 </main>
