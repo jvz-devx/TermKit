@@ -1,4 +1,5 @@
 import { onMount } from 'svelte';
+import { SvelteURL } from 'svelte/reactivity';
 import type { UserInteraction } from '@devolutions/iron-remote-desktop';
 import type { RdpClipboardPolicy, RdpPerformancePreset } from '$lib/remotes/settings.remote';
 import { type SessionLaunch } from '$lib/remotes/sessions.remote';
@@ -66,6 +67,8 @@ type RdpSessionClipboardBridge = {
 	onClipboardPaste(content: RdpClipboardData): Promise<void>;
 };
 
+const rdpConnectTimeoutMs = 30_000;
+
 export type RdpPaneControllerProps = {
 	launch: SessionLaunch | null;
 	error: string | null;
@@ -118,6 +121,8 @@ export function createRdpPaneController({
 	let lastDesktopSize: RdpDesktopSize | null = null;
 	let lifecycleFinalized = false;
 	let disposed = false;
+	let connectAttemptId = 0;
+	let connectTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	const statusLabel = $derived(rdpStatusLabel(error, connectionState));
 	const statusTitle = $derived(rdpStatusTitle(lastFailure, statusLabel));
@@ -204,6 +209,7 @@ export function createRdpPaneController({
 
 		return () => {
 			disposed = true;
+			clearConnectTimeout();
 			stopResizeObserver();
 			finalizeRdpLifecycleOnDispose();
 			activeClipboardSession = null;
@@ -292,6 +298,38 @@ export function createRdpPaneController({
 			const domain = sessionDomain.trim();
 			const desktopSize = preferredDesktopSize();
 			const proxyAddress = rdpGatewayWebSocketUrl(bootstrap.gatewayPublicUrl);
+			const attemptId = ++connectAttemptId;
+			clearConnectTimeout();
+			console.info('RDP connect attempt started', {
+				connectionSessionId: bootstrap.connectionSessionId,
+				destination: bootstrap.destination,
+				gatewayPublicUrl: bootstrap.gatewayPublicUrl,
+				proxyAddress,
+				usernameProvided: Boolean(username),
+				domainProvided: Boolean(domain),
+				domainValue: domain || null,
+				desktop: desktopSize,
+				expiresAt: bootstrap.expiresAt
+			});
+			connectTimeout = setTimeout(() => {
+				if (disposed || attemptId !== connectAttemptId || connectionState !== 'connecting') return;
+				const diagnostics = rdpConnectDiagnostics('api.connect', {
+					message: `RDP connect timed out after ${rdpConnectTimeoutMs}ms`,
+					proxyAddress,
+					desktop: desktopSize
+				});
+				lastFailure = {
+					kind: 'client-error',
+					code: 'rdp_connect_timeout',
+					title: 'RDP connect timed out',
+					detail:
+						'The Gateway websocket opened, but the RDP handshake did not finish in time. Check Gateway and target RDP logs.',
+					reconnectLabel: 'Retry'
+				};
+				connectionState = 'error';
+				detail = lastFailure.detail;
+				void recordRdpLifecycle('failed', lastFailure.code, diagnostics);
+			}, rdpConnectTimeoutMs);
 			const builder = api
 				.configBuilder()
 				.withDestination(bootstrap.destination)
@@ -308,6 +346,13 @@ export function createRdpPaneController({
 
 			clearLocalPasswordState();
 			const session = await api.connect(builder.build());
+			if (disposed || attemptId !== connectAttemptId || connectionState !== 'connecting') return;
+			clearConnectTimeout();
+			console.info('RDP connect attempt completed', {
+				connectionSessionId: bootstrap.connectionSessionId,
+				destination: bootstrap.destination,
+				proxyAddress
+			});
 			connectionState = 'connected';
 			lastDesktopSize = desktopSize;
 			detail = 'RDP canvas is connected.';
@@ -347,6 +392,7 @@ export function createRdpPaneController({
 					void recordRdpLifecycle('failed', lastFailure.code, diagnostics);
 				});
 		} catch (caught) {
+			clearConnectTimeout();
 			clearLocalPasswordState();
 			const diagnostics = rdpFailureDiagnostics(caught, {
 				phase: 'connect',
@@ -367,6 +413,12 @@ export function createRdpPaneController({
 		sessionPassword = '';
 		stagedSavedPassword = null;
 		savedPasswordCleared = true;
+	}
+
+	function clearConnectTimeout() {
+		if (!connectTimeout) return;
+		clearTimeout(connectTimeout);
+		connectTimeout = null;
 	}
 
 	function submitConnect(event: SubmitEvent) {
@@ -612,6 +664,32 @@ export function createRdpPaneController({
 		};
 	}
 
+	function rdpConnectDiagnostics(
+		action: string,
+		input: { message: string; proxyAddress: string; desktop: RdpDesktopSize }
+	) {
+		return {
+			message: input.message,
+			details: {
+				phase: 'connect',
+				action,
+				gatewayExpired: isGatewayExpired(),
+				connectionState,
+				destination: bootstrap?.destination ?? null,
+				gatewayPublicUrl: bootstrap?.gatewayPublicUrl ?? null,
+				proxyAddress: input.proxyAddress,
+				expiresAt: bootstrap?.expiresAt ?? null,
+				usernameProvided: Boolean(sessionUsername.trim()),
+				domainProvided: Boolean(sessionDomain.trim()),
+				domainValue: sessionDomain.trim() || null,
+				usingSavedPassword: Boolean(stagedSavedPassword),
+				desktop: input.desktop,
+				timeoutMs: rdpConnectTimeoutMs,
+				userAgent: typeof navigator === 'undefined' ? null : navigator.userAgent
+			}
+		};
+	}
+
 	function errorTypeName(value: unknown) {
 		if (value instanceof Error) return value.name;
 		if (value === null) return 'null';
@@ -643,7 +721,7 @@ export function createRdpPaneController({
 	}
 
 	function rdpGatewayWebSocketUrl(gatewayPublicUrl: string) {
-		const url = new URL(gatewayPublicUrl);
+		const url = new SvelteURL(gatewayPublicUrl);
 		url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
 		url.pathname = `${url.pathname.replace(/\/$/, '')}/jet/rdp`;
 		url.search = '';

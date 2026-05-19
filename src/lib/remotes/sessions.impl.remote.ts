@@ -334,6 +334,7 @@ function sanitizeLifecycleErrorDetails(value: unknown): Record<string, unknown> 
 		'domainValue',
 		'usingSavedPassword',
 		'desktop',
+		'timeoutMs',
 		'userAgent'
 	]);
 	const details: Record<string, unknown> = {};
@@ -366,7 +367,7 @@ export const recordConnectionSessionLifecycle = command<ConnectionSessionLifecyc
 	(input) => recordConnectionSessionLifecycleEvent(input)
 );
 
-export const recordRdpSessionLifecycle = command<
-	ConnectionSessionLifecycleInput,
-	void
->('unchecked', (input) => recordConnectionSessionLifecycleEvent(input, 'rdp'));
+export const recordRdpSessionLifecycle = command<ConnectionSessionLifecycleInput, void>(
+	'unchecked',
+	(input) => recordConnectionSessionLifecycleEvent(input, 'rdp')
+);

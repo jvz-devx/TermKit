@@ -79,6 +79,7 @@ function sanitizeConnectionErrorDetails(value: unknown): Record<string, unknown>
 		'domainValue',
 		'usingSavedPassword',
 		'desktop',
+		'timeoutMs',
 		'userAgent'
 	]);
 	const details: Record<string, unknown> = {};

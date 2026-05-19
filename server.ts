@@ -157,17 +157,29 @@ async function proxyGatewayHttpRequest(
 ): Promise<void> {
 	const route = parseGatewayProxyRoute(request);
 	if (!route.allowed) {
+		console.warn(
+			'Gateway HTTP proxy request rejected',
+			gatewayProxyLogContext(request, route.message)
+		);
 		writeJsonResponse(response, route.status, route.message, route.headers);
 		return;
 	}
 
 	if (!isAllowedGatewayOrigin(request, context.originPolicy)) {
+		console.warn(
+			'Gateway HTTP proxy origin rejected',
+			gatewayProxyLogContext(request, 'Gateway origin is not allowed')
+		);
 		writeJsonResponse(response, 403, 'Gateway origin is not allowed');
 		return;
 	}
 
 	const authenticatedSession = await authenticateGatewayRequest(request, context);
 	if (!authenticatedSession) {
+		console.warn(
+			'Gateway HTTP proxy authentication rejected',
+			gatewayProxyLogContext(request, 'Authentication required')
+		);
 		writeJsonResponse(response, 401, 'Authentication required');
 		return;
 	}
@@ -176,11 +188,21 @@ async function proxyGatewayHttpRequest(
 	try {
 		target = gatewayTargetUrl(request.url, context.env);
 	} catch (error) {
+		console.error('Gateway HTTP proxy target resolution failed', {
+			...gatewayProxyLogContext(request),
+			error: errorMessage(error)
+		});
 		response.writeHead(502, { 'content-type': 'application/json' });
 		response.end(JSON.stringify({ error: errorMessage(error) }));
 		return;
 	}
 
+	console.info('Gateway HTTP proxy forwarding request', {
+		...gatewayProxyLogContext(request),
+		target: gatewaySafeTarget(target),
+		sessionId: authenticatedSession.sessionId,
+		userId: authenticatedSession.userId
+	});
 	const proxy = gatewayRequest(
 		target,
 		{
@@ -188,12 +210,23 @@ async function proxyGatewayHttpRequest(
 			headers: gatewayProxyHeaders(request, target)
 		},
 		(gatewayResponse) => {
+			console.info('Gateway HTTP proxy response received', {
+				...gatewayProxyLogContext(request),
+				target: gatewaySafeTarget(target),
+				statusCode: gatewayResponse.statusCode,
+				statusMessage: gatewayResponse.statusMessage
+			});
 			response.writeHead(gatewayResponse.statusCode ?? 502, gatewayResponse.headers);
 			gatewayResponse.pipe(response);
 		}
 	);
 
 	proxy.on('error', (error) => {
+		console.error('Gateway HTTP proxy request failed', {
+			...gatewayProxyLogContext(request),
+			target: gatewaySafeTarget(target),
+			error: error.message
+		});
 		if (response.headersSent || response.writableEnded) {
 			request.destroy(error);
 			return;
@@ -214,17 +247,29 @@ async function proxyGatewayUpgradeRequest(
 ): Promise<void> {
 	const route = parseGatewayProxyRoute(request);
 	if (!route.allowed) {
+		console.warn(
+			'Gateway websocket proxy request rejected',
+			gatewayProxyLogContext(request, route.message)
+		);
 		rejectGatewayUpgrade(socket, route.status, route.message);
 		return;
 	}
 
 	if (!isAllowedGatewayOrigin(request, context.originPolicy)) {
+		console.warn(
+			'Gateway websocket proxy origin rejected',
+			gatewayProxyLogContext(request, 'Gateway origin is not allowed')
+		);
 		rejectGatewayUpgrade(socket, 403, 'Gateway origin is not allowed');
 		return;
 	}
 
 	const authenticatedSession = await authenticateGatewayRequest(request, context);
 	if (!authenticatedSession) {
+		console.warn(
+			'Gateway websocket proxy authentication rejected',
+			gatewayProxyLogContext(request, 'Authentication required')
+		);
 		rejectGatewayUpgrade(socket, 401, 'Authentication required');
 		return;
 	}
@@ -233,16 +278,35 @@ async function proxyGatewayUpgradeRequest(
 	try {
 		target = gatewayTargetUrl(request.url, context.env);
 	} catch (error) {
+		console.error('Gateway websocket proxy target resolution failed', {
+			...gatewayProxyLogContext(request),
+			headBytes: head.length,
+			error: errorMessage(error)
+		});
 		socket.end(`HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n${errorMessage(error)}`);
 		return;
 	}
 
+	const upgradeLogContext = {
+		...gatewayProxyLogContext(request),
+		target: gatewaySafeTarget(target),
+		headBytes: head.length,
+		sessionId: authenticatedSession.sessionId,
+		userId: authenticatedSession.userId
+	};
+	console.info('Gateway websocket proxy forwarding upgrade', upgradeLogContext);
 	const proxy = gatewayRequest(target, {
 		method: request.method,
 		headers: gatewayProxyHeaders(request, target)
 	});
 
 	proxy.on('upgrade', (gatewayResponse, gatewaySocket, gatewayHead) => {
+		console.info('Gateway websocket proxy upgrade accepted', {
+			...upgradeLogContext,
+			statusCode: gatewayResponse.statusCode,
+			statusMessage: gatewayResponse.statusMessage,
+			gatewayHeadBytes: gatewayHead.length
+		});
 		socket.write(
 			[
 				`HTTP/1.1 ${gatewayResponse.statusCode ?? 101} ${gatewayResponse.statusMessage ?? 'Switching Protocols'}`,
@@ -258,9 +322,38 @@ async function proxyGatewayUpgradeRequest(
 		if (head.length > 0) gatewaySocket.write(head);
 		gatewaySocket.pipe(socket);
 		socket.pipe(gatewaySocket);
+		socket.on('close', (hadError: boolean) => {
+			console.info('Gateway websocket client socket closed', {
+				...upgradeLogContext,
+				hadError
+			});
+		});
+		socket.on('error', (error) => {
+			console.warn('Gateway websocket client socket error', {
+				...upgradeLogContext,
+				error: error.message
+			});
+		});
+		gatewaySocket.on('close', (hadError: boolean) => {
+			console.info('Gateway websocket upstream socket closed', {
+				...upgradeLogContext,
+				hadError
+			});
+		});
+		gatewaySocket.on('error', (error) => {
+			console.warn('Gateway websocket upstream socket error', {
+				...upgradeLogContext,
+				error: error.message
+			});
+		});
 	});
 
 	proxy.on('response', (gatewayResponse) => {
+		console.warn('Gateway websocket proxy received non-upgrade response', {
+			...upgradeLogContext,
+			statusCode: gatewayResponse.statusCode,
+			statusMessage: gatewayResponse.statusMessage
+		});
 		socket.write(
 			[
 				`HTTP/1.1 ${gatewayResponse.statusCode ?? 502} ${gatewayResponse.statusMessage ?? 'Bad Gateway'}`,
@@ -273,6 +366,10 @@ async function proxyGatewayUpgradeRequest(
 	});
 
 	proxy.on('error', (error) => {
+		console.error('Gateway websocket proxy request failed', {
+			...upgradeLogContext,
+			error: error.message
+		});
 		socket.end(
 			`HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\nGateway proxy failed: ${error.message}`
 		);
@@ -379,6 +476,31 @@ function gatewayProxyHeaders(request: IncomingMessage, target: URL): IncomingMes
 				? request.headers['x-forwarded-proto'][0]
 				: request.headers['x-forwarded-proto']) ?? 'http'
 	};
+}
+
+function gatewayProxyLogContext(
+	request: Pick<IncomingMessage, 'method' | 'url' | 'headers' | 'socket'>,
+	reason?: string
+): Record<string, unknown> {
+	const url = new URL(request.url ?? '/', 'http://localhost');
+	const forwardedFor = request.headers['x-forwarded-for'];
+
+	return {
+		method: request.method ?? 'GET',
+		path: `${url.pathname}${url.search}`,
+		host: request.headers.host ?? null,
+		origin: request.headers.origin ?? null,
+		forwardedFor: Array.isArray(forwardedFor) ? forwardedFor.join(',') : (forwardedFor ?? null),
+		remoteAddress: request.socket.remoteAddress ?? null,
+		reason
+	};
+}
+
+function gatewaySafeTarget(target: URL): string {
+	const safeTarget = new URL(target);
+	safeTarget.username = '';
+	safeTarget.password = '';
+	return safeTarget.toString();
 }
 
 type OriginPolicy = {
