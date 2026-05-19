@@ -223,7 +223,7 @@ export function createRdpPaneController({
 			detail = 'Loading IronRDP web component.';
 			await import('@devolutions/iron-remote-desktop');
 			const backend = await import('@devolutions/iron-remote-desktop-rdp');
-			await backend.init('INFO');
+			await backend.init('TRACE');
 			if (disposed) return;
 
 			setRdpClipboardCapture((session) => {
@@ -337,10 +337,12 @@ export function createRdpPaneController({
 				.withAuthToken(bootstrap.associationToken)
 				.withPassword(password)
 				.withDesktopSize(desktopSize)
-				.withExtension(rdpModule.preConnectionBlob(bootstrap.preconnectionBlob))
 				.withExtension(rdpModule.enableCredssp(true))
 				.withExtension(rdpModule.displayControl(true));
 
+			if (bootstrap.preconnectionBlob) {
+				builder.withExtension(rdpModule.preConnectionBlob(bootstrap.preconnectionBlob));
+			}
 			if (username) builder.withUsername(username);
 			if (domain) builder.withServerDomain(domain);
 

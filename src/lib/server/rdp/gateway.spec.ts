@@ -146,7 +146,7 @@ describe('RDP Gateway bootstrap', () => {
 			gatewayUrl: 'http://gateway:7171',
 			gatewayPublicUrl: 'https://rdp.example.test/gateway',
 			associationToken: 'association-token',
-			preconnectionBlob: 'association-token',
+			preconnectionBlob: '',
 			identity: {
 				username: 'rdp-user',
 				domain: 'ACME'

@@ -140,7 +140,7 @@ async function smokeMockedGatewayBootstrap({ RdpGatewayBootstrapper, loadRdpGate
 		);
 		assertBrowserBootstrapContract(bootstrap, gateway.url);
 		assert(bootstrap.associationToken === associationToken, 'association token mismatch');
-		assert(bootstrap.preconnectionBlob === associationToken, 'preconnection blob mismatch');
+		assert(bootstrap.preconnectionBlob === '', 'unexpected preconnection blob');
 		assert(bootstrap.desktop.width === 1600, 'desktop width mismatch');
 		assert(bootstrap.desktop.height === 1000, 'desktop height mismatch');
 		assert(bootstrap.identity.username === 'rdp-user', 'username identity mismatch');
@@ -225,8 +225,8 @@ async function smokeRealGatewayBootstrap({ RdpGatewayBootstrapper, loadRdpGatewa
 		'real bootstrap returned an empty association token'
 	);
 	assert(
-		bootstrap.preconnectionBlob === bootstrap.associationToken,
-		'real bootstrap preconnection blob did not match the association token'
+		bootstrap.preconnectionBlob === '',
+		'real bootstrap returned an unexpected preconnection blob'
 	);
 	assert(
 		!password || !JSON.stringify(bootstrap).includes(password),

@@ -100,7 +100,7 @@ export class RdpGatewayBootstrapper {
 			gatewayUrl: this.config.gatewayUrl,
 			gatewayPublicUrl: this.config.gatewayPublicUrl,
 			associationToken,
-			preconnectionBlob: associationToken,
+			preconnectionBlob: '',
 			expiresAt: expiresAt.toISOString(),
 			desktop: this.config.desktop,
 			identity: {
