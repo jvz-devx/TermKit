@@ -6,7 +6,8 @@ vi.mock('$lib/server/services/connection-sessions', () => ({
 	connectionSessionService: {
 		markActiveForUser: vi.fn(),
 		endForUser: vi.fn(),
-		failForUser: vi.fn()
+		failForUser: vi.fn(),
+		failForUserWithDetails: vi.fn()
 	}
 }));
 
@@ -80,7 +81,7 @@ describe('connection session lifecycle API route', () => {
 	});
 
 	it('records failed lifecycle events with sanitized error codes', async () => {
-		vi.mocked(connectionSessionService.failForUser).mockResolvedValueOnce({
+		vi.mocked(connectionSessionService.failForUserWithDetails).mockResolvedValueOnce({
 			id: 'session-1'
 		} as never);
 
@@ -88,16 +89,27 @@ describe('connection session lifecycle API route', () => {
 			routeEvent({
 				connectionSessionId: 'session-1',
 				event: 'failed',
-				errorCode: ' SSH Tunnel: Proxy Failed! '
+				errorCode: ' SSH Tunnel: Proxy Failed! ',
+				errorMessage: 'Proxy failed',
+				errorDetails: {
+					phase: 'connect',
+					proxyAddress: 'wss://termkit.example/gateway/jet/rdp',
+					password: 'must not persist'
+				}
 			})
 		);
 
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual({ ok: true });
-		expect(connectionSessionService.failForUser).toHaveBeenCalledWith(
+		expect(connectionSessionService.failForUserWithDetails).toHaveBeenCalledWith(
 			'user-1',
 			'session-1',
-			'ssh_tunnel:_proxy_failed_'
+			'ssh_tunnel:_proxy_failed_',
+			'Proxy failed',
+			{
+				phase: 'connect',
+				proxyAddress: 'wss://termkit.example/gateway/jet/rdp'
+			}
 		);
 	});
 });
