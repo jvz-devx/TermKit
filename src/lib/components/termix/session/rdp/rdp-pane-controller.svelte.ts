@@ -94,6 +94,7 @@ export function createRdpPaneController({
 	let connectionState = $state<RdpConnectionState>('loading');
 	let detail = $state('Loading IronRDP client.');
 	let sessionUsername = $state('');
+	let sessionDomain = $state('');
 	let sessionPassword = $state('');
 	let stagedSavedPassword = $state<string | null>(null);
 	let savedPasswordCleared = $state(false);
@@ -195,6 +196,7 @@ export function createRdpPaneController({
 		}
 
 		sessionUsername = rdpCredentials?.username ?? bootstrap.identity.username ?? '';
+		sessionDomain = bootstrap.identity.domain ?? '';
 		stagedSavedPassword =
 			rdpCredentials?.source === 'saved-password' ? (rdpCredentials.password ?? null) : null;
 		if (stagedSavedPassword) onSavedPasswordStaged?.();
@@ -276,6 +278,7 @@ export function createRdpPaneController({
 			lastFailure = null;
 
 			const username = sessionUsername.trim();
+			const domain = sessionDomain.trim();
 			const desktopSize = preferredDesktopSize();
 			const builder = api
 				.configBuilder()
@@ -289,7 +292,7 @@ export function createRdpPaneController({
 				.withExtension(rdpModule.displayControl(true));
 
 			if (username) builder.withUsername(username);
-			if (bootstrap.identity.domain) builder.withServerDomain(bootstrap.identity.domain);
+			if (domain) builder.withServerDomain(domain);
 
 			clearLocalPasswordState();
 			const session = await api.connect(builder.build());
@@ -785,6 +788,12 @@ export function createRdpPaneController({
 		},
 		set sessionUsername(value) {
 			sessionUsername = value;
+		},
+		get sessionDomain() {
+			return sessionDomain;
+		},
+		set sessionDomain(value) {
+			sessionDomain = value;
 		},
 		get sessionPassword() {
 			return sessionPassword;

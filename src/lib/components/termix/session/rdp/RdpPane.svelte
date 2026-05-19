@@ -140,6 +140,7 @@
 			{:else}
 				<RdpCredentialsPanel
 					bind:sessionUsername={rdp.sessionUsername}
+					bind:sessionDomain={rdp.sessionDomain}
 					bind:sessionPassword={rdp.sessionPassword}
 					connectionState={rdp.connectionState}
 					canConnect={rdp.canConnect}

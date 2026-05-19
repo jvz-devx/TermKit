@@ -15,6 +15,7 @@
 
 	let {
 		sessionUsername = $bindable(''),
+		sessionDomain = $bindable(''),
 		sessionPassword = $bindable(''),
 		connectionState,
 		canConnect,
@@ -25,6 +26,7 @@
 		clipboardPolicyDetail
 	}: {
 		sessionUsername: string;
+		sessionDomain: string;
 		sessionPassword: string;
 		connectionState: ConnectionState;
 		canConnect: boolean;
@@ -37,7 +39,7 @@
 </script>
 
 <div class="border-t bg-background p-3">
-	<form class="grid gap-3 lg:grid-cols-[1fr_1fr_auto]" onsubmit={submitConnect}>
+	<form class="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_auto]" onsubmit={submitConnect}>
 		<div class="grid gap-1.5">
 			<Label for="rdp-username">Username</Label>
 			<Input
@@ -45,6 +47,16 @@
 				bind:value={sessionUsername}
 				autocomplete="username"
 				placeholder="Target username"
+				disabled={connectionState === 'connecting'}
+			/>
+		</div>
+		<div class="grid gap-1.5">
+			<Label for="rdp-domain">Domain</Label>
+			<Input
+				id="rdp-domain"
+				bind:value={sessionDomain}
+				autocomplete="organization"
+				placeholder="Optional domain"
 				disabled={connectionState === 'connecting'}
 			/>
 		</div>
