@@ -94,6 +94,8 @@ describe('connection session lifecycle API route', () => {
 				errorDetails: {
 					phase: 'connect',
 					proxyAddress: 'wss://termkit.example/gateway/jet/rdp',
+					desktop: { width: 1024, height: 768 },
+					userAgent: ['first', 'second'],
 					password: 'must not persist'
 				}
 			})
@@ -108,7 +110,9 @@ describe('connection session lifecycle API route', () => {
 			'Proxy failed',
 			{
 				phase: 'connect',
-				proxyAddress: 'wss://termkit.example/gateway/jet/rdp'
+				proxyAddress: 'wss://termkit.example/gateway/jet/rdp',
+				desktop: { width: 1024, height: 768 },
+				userAgent: ['first', 'second']
 			}
 		);
 	});
