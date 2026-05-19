@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import type { Snippet } from 'svelte';
 	import type { RdpClipboardPolicy, RdpPerformancePreset } from '$lib/remotes/settings.remote';
 	import { createSessionLaunch, type SessionLaunch } from '$lib/remotes/sessions.remote';
 	import RdpPane from './RdpPane.svelte';
@@ -10,7 +11,9 @@
 		clipboardSync = true,
 		clipboardPolicy,
 		performancePreset = 'balanced',
-		audioRedirection = false
+		audioRedirection = false,
+		detailsControls,
+		immersive = false
 	}: {
 		hostId: string;
 		onReconnect: () => void;
@@ -18,6 +21,8 @@
 		clipboardPolicy?: RdpClipboardPolicy;
 		performancePreset?: RdpPerformancePreset;
 		audioRedirection?: boolean;
+		detailsControls?: Snippet;
+		immersive?: boolean;
 	} = $props();
 
 	let launch = $state<SessionLaunch | null>(null);
@@ -67,5 +72,7 @@
 		{clipboardPolicy}
 		{performancePreset}
 		{audioRedirection}
+		{detailsControls}
+		{immersive}
 	/>
 {/key}

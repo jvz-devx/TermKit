@@ -8,10 +8,12 @@
 	let {
 		layout,
 		panes,
+		immersive = false,
 		children
 	}: {
 		layout: SessionLayoutKind;
 		panes: SessionWorkspacePane[];
+		immersive?: boolean;
 		children: Snippet<[SessionWorkspacePane, number]>;
 	} = $props();
 
@@ -56,9 +58,13 @@
 	}
 </script>
 
-<div class="min-h-0 w-full min-w-0 flex-1 p-2">
+<div class={immersive ? 'min-h-0 w-full min-w-0 flex-1 p-0' : 'min-h-0 w-full min-w-0 flex-1 p-2'}>
 	{#snippet paneTile(pane: SessionWorkspacePane, index: number)}
-		<section class="flex h-full min-h-0 min-w-0 overflow-hidden rounded-md border bg-background">
+		<section
+			class={immersive
+				? 'flex h-full min-h-0 min-w-0 overflow-hidden bg-background'
+				: 'flex h-full min-h-0 min-w-0 overflow-hidden rounded-md border bg-background'}
+		>
 			<div class="flex min-h-0 min-w-0 flex-1 flex-col">{@render children(pane, index)}</div>
 		</section>
 	{/snippet}

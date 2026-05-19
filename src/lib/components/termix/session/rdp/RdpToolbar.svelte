@@ -2,7 +2,6 @@
 	import {
 		Clipboard,
 		Command,
-		Gauge,
 		Keyboard,
 		Maximize2,
 		Minimize2,
@@ -12,6 +11,7 @@
 		Power,
 		RefreshCw,
 		Scan,
+		Settings2,
 		Volume2,
 		VolumeX
 	} from '@lucide/svelte';
@@ -49,7 +49,8 @@
 		onScaleChange,
 		onReconnect,
 		onDisconnect,
-		clipboardControls
+		clipboardControls,
+		detailsControls
 	}: {
 		statusVariant: BadgeVariant;
 		statusTitle: string;
@@ -77,37 +78,125 @@
 		onReconnect: () => void;
 		onDisconnect: () => void;
 		clipboardControls?: Snippet;
+		detailsControls?: Snippet;
 	} = $props();
 
 	const FullscreenIcon = $derived(fullscreenActive ? Minimize2 : Maximize2);
 	const AudioIcon = $derived(audioRequested && audioAvailable ? Volume2 : VolumeX);
 </script>
 
-<div
-	class="flex min-h-9 shrink-0 items-center justify-between gap-2 overflow-x-auto border-b px-2 py-1"
->
-	<div class="flex min-w-0 shrink items-center gap-1.5">
+<div class="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-2 py-1">
+	<div class="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">
 		<Monitor class="size-4 shrink-0 text-muted-foreground" />
 		<span class="truncate text-sm font-medium">RDP</span>
 		<Badge variant={statusVariant} class="shrink truncate">{statusTitle}</Badge>
 		<Badge variant={clipboardStatusVariant} class="shrink truncate">{clipboardStatusLabel}</Badge>
-		<Badge variant="outline" class="hidden shrink truncate sm:inline-flex">
-			<Gauge class="size-3" />
-			{displayPresetLabel}
-		</Badge>
-		<Badge variant="outline" class="hidden shrink truncate md:inline-flex">
-			<MonitorUp class="size-3" />
-			{multiMonitorLabel}
-		</Badge>
-		<Badge
-			variant={audioRequested && audioAvailable ? 'secondary' : 'outline'}
-			class="hidden shrink truncate lg:inline-flex"
-		>
-			<AudioIcon class="size-3" />
-			{audioStatusLabel}
-		</Badge>
 	</div>
 	<div class="flex shrink-0 items-center justify-end gap-1">
+		<Popover.Root>
+			<Popover.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						size="sm"
+						variant="outline"
+						class="gap-1.5"
+						aria-label="RDP details and secondary controls"
+						title="Details"
+					>
+						<Settings2 class="size-4" />
+						<span class="hidden sm:inline">Details</span>
+					</Button>
+				{/snippet}
+			</Popover.Trigger>
+			<Popover.Content align="end" class="w-[min(32rem,calc(100vw-2rem))] p-3">
+				<div class="grid gap-3">
+					<div class="flex min-w-0 flex-wrap items-center gap-1.5">
+						<Badge variant="outline" class="shrink truncate">{displayPresetLabel}</Badge>
+						<Badge variant="outline" class="shrink truncate">
+							<MonitorUp class="size-3" />
+							{multiMonitorLabel}
+						</Badge>
+						<Badge
+							variant={audioRequested && audioAvailable ? 'secondary' : 'outline'}
+							class="shrink truncate"
+						>
+							<AudioIcon class="size-3" />
+							{audioStatusLabel}
+						</Badge>
+					</div>
+					<div class="grid gap-2 sm:grid-cols-2">
+						<Button
+							size="sm"
+							variant="outline"
+							class="justify-start"
+							onclick={onSendCtrlAltDel}
+							disabled={!apiReady || !connected}
+						>
+							<Keyboard class="size-4" />
+							Ctrl Alt Del
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							class="justify-start"
+							onclick={onSendWindowsKey}
+							disabled={!apiReady || !connected}
+						>
+							<Command class="size-4" />
+							Windows key
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							class="justify-start"
+							onclick={onFocusRemoteDesktop}
+							disabled={!apiReady}
+						>
+							<MousePointer2 class="size-4" />
+							Focus canvas
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							class="justify-start"
+							onclick={onResizeRemoteDisplay}
+							disabled={!apiReady || !connected}
+						>
+							<Scan class="size-4" />
+							Resize display
+						</Button>
+					</div>
+					<div class="grid gap-2 sm:grid-cols-2">
+						<NativeSelect.Root
+							size="sm"
+							value={selectedPreset}
+							onchange={(event) => onPresetChange(event.currentTarget.value)}
+							aria-label="RDP quality preset"
+						>
+							<NativeSelect.Option value="balanced">Balanced quality</NativeSelect.Option>
+							<NativeSelect.Option value="performance">Performance quality</NativeSelect.Option>
+							<NativeSelect.Option value="quality">Best quality</NativeSelect.Option>
+						</NativeSelect.Root>
+						<NativeSelect.Root
+							size="sm"
+							value={selectedScale}
+							onchange={(event) => onScaleChange(event.currentTarget.value)}
+							aria-label="RDP display scale"
+						>
+							<NativeSelect.Option value="fit">Fit</NativeSelect.Option>
+							<NativeSelect.Option value="fill">Fill</NativeSelect.Option>
+							<NativeSelect.Option value="real">100%</NativeSelect.Option>
+						</NativeSelect.Root>
+					</div>
+					{#if detailsControls}
+						<div class="border-t pt-3">
+							{@render detailsControls()}
+						</div>
+					{/if}
+				</div>
+			</Popover.Content>
+		</Popover.Root>
 		{#if clipboardControls}
 			<Popover.Root>
 				<Popover.Trigger>
@@ -132,46 +221,6 @@
 		<Button
 			size="icon-sm"
 			variant="ghost"
-			onclick={onSendCtrlAltDel}
-			disabled={!apiReady || !connected}
-			aria-label="Send Ctrl Alt Delete"
-			title="Send Ctrl+Alt+Del"
-		>
-			<Keyboard class="size-4" />
-		</Button>
-		<Button
-			size="icon-sm"
-			variant="ghost"
-			onclick={onSendWindowsKey}
-			disabled={!apiReady || !connected}
-			aria-label="Send Windows key"
-			title="Send Windows key"
-		>
-			<Command class="size-4" />
-		</Button>
-		<Button
-			size="icon-sm"
-			variant="ghost"
-			onclick={onFocusRemoteDesktop}
-			disabled={!apiReady}
-			aria-label="Focus RDP canvas"
-			title="Focus RDP canvas"
-		>
-			<MousePointer2 class="size-4" />
-		</Button>
-		<Button
-			size="icon-sm"
-			variant="ghost"
-			onclick={onResizeRemoteDisplay}
-			disabled={!apiReady || !connected}
-			aria-label="Resize remote display"
-			title="Resize remote display"
-		>
-			<Scan class="size-4" />
-		</Button>
-		<Button
-			size="icon-sm"
-			variant="ghost"
 			onclick={onToggleFullscreen}
 			disabled={!viewportReady}
 			aria-label={fullscreenActive ? 'Exit RDP fullscreen' : 'Enter RDP fullscreen'}
@@ -181,18 +230,7 @@
 		</Button>
 		<NativeSelect.Root
 			size="sm"
-			class="hidden w-[8.75rem] sm:block"
-			value={selectedPreset}
-			onchange={(event) => onPresetChange(event.currentTarget.value)}
-			aria-label="RDP quality preset"
-		>
-			<NativeSelect.Option value="balanced">Balanced</NativeSelect.Option>
-			<NativeSelect.Option value="performance">Performance</NativeSelect.Option>
-			<NativeSelect.Option value="quality">Quality</NativeSelect.Option>
-		</NativeSelect.Root>
-		<NativeSelect.Root
-			size="sm"
-			class="hidden w-[7.25rem] lg:block"
+			class="hidden w-[5.25rem] sm:block"
 			value={selectedScale}
 			onchange={(event) => onScaleChange(event.currentTarget.value)}
 			aria-label="RDP display scale"
@@ -201,9 +239,14 @@
 			<NativeSelect.Option value="fill">Fill</NativeSelect.Option>
 			<NativeSelect.Option value="real">100%</NativeSelect.Option>
 		</NativeSelect.Root>
-		<Button size="sm" variant="outline" onclick={onReconnect}>
+		<Button
+			size="icon-sm"
+			variant="ghost"
+			onclick={onReconnect}
+			aria-label={reconnectLabel}
+			title={reconnectLabel}
+		>
 			<RefreshCw class="size-4" />
-			{reconnectLabel}
 		</Button>
 		<Button
 			size="icon-sm"

@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
 	import { RotateCcw } from '@lucide/svelte';
+	import type { Attachment } from 'svelte/attachments';
 	import { Button } from '$lib/components/ui/button';
 	import StatePanel from './StatePanel.svelte';
 	import LiveSshTabStrip from './session/ssh/LiveSshTabStrip.svelte';
@@ -24,27 +25,37 @@
 	import { createSessionWorkspaceController } from './session/layout/session-workspace-controller.svelte';
 
 	const workspace = createSessionWorkspaceController();
+
+	const captureWorkspaceElement: Attachment<HTMLElement> = (node) => {
+		workspace.workspaceElement = node;
+
+		return () => {
+			if (workspace.workspaceElement === node) workspace.workspaceElement = null;
+		};
+	};
 </script>
 
 <section
-	bind:this={workspace.workspaceElement}
-	class="flex h-[calc(100dvh-3.5rem)] min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background"
+	{@attach captureWorkspaceElement}
+	class="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background"
 >
-	<SessionWorkspaceHeader
-		selectedHost={workspace.selectedHost}
-		workspaceStatus={workspace.workspaceStatus}
-		workspaceStatusVariant={workspace.workspaceStatusVariant}
-		workspacePaneSummary={workspace.workspacePaneSummary}
-		historyHref={resolve('/history' as '/')}
-		isFullscreen={workspace.isFullscreen}
-		canUseFullscreen={browser}
-		canReconnect={Boolean(workspace.selectedHost && workspace.activeProtocol !== 'sftp')}
-		canDisconnect={Boolean(workspace.selectedHost && workspace.activeProtocol !== 'sftp')}
-		onReturnToLauncher={workspace.returnToLauncher}
-		onReconnect={workspace.reconnect}
-		onToggleFullscreen={workspace.toggleFullscreen}
-		onDisconnect={workspace.disconnect}
-	/>
+	{#if !(workspace.selectedHost && workspace.isSinglePaneLayout && workspace.activeProtocol === 'rdp')}
+		<SessionWorkspaceHeader
+			selectedHost={workspace.selectedHost}
+			workspaceStatus={workspace.workspaceStatus}
+			workspaceStatusVariant={workspace.workspaceStatusVariant}
+			workspacePaneSummary={workspace.workspacePaneSummary}
+			historyHref={resolve('/history' as '/')}
+			isFullscreen={workspace.isFullscreen}
+			canUseFullscreen={browser}
+			canReconnect={Boolean(workspace.selectedHost && workspace.activeProtocol !== 'sftp')}
+			canDisconnect={Boolean(workspace.selectedHost && workspace.activeProtocol !== 'sftp')}
+			onReturnToLauncher={workspace.returnToLauncher}
+			onReconnect={workspace.reconnect}
+			onToggleFullscreen={workspace.toggleFullscreen}
+			onDisconnect={workspace.disconnect}
+		/>
+	{/if}
 
 	{#if workspace.hostsQuery.loading}
 		<div class="relative min-h-0 flex-1">
@@ -89,20 +100,23 @@
 			/>
 		</div>
 	{:else}
+		{@const immersiveRdp = workspace.isSinglePaneLayout && workspace.activeProtocol === 'rdp'}
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-			<SessionWorkbenchBar
-				isSinglePaneLayout={workspace.isSinglePaneLayout}
-				availableTabs={workspace.availableTabs}
-				activeProtocol={workspace.activeProtocol}
-				workspaceLayoutLabel={workspace.workspaceLayoutLabel}
-				workspacePaneKinds={workspace.workspacePaneKinds}
-				layoutPersistenceError={workspace.layoutPersistenceError}
-				layout={workspace.activeWorkspaceLayout.layout}
-				onSelectProtocol={workspace.selectProtocol}
-				onSelectLayout={workspace.selectLayout}
-			/>
+			{#if !immersiveRdp}
+				<SessionWorkbenchBar
+					isSinglePaneLayout={workspace.isSinglePaneLayout}
+					availableTabs={workspace.availableTabs}
+					activeProtocol={workspace.activeProtocol}
+					workspaceLayoutLabel={workspace.workspaceLayoutLabel}
+					workspacePaneKinds={workspace.workspacePaneKinds}
+					layoutPersistenceError={workspace.layoutPersistenceError}
+					layout={workspace.activeWorkspaceLayout.layout}
+					onSelectProtocol={workspace.selectProtocol}
+					onSelectLayout={workspace.selectLayout}
+				/>
+			{/if}
 
-			{#if workspace.workspaceHasSshPane || workspace.liveSshSessions.length}
+			{#if !immersiveRdp && (workspace.workspaceHasSshPane || workspace.liveSshSessions.length)}
 				<LiveSshTabStrip
 					sessions={workspace.liveSshSessions}
 					activeSessionId={workspace.activeLiveSshSessionId}
@@ -118,21 +132,65 @@
 			<SessionTileGrid
 				layout={workspace.activeWorkspaceLayout.layout}
 				panes={workspace.activeWorkspaceLayout.panes}
+				immersive={immersiveRdp}
 			>
 				{#snippet children(pane, index)}
 					{@const paneHost = workspace.hostForPane(pane)}
-					<SessionPaneHeader
-						paneId={pane.id}
-						kind={pane.kind}
-						host={paneHost}
-						hosts={workspace.hosts}
-						{index}
-						onKindChange={workspace.selectPaneKind}
-						onHostChange={workspace.selectPaneHost}
-						onReconnect={workspace.reconnectPane}
-						onClose={workspace.closePane}
-						compact={pane.kind === 'rdp'}
-					/>
+					{#snippet rdpDetailsControls()}
+						<div class="grid gap-3 text-sm">
+							<div class="min-w-0">
+								<p class="text-xs font-medium text-muted-foreground">Session target</p>
+								<p class="truncate font-mono text-xs">
+									{#if paneHost}
+										{paneHost.username
+											? `${paneHost.username}@`
+											: ''}{paneHost.hostname}:{paneHost.port}
+									{:else}
+										No host selected
+									{/if}
+								</p>
+							</div>
+							<div class="grid gap-2 sm:grid-cols-2">
+								<Button href={resolve('/history' as '/')} size="sm" variant="outline">
+									History
+								</Button>
+								<Button size="sm" variant="outline" onclick={workspace.returnToLauncher}>
+									Change host
+								</Button>
+							</div>
+							{#if workspace.availableTabs.length > 1}
+								<div class="grid gap-2">
+									<p class="text-xs font-medium text-muted-foreground">Protocol</p>
+									<div class="flex flex-wrap gap-1">
+										{#each workspace.availableTabs as tab (tab)}
+											<Button
+												size="sm"
+												variant={workspace.activeProtocol === tab ? 'secondary' : 'outline'}
+												aria-pressed={workspace.activeProtocol === tab}
+												onclick={() => workspace.selectProtocol(tab)}
+											>
+												{tab.toUpperCase()}
+											</Button>
+										{/each}
+									</div>
+								</div>
+							{/if}
+						</div>
+					{/snippet}
+					{#if !immersiveRdp}
+						<SessionPaneHeader
+							paneId={pane.id}
+							kind={pane.kind}
+							host={paneHost}
+							hosts={workspace.hosts}
+							{index}
+							onKindChange={workspace.selectPaneKind}
+							onHostChange={workspace.selectPaneHost}
+							onReconnect={workspace.reconnectPane}
+							onClose={workspace.closePane}
+							compact={pane.kind === 'rdp'}
+						/>
+					{/if}
 					{#if !paneHost}
 						<div class="min-h-0 flex-1 p-3">
 							<StatePanel
@@ -283,7 +341,7 @@
 							<SshTunnelPane host={paneHost} />
 						</div>
 					{:else if pane.kind === 'rdp'}
-						<div class="min-h-0 flex-1 p-1">
+						<div class={immersiveRdp ? 'min-h-0 flex-1 p-0' : 'min-h-0 flex-1 p-1'}>
 							{#if workspace.isPanePaused(paneHost, pane.kind)}
 								<RdpPane
 									launch={null}
@@ -293,7 +351,12 @@
 									clipboardPolicy={workspace.appSettings.rdpClipboard}
 									performancePreset={workspace.appSettings.rdpPerformancePreset}
 									audioRedirection={workspace.appSettings.rdpAudioRedirection}
-								/>
+									immersive={immersiveRdp}
+								>
+									{#snippet detailsControls()}
+										{@render rdpDetailsControls()}
+									{/snippet}
+								</RdpPane>
 							{:else if browser}
 								{#key `rdp:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
 									<RdpLaunchPane
@@ -303,7 +366,12 @@
 										clipboardPolicy={workspace.appSettings.rdpClipboard}
 										performancePreset={workspace.appSettings.rdpPerformancePreset}
 										audioRedirection={workspace.appSettings.rdpAudioRedirection}
-									/>
+										immersive={immersiveRdp}
+									>
+										{#snippet detailsControls()}
+											{@render rdpDetailsControls()}
+										{/snippet}
+									</RdpLaunchPane>
 								{/key}
 							{/if}
 						</div>

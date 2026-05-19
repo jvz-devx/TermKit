@@ -29,6 +29,7 @@
 	};
 
 	const pageTitle = $derived(titles[page.url.pathname] ?? 'Operations');
+	const isSessionsRoute = $derived(page.url.pathname.startsWith('/sessions'));
 
 	function sidebarUser(user: { username: string; isAdmin: boolean } | null) {
 		const username = user?.username?.trim() || 'User';
@@ -51,7 +52,7 @@
 
 <Sidebar.Provider>
 	<AppSidebar user={sidebarUser(user ?? null)} isAdmin={user?.isAdmin ?? false} />
-	<Sidebar.Inset>
+	<Sidebar.Inset class="h-svh min-h-0 overflow-hidden">
 		<header
 			class="flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12"
 		>
@@ -75,7 +76,11 @@
 				App session
 			</div>
 		</header>
-		<main class="min-h-0 flex-1 overflow-auto">{@render children()}</main>
+		<main
+			class={isSessionsRoute ? 'min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-auto'}
+		>
+			{@render children()}
+		</main>
 	</Sidebar.Inset>
 	<PwaInstallPrompt />
 </Sidebar.Provider>

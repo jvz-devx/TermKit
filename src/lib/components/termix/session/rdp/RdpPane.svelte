@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { RefreshCw } from '@lucide/svelte';
+	import type { Snippet } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import StatePanel from '../../StatePanel.svelte';
 	import RdpClipboardControls from './RdpClipboardControls.svelte';
@@ -11,10 +12,14 @@
 		type RdpPaneControllerProps
 	} from './rdp-pane-controller.svelte';
 
-	let props: RdpPaneControllerProps = $props();
+	let {
+		detailsControls,
+		immersive = false,
+		...controllerProps
+	}: RdpPaneControllerProps & { detailsControls?: Snippet; immersive?: boolean } = $props();
 	// eslint-disable-next-line svelte/no-unused-svelte-ignore
 	// svelte-ignore state_referenced_locally -- RDP launch identity is fixed for this mounted pane
-	const rdp = createRdpPaneController(props);
+	const rdp = createRdpPaneController(controllerProps);
 	const rdpFocusHost = rdp.rdpFocusHost;
 </script>
 
@@ -24,7 +29,11 @@
 	onfullscreenchange={rdp.handleFullscreenChange}
 />
 
-<div class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border bg-background">
+<div
+	class={immersive
+		? 'flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background'
+		: 'flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border bg-background'}
+>
 	<RdpToolbar
 		statusVariant={rdp.statusVariant}
 		statusTitle={rdp.statusTitle}
@@ -51,6 +60,7 @@
 		onScaleChange={rdp.changeScale}
 		onReconnect={rdp.onReconnect}
 		onDisconnect={rdp.disconnectRdpSession}
+		{detailsControls}
 	>
 		{#snippet clipboardControls()}
 			<RdpClipboardControls
