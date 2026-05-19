@@ -291,10 +291,11 @@ export function createRdpPaneController({
 			const username = sessionUsername.trim();
 			const domain = sessionDomain.trim();
 			const desktopSize = preferredDesktopSize();
+			const proxyAddress = rdpGatewayWebSocketUrl(bootstrap.gatewayPublicUrl);
 			const builder = api
 				.configBuilder()
 				.withDestination(bootstrap.destination)
-				.withProxyAddress(bootstrap.gatewayPublicUrl)
+				.withProxyAddress(proxyAddress)
 				.withAuthToken(bootstrap.associationToken)
 				.withPassword(password)
 				.withDesktopSize(desktopSize)
@@ -599,6 +600,7 @@ export function createRdpPaneController({
 				connectionState,
 				destination: bootstrap?.destination ?? null,
 				gatewayPublicUrl: bootstrap?.gatewayPublicUrl ?? null,
+				proxyAddress: bootstrap ? rdpGatewayWebSocketUrl(bootstrap.gatewayPublicUrl) : null,
 				expiresAt: bootstrap?.expiresAt ?? null,
 				usernameProvided: Boolean(sessionUsername.trim()),
 				domainProvided: Boolean(sessionDomain.trim()),
@@ -638,6 +640,15 @@ export function createRdpPaneController({
 		} catch {
 			return 'unstringifiable_error';
 		}
+	}
+
+	function rdpGatewayWebSocketUrl(gatewayPublicUrl: string) {
+		const url = new URL(gatewayPublicUrl);
+		url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
+		url.pathname = `${url.pathname.replace(/\/$/, '')}/jet/rdp`;
+		url.search = '';
+		url.hash = '';
+		return url.toString();
 	}
 
 	function finalizeRdpLifecycleOnDispose() {

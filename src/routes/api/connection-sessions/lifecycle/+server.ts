@@ -72,6 +72,7 @@ function sanitizeConnectionErrorDetails(value: unknown): Record<string, unknown>
 		'connectionState',
 		'destination',
 		'gatewayPublicUrl',
+		'proxyAddress',
 		'expiresAt',
 		'usernameProvided',
 		'domainProvided',

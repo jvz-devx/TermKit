@@ -327,6 +327,7 @@ function sanitizeLifecycleErrorDetails(value: unknown): Record<string, unknown> 
 		'connectionState',
 		'destination',
 		'gatewayPublicUrl',
+		'proxyAddress',
 		'expiresAt',
 		'usernameProvided',
 		'domainProvided',
