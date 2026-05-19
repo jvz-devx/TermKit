@@ -105,8 +105,8 @@
 				size="icon-sm"
 				variant="ghost"
 				onclick={onToggleSidebar}
-				aria-label={sidebarOpen ? 'Hide session sidebar' : 'Show session sidebar'}
-				title={sidebarOpen ? 'Hide sessions' : 'Show sessions'}
+				aria-label={sidebarOpen ? 'Collapse session sidebar' : 'Expand session sidebar'}
+				title={sidebarOpen ? 'Collapse sessions' : 'Expand sessions'}
 			>
 				<SidebarIcon class="size-4" />
 			</Button>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Monitor, Search, Server, X } from '@lucide/svelte';
+	import { Monitor, PanelRightClose, PanelRightOpen, Search, Server } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -10,14 +10,16 @@
 		hosts,
 		selectedHostId,
 		activeProtocol,
+		expanded,
 		onOpen,
-		onClose
+		onToggleExpanded
 	}: {
 		hosts: HostSummary[];
 		selectedHostId: string | null;
 		activeProtocol: WorkspaceProtocol;
+		expanded: boolean;
 		onOpen: (host: HostSummary, protocol: WorkspaceProtocol) => void;
-		onClose: () => void;
+		onToggleExpanded: () => void;
 	} = $props();
 
 	let search = $state('');
@@ -60,77 +62,117 @@
 	}
 </script>
 
-<aside class="flex h-full min-h-0 w-72 shrink-0 flex-col border-l bg-background">
-	<div class="flex min-h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
-		<div class="flex min-w-0 items-center gap-2">
-			<Server class="size-4 shrink-0 text-muted-foreground" />
-			<div class="min-w-0">
-				<h2 class="truncate text-sm font-semibold">Sessions</h2>
-				<p class="truncate text-xs text-muted-foreground">
-					{protocolLabels[activeProtocol]} open
-				</p>
+<aside
+	class={[
+		'flex h-full min-h-0 shrink-0 flex-col border-l bg-background transition-[width]',
+		expanded ? 'w-72' : 'w-14'
+	]}
+	aria-label="Session sidebar"
+>
+	<div
+		class={[
+			'flex min-h-12 shrink-0 items-center border-b',
+			expanded ? 'justify-between gap-2 px-3' : 'justify-center px-1'
+		]}
+	>
+		{#if expanded}
+			<div class="flex min-w-0 items-center gap-2">
+				<Server class="size-4 shrink-0 text-muted-foreground" />
+				<div class="min-w-0">
+					<h2 class="truncate text-sm font-semibold">Sessions</h2>
+					<p class="truncate text-xs text-muted-foreground">
+						{protocolLabels[activeProtocol]} open
+					</p>
+				</div>
 			</div>
-		</div>
-		<Button size="icon-sm" variant="ghost" aria-label="Hide session sidebar" onclick={onClose}>
-			<X class="size-4" />
+		{/if}
+		<Button
+			size="icon-sm"
+			variant="ghost"
+			aria-label={expanded ? 'Collapse session sidebar' : 'Expand session sidebar'}
+			title={expanded ? 'Collapse sessions' : 'Expand sessions'}
+			onclick={onToggleExpanded}
+		>
+			{#if expanded}
+				<PanelRightClose class="size-4" />
+			{:else}
+				<PanelRightOpen class="size-4" />
+			{/if}
 		</Button>
 	</div>
-	<div class="shrink-0 border-b p-2">
-		<div class="relative">
-			<Search
-				class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-			/>
-			<Input class="h-8 pl-8 text-sm" placeholder="Filter sessions" bind:value={search} />
+	{#if expanded}
+		<div class="shrink-0 border-b p-2">
+			<div class="relative">
+				<Search
+					class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+				/>
+				<Input class="h-8 pl-8 text-sm" placeholder="Filter sessions" bind:value={search} />
+			</div>
 		</div>
-	</div>
-	<div class="min-h-0 flex-1 overflow-y-auto p-2">
-		<div class="grid gap-1.5">
+	{/if}
+	<div class="min-h-0 flex-1 overflow-y-auto">
+		<div class={expanded ? 'grid' : 'grid justify-items-center py-1'}>
 			{#each filteredHosts as host (host.id)}
 				{@const currentHost = host.id === selectedHostId}
 				{@const hostProtocols = protocolsForHost(host)}
-				<section
-					class={[
-						'rounded-md border p-2 transition-colors',
-						currentHost
-							? 'border-primary/50 bg-primary/10'
-							: 'border-border bg-background hover:bg-muted/40'
-					]}
-				>
+				{#if expanded}
 					<button
 						type="button"
-						class="flex w-full min-w-0 items-start gap-2 text-left"
+						class={[
+							'flex w-full min-w-0 items-start gap-2 border-b px-3 py-2 text-left transition-colors',
+							currentHost ? 'bg-primary/10' : 'hover:bg-muted/40'
+						]}
 						aria-current={currentHost ? 'true' : undefined}
 						onclick={() => openHost(host)}
 					>
-						<Monitor class="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+						<Monitor
+							class={[
+								'mt-0.5 size-4 shrink-0',
+								currentHost ? 'text-primary' : 'text-muted-foreground'
+							]}
+						/>
 						<span class="min-w-0 flex-1">
 							<span class="block truncate text-sm font-medium">{host.name}</span>
 							<span class="block truncate font-mono text-xs text-muted-foreground">
 								{host.username ? `${host.username}@` : ''}{host.hostname}:{host.port}
 							</span>
+							<span class="mt-1 flex flex-wrap gap-1">
+								{#each hostProtocols as protocol (protocol)}
+									<Button
+										size="sm"
+										variant={currentHost && activeProtocol === protocol ? 'secondary' : 'ghost'}
+										class="h-6 px-2 text-xs"
+										aria-pressed={currentHost && activeProtocol === protocol}
+										onclick={(event) => {
+											event.stopPropagation();
+											onOpen(host, protocol);
+										}}
+									>
+										{protocolLabels[protocol]}
+									</Button>
+								{/each}
+								{#if currentHost}
+									<Badge variant="outline" class="h-6">Open</Badge>
+								{/if}
+							</span>
 						</span>
 					</button>
-					<div class="mt-2 flex flex-wrap gap-1">
-						{#each hostProtocols as protocol (protocol)}
-							<Button
-								size="sm"
-								variant={currentHost && activeProtocol === protocol ? 'secondary' : 'outline'}
-								class="h-6 px-2 text-xs"
-								aria-pressed={currentHost && activeProtocol === protocol}
-								onclick={() => onOpen(host, protocol)}
-							>
-								{protocolLabels[protocol]}
-							</Button>
-						{/each}
-						{#if currentHost}
-							<Badge variant="outline" class="h-6">Open</Badge>
-						{/if}
-					</div>
-				</section>
+				{:else}
+					<Button
+						size="icon-sm"
+						variant={currentHost ? 'secondary' : 'ghost'}
+						class="my-0.5"
+						aria-label={`Open ${host.name}`}
+						title={`${host.name} (${hostProtocols.map((protocol) => protocolLabels[protocol]).join(', ')})`}
+						onclick={() => openHost(host)}
+					>
+						<Monitor class="size-4" />
+					</Button>
+				{/if}
 			{:else}
-				<div class="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-					No sessions match this filter.
-				</div>
+				{#if expanded}
+					<div class="p-4 text-sm text-muted-foreground">No sessions match this filter.</div>
+				{/if}
 			{/each}
 		</div>
 	</div>

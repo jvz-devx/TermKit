@@ -26,7 +26,7 @@
 	import { createSessionWorkspaceController } from './session/layout/session-workspace-controller.svelte';
 
 	const workspace = createSessionWorkspaceController();
-	let rdpSidebarOpen = $state(true);
+	let rdpSidebarExpanded = $state(true);
 
 	const captureWorkspaceElement: Attachment<HTMLElement> = (node) => {
 		workspace.workspaceElement = node;
@@ -362,8 +362,8 @@
 											performancePreset={workspace.appSettings.rdpPerformancePreset}
 											audioRedirection={workspace.appSettings.rdpAudioRedirection}
 											immersive={immersiveRdp}
-											sidebarOpen={rdpSidebarOpen}
-											onToggleSidebar={() => (rdpSidebarOpen = !rdpSidebarOpen)}
+											sidebarOpen={rdpSidebarExpanded}
+											onToggleSidebar={() => (rdpSidebarExpanded = !rdpSidebarExpanded)}
 										>
 											{#snippet detailsControls()}
 												{@render rdpDetailsControls()}
@@ -379,8 +379,8 @@
 												performancePreset={workspace.appSettings.rdpPerformancePreset}
 												audioRedirection={workspace.appSettings.rdpAudioRedirection}
 												immersive={immersiveRdp}
-												sidebarOpen={rdpSidebarOpen}
-												onToggleSidebar={() => (rdpSidebarOpen = !rdpSidebarOpen)}
+												sidebarOpen={rdpSidebarExpanded}
+												onToggleSidebar={() => (rdpSidebarExpanded = !rdpSidebarExpanded)}
 											>
 												{#snippet detailsControls()}
 													{@render rdpDetailsControls()}
@@ -426,23 +426,15 @@
 						{/snippet}
 					</SessionTileGrid>
 				</div>
-				{#if immersiveRdp && rdpSidebarOpen}
-					<div class="hidden h-full min-h-0 shrink-0 lg:block">
+				{#if immersiveRdp}
+					<div class="h-full min-h-0 shrink-0">
 						<SessionHostSidebar
 							hosts={workspace.hosts}
 							selectedHostId={workspace.selectedHost.id}
 							activeProtocol={workspace.activeProtocol}
+							expanded={rdpSidebarExpanded}
 							onOpen={workspace.selectHostProtocol}
-							onClose={() => (rdpSidebarOpen = false)}
-						/>
-					</div>
-					<div class="absolute inset-y-0 right-0 z-20 h-full min-h-0 shadow-2xl lg:hidden">
-						<SessionHostSidebar
-							hosts={workspace.hosts}
-							selectedHostId={workspace.selectedHost.id}
-							activeProtocol={workspace.activeProtocol}
-							onOpen={workspace.selectHostProtocol}
-							onClose={() => (rdpSidebarOpen = false)}
+							onToggleExpanded={() => (rdpSidebarExpanded = !rdpSidebarExpanded)}
 						/>
 					</div>
 				{/if}
