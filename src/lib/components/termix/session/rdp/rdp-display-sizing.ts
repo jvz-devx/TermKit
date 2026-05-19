@@ -5,8 +5,8 @@ import {
 } from './rdp-operator-controls';
 import type { RdpPerformancePreset } from '$lib/remotes/settings.remote';
 
-export const minDesktopWidth = 2;
-export const minDesktopHeight = 1;
+export const minDesktopWidth = 640;
+export const minDesktopHeight = 480;
 export const maxDesktopWidth = 7680;
 export const maxDesktopHeight = 4320;
 
