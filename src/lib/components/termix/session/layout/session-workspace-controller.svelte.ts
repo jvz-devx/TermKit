@@ -96,7 +96,7 @@ export function createSessionWorkspaceController() {
 		clipboardSync: true,
 		rdpClipboard: {
 			text: true,
-			files: false,
+			files: true,
 			clientToRemote: true,
 			remoteToClient: true,
 			fileTransferSizeLimitMiB: 16

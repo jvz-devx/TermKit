@@ -150,6 +150,7 @@ describe('SettingsService', () => {
 			rdpClipboard: {
 				...DEFAULT_BASIC_APP_SETTINGS.rdpClipboard,
 				text: false,
+				files: false,
 				clientToRemote: false,
 				remoteToClient: false
 			}
@@ -186,8 +187,32 @@ describe('SettingsService', () => {
 			rdpClipboard: {
 				...DEFAULT_BASIC_APP_SETTINGS.rdpClipboard,
 				text: false,
+				files: false,
 				clientToRemote: false,
 				remoteToClient: false
+			}
+		});
+	});
+
+	it('enables file clipboard for default and legacy-enabled settings', async () => {
+		const repository = new InMemorySettingsRepository();
+		await repository.upsertSetting(BASIC_APP_SETTINGS_KEY, {
+			ticketTtlSeconds: 60,
+			terminalFontSize: 13,
+			clipboardSync: true,
+			rememberLastActiveTab: true
+		});
+
+		const service = new SettingsService(repository);
+
+		expect(DEFAULT_BASIC_APP_SETTINGS.rdpClipboard.files).toBe(true);
+		await expect(service.getBasicAppSettings()).resolves.toMatchObject({
+			clipboardSync: true,
+			rdpClipboard: {
+				text: true,
+				files: true,
+				clientToRemote: true,
+				remoteToClient: true
 			}
 		});
 	});

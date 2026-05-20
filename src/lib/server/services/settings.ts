@@ -38,7 +38,7 @@ export const DEFAULT_BASIC_APP_SETTINGS: BasicAppSettings = {
 	clipboardSync: true,
 	rdpClipboard: {
 		text: true,
-		files: false,
+		files: true,
 		clientToRemote: true,
 		remoteToClient: true,
 		fileTransferSizeLimitMiB: 16
@@ -257,6 +257,7 @@ function normalizeStoredRdpClipboardPolicy(
 		return normalizeRdpClipboardPolicyDirections({
 			...DEFAULT_BASIC_APP_SETTINGS.rdpClipboard,
 			text: legacyClipboardSync,
+			files: legacyClipboardSync && DEFAULT_BASIC_APP_SETTINGS.rdpClipboard.files,
 			clientToRemote: legacyClipboardSync,
 			remoteToClient: legacyClipboardSync
 		});
@@ -270,7 +271,7 @@ function normalizeStoredRdpClipboardPolicy(
 		files:
 			typeof value.files === 'boolean'
 				? value.files
-				: DEFAULT_BASIC_APP_SETTINGS.rdpClipboard.files,
+				: legacyClipboardSync && DEFAULT_BASIC_APP_SETTINGS.rdpClipboard.files,
 		clientToRemote:
 			typeof value.clientToRemote === 'boolean'
 				? value.clientToRemote

@@ -179,6 +179,29 @@ export function canCopyFileToRemoteClipboard({
 	);
 }
 
+export function copyFileToRemoteClipboardDisabledReason({
+	effectiveClipboardPolicy,
+	connectionState,
+	rdpModule,
+	activeClipboardSession,
+	fileTransferBusy
+}: {
+	effectiveClipboardPolicy: RdpClipboardPolicy;
+	connectionState: RdpConnectionState;
+	rdpModule: unknown;
+	activeClipboardSession: unknown;
+	fileTransferBusy: boolean;
+}): string | null {
+	if (!effectiveClipboardPolicy.files) return 'File clipboard is disabled in Settings.';
+	if (!effectiveClipboardPolicy.clientToRemote) {
+		return 'Client to remote clipboard is blocked in Settings.';
+	}
+	if (connectionState !== 'connected') return 'Connect the RDP session before copying files.';
+	if (!rdpModule || !activeClipboardSession) return 'Waiting for the RDP file clipboard bridge.';
+	if (fileTransferBusy) return 'A file clipboard transfer is already running.';
+	return null;
+}
+
 export function canSaveRemoteClipboardLocally({
 	effectiveClipboardPolicy,
 	connectionState,
@@ -197,4 +220,25 @@ export function canSaveRemoteClipboardLocally({
 		api &&
 		!fileTransferBusy
 	);
+}
+
+export function saveRemoteClipboardLocallyDisabledReason({
+	effectiveClipboardPolicy,
+	connectionState,
+	api,
+	fileTransferBusy
+}: {
+	effectiveClipboardPolicy: RdpClipboardPolicy;
+	connectionState: RdpConnectionState;
+	api: unknown;
+	fileTransferBusy: boolean;
+}): string | null {
+	if (!effectiveClipboardPolicy.files) return 'File clipboard is disabled in Settings.';
+	if (!effectiveClipboardPolicy.remoteToClient) {
+		return 'Remote to client clipboard is blocked in Settings.';
+	}
+	if (connectionState !== 'connected') return 'Connect the RDP session before saving files.';
+	if (!api) return 'Waiting for the RDP clipboard API.';
+	if (fileTransferBusy) return 'A file clipboard transfer is already running.';
+	return null;
 }

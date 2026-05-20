@@ -3,10 +3,12 @@ import {
 	canCopyFileToRemoteClipboard,
 	canSaveRemoteClipboardLocally,
 	canStartRdpConnection,
+	copyFileToRemoteClipboardDisabledReason,
 	rdpAudioStatusLabel,
 	rdpClipboardStatusLabel,
 	rdpClipboardStatusVariant,
 	rdpMultiMonitorLabel,
+	saveRemoteClipboardLocallyDisabledReason,
 	rdpSavedPasswordAvailable,
 	rdpStatusLabel,
 	rdpStatusVariant,
@@ -142,5 +144,61 @@ describe('RDP pane state helpers', () => {
 				fileTransferBusy: false
 			})
 		).toBe(true);
+	});
+
+	it('explains why RDP file clipboard actions are disabled', () => {
+		expect(
+			copyFileToRemoteClipboardDisabledReason({
+				effectiveClipboardPolicy: { ...openClipboardPolicy, files: false },
+				connectionState: 'connected',
+				rdpModule: {},
+				activeClipboardSession: {},
+				fileTransferBusy: false
+			})
+		).toBe('File clipboard is disabled in Settings.');
+		expect(
+			copyFileToRemoteClipboardDisabledReason({
+				effectiveClipboardPolicy: { ...openClipboardPolicy, clientToRemote: false },
+				connectionState: 'connected',
+				rdpModule: {},
+				activeClipboardSession: {},
+				fileTransferBusy: false
+			})
+		).toBe('Client to remote clipboard is blocked in Settings.');
+		expect(
+			copyFileToRemoteClipboardDisabledReason({
+				effectiveClipboardPolicy: openClipboardPolicy,
+				connectionState: 'connected',
+				rdpModule: {},
+				activeClipboardSession: null,
+				fileTransferBusy: false
+			})
+		).toBe('Waiting for the RDP file clipboard bridge.');
+		expect(
+			copyFileToRemoteClipboardDisabledReason({
+				effectiveClipboardPolicy: openClipboardPolicy,
+				connectionState: 'connected',
+				rdpModule: {},
+				activeClipboardSession: {},
+				fileTransferBusy: false
+			})
+		).toBeNull();
+
+		expect(
+			saveRemoteClipboardLocallyDisabledReason({
+				effectiveClipboardPolicy: { ...openClipboardPolicy, remoteToClient: false },
+				connectionState: 'connected',
+				api: {},
+				fileTransferBusy: false
+			})
+		).toBe('Remote to client clipboard is blocked in Settings.');
+		expect(
+			saveRemoteClipboardLocallyDisabledReason({
+				effectiveClipboardPolicy: openClipboardPolicy,
+				connectionState: 'connected',
+				api: {},
+				fileTransferBusy: true
+			})
+		).toBe('A file clipboard transfer is already running.');
 	});
 });

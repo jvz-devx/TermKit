@@ -80,6 +80,8 @@
 				effectiveClipboardPolicy={rdp.effectiveClipboardPolicy}
 				canCopyFileToRemote={rdp.canCopyFileToRemote}
 				canSaveRemoteClipboard={rdp.canSaveRemoteClipboard}
+				copyFileDisabledReason={rdp.copyFileDisabledReason}
+				saveRemoteClipboardDisabledReason={rdp.saveRemoteClipboardDisabledReason}
 				apiReady={Boolean(rdp.api)}
 				clipboardTelemetry={rdp.clipboardTelemetry}
 				copyFileToRemoteClipboard={rdp.copyFileToRemoteClipboard}

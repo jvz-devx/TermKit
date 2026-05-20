@@ -2,12 +2,29 @@ import { describe, expect, it } from 'vitest';
 import {
 	applyRdpDisplayPreset,
 	classifyRdpFailure,
+	defaultRdpClipboardPolicy,
 	normalizeDesktopDimension,
 	normalizeRdpClipboardPolicy,
 	rdpDisplayPresets
 } from './rdp-operator-controls';
 
 describe('RDP operator controls', () => {
+	it('enables file clipboard by default while respecting legacy clipboard sync', () => {
+		expect(defaultRdpClipboardPolicy.files).toBe(true);
+		expect(normalizeRdpClipboardPolicy(undefined, true)).toMatchObject({
+			text: true,
+			files: true,
+			clientToRemote: true,
+			remoteToClient: true
+		});
+		expect(normalizeRdpClipboardPolicy(undefined, false)).toMatchObject({
+			text: false,
+			files: false,
+			clientToRemote: false,
+			remoteToClient: false
+		});
+	});
+
 	it('caps display size by quality preset while preserving supported resize dimensions', () => {
 		expect(applyRdpDisplayPreset({ width: 3200, height: 1800 }, 'performance')).toEqual({
 			width: rdpDisplayPresets.performance.maxDesktop.width,

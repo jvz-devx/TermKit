@@ -27,7 +27,7 @@ export type RdpDisplayPreset = {
 
 export const defaultRdpClipboardPolicy: RdpClipboardPolicy = {
 	text: true,
-	files: false,
+	files: true,
 	clientToRemote: true,
 	remoteToClient: true,
 	fileTransferSizeLimitMiB: 16
@@ -77,6 +77,7 @@ export function normalizeRdpClipboardPolicy(
 	const normalizedPolicy = policy ?? {
 		...defaultRdpClipboardPolicy,
 		text: legacyClipboardSync,
+		files: legacyClipboardSync && defaultRdpClipboardPolicy.files,
 		clientToRemote: legacyClipboardSync,
 		remoteToClient: legacyClipboardSync
 	};

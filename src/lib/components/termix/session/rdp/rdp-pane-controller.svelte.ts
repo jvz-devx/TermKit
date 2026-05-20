@@ -45,6 +45,7 @@ import { createRdpFocusHost } from './rdp-focus-host';
 import {
 	canCopyFileToRemoteClipboard,
 	canSaveRemoteClipboardLocally,
+	copyFileToRemoteClipboardDisabledReason,
 	canStartRdpConnection,
 	rdpAudioStatusLabel,
 	rdpClipboardStatusLabel,
@@ -52,6 +53,7 @@ import {
 	rdpFileTransferBusy,
 	rdpMultiMonitorLabel,
 	rdpReconnectLabel,
+	saveRemoteClipboardLocallyDisabledReason,
 	rdpSavedPasswordAvailable,
 	rdpStatusLabel,
 	rdpStatusTitle,
@@ -118,6 +120,7 @@ export function createRdpPaneController({
 	let resizeTimer: ReturnType<typeof setTimeout> | null = null;
 	let fullscreenResizeTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastDesktopSize: RdpDesktopSize | null = null;
+	let remoteDesktopVisible = false;
 	let lifecycleFinalized = false;
 	let disposed = false;
 	let connectAttemptId = 0;
@@ -187,6 +190,23 @@ export function createRdpPaneController({
 			fileTransferBusy
 		})
 	);
+	const copyFileDisabledReason = $derived(
+		copyFileToRemoteClipboardDisabledReason({
+			effectiveClipboardPolicy,
+			connectionState,
+			rdpModule,
+			activeClipboardSession,
+			fileTransferBusy
+		})
+	);
+	const saveRemoteClipboardDisabledReason = $derived(
+		saveRemoteClipboardLocallyDisabledReason({
+			effectiveClipboardPolicy,
+			connectionState,
+			api,
+			fileTransferBusy
+		})
+	);
 
 	onMount(() => {
 		disposed = false;
@@ -212,6 +232,7 @@ export function createRdpPaneController({
 			stopResizeObserver();
 			finalizeRdpLifecycleOnDispose();
 			activeClipboardSession = null;
+			remoteDesktopVisible = false;
 			api?.shutdown();
 		};
 	});
@@ -277,7 +298,7 @@ export function createRdpPaneController({
 			);
 		});
 		api.setKeyboardUnicodeMode(true);
-		api.setVisibility(true);
+		ensureRemoteDesktopVisible(true);
 		connectionState = 'ready';
 		detail = targetCredentialState;
 		focusRemoteDesktop();
@@ -377,6 +398,7 @@ export function createRdpPaneController({
 				.then((termination) => {
 					if (disposed) return;
 					activeClipboardSession = null;
+					remoteDesktopVisible = false;
 					lastFailure = classifyRdpFailure(termination.reason(), {
 						phase: 'run',
 						gatewayExpired: isGatewayExpired()
@@ -388,6 +410,7 @@ export function createRdpPaneController({
 				.catch((caught: unknown) => {
 					if (disposed) return;
 					activeClipboardSession = null;
+					remoteDesktopVisible = false;
 					const diagnostics = rdpFailureDiagnostics(caught, {
 						phase: 'run',
 						action: 'session.run',
@@ -519,9 +542,14 @@ export function createRdpPaneController({
 
 	function focusRemoteDesktop() {
 		(remoteDesktopElement ?? viewportElement)?.focus({ preventScroll: true });
-		api?.setVisibility(true);
 		api?.setKeyboardUnicodeMode(true);
 		focusDetail = 'Keyboard and pointer focus are on the RDP canvas.';
+	}
+
+	function ensureRemoteDesktopVisible(force = false) {
+		if (!api || (!force && remoteDesktopVisible)) return;
+		api.setVisibility(true);
+		remoteDesktopVisible = true;
 	}
 
 	function handleViewportPointerDown() {
@@ -564,6 +592,7 @@ export function createRdpPaneController({
 				await document.exitFullscreen();
 				scheduleFullscreenResize();
 				focusDetail = 'Fullscreen exited.';
+				ensureRemoteDesktopVisible(true);
 				focusRemoteDesktop();
 				return;
 			}
@@ -571,6 +600,7 @@ export function createRdpPaneController({
 			await viewportElement.requestFullscreen();
 			scheduleFullscreenResize();
 			focusDetail = 'Fullscreen active. Press Escape to exit.';
+			ensureRemoteDesktopVisible(true);
 			focusRemoteDesktop();
 		} catch {
 			focusDetail = 'Fullscreen was blocked by the browser.';
@@ -579,6 +609,7 @@ export function createRdpPaneController({
 
 	function disconnectRdpSession() {
 		activeClipboardSession = null;
+		remoteDesktopVisible = false;
 		api?.shutdown();
 		connectionState = 'disconnected';
 		detail = 'Disconnected locally. Reconnect to create a new RDP session.';
@@ -944,6 +975,12 @@ export function createRdpPaneController({
 		},
 		get canSaveRemoteClipboard() {
 			return canSaveRemoteClipboard;
+		},
+		get copyFileDisabledReason() {
+			return copyFileDisabledReason;
+		},
+		get saveRemoteClipboardDisabledReason() {
+			return saveRemoteClipboardDisabledReason;
 		},
 		get clipboardTelemetry() {
 			return clipboardTelemetry;

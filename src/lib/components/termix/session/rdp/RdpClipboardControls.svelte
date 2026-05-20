@@ -20,6 +20,8 @@
 		effectiveClipboardPolicy,
 		canCopyFileToRemote,
 		canSaveRemoteClipboard,
+		copyFileDisabledReason,
+		saveRemoteClipboardDisabledReason,
 		apiReady,
 		clipboardTelemetry,
 		copyFileToRemoteClipboard,
@@ -33,6 +35,8 @@
 		effectiveClipboardPolicy: RdpClipboardPolicy;
 		canCopyFileToRemote: boolean;
 		canSaveRemoteClipboard: boolean;
+		copyFileDisabledReason: string | null;
+		saveRemoteClipboardDisabledReason: string | null;
 		apiReady: boolean;
 		clipboardTelemetry: ClipboardTelemetry[];
 		copyFileToRemoteClipboard: (event: Event) => void | Promise<void>;
@@ -84,6 +88,7 @@
 		variant="outline"
 		class={actionClass}
 		disabled={!canCopyFileToRemote || !effectiveClipboardPolicy.files}
+		title={copyFileDisabledReason ?? 'Copy file to remote'}
 		onclick={pickFileForRemoteClipboard}
 	>
 		<FileUp class="size-4" />
@@ -94,6 +99,7 @@
 		variant="outline"
 		class={actionClass}
 		disabled={!canSaveRemoteClipboard || !effectiveClipboardPolicy.files}
+		title={saveRemoteClipboardDisabledReason ?? 'Save remote clipboard'}
 		onclick={saveRemoteClipboardLocally}
 	>
 		<FileDown class="size-4" />
@@ -111,6 +117,19 @@
 		<Clipboard class="size-4" />
 		Sync text
 	</Button>
+{/snippet}
+
+{#snippet clipboardDisabledReasons()}
+	{#if copyFileDisabledReason || saveRemoteClipboardDisabledReason}
+		<div class="grid gap-1 text-xs text-muted-foreground">
+			{#if copyFileDisabledReason}
+				<p>Copy file disabled: {copyFileDisabledReason}</p>
+			{/if}
+			{#if saveRemoteClipboardDisabledReason && saveRemoteClipboardDisabledReason !== copyFileDisabledReason}
+				<p>Save remote clipboard disabled: {saveRemoteClipboardDisabledReason}</p>
+			{/if}
+		</div>
+	{/if}
 {/snippet}
 
 {#snippet clipboardTelemetryList()}
@@ -144,6 +163,7 @@
 		<div class="grid gap-2 sm:grid-cols-3">
 			{@render clipboardActions('w-full justify-start sm:justify-center')}
 		</div>
+		{@render clipboardDisabledReasons()}
 		{@render clipboardTelemetryList()}
 	</div>
 {:else}
@@ -152,6 +172,11 @@
 			{@render clipboardSummary()}
 			{@render clipboardActions()}
 		</div>
+		{#if copyFileDisabledReason || saveRemoteClipboardDisabledReason}
+			<div class="mt-3">
+				{@render clipboardDisabledReasons()}
+			</div>
+		{/if}
 		<div class="mt-3">
 			{@render clipboardTelemetryList()}
 		</div>
