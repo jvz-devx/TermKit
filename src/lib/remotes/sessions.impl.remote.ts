@@ -74,7 +74,7 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 			const connectionSession = await connectionSessionService.start({
 				userId,
 				hostId,
-				protocol: 'ssh'
+				protocol: 'sftp'
 			});
 			const activeSession = await connectionSessionService.markActive(connectionSession.id);
 			if (!activeSession) throw new ServiceValidationError(['Could not start SFTP session']);

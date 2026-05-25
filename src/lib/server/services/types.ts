@@ -3,7 +3,7 @@ import type { CredentialEncryptionContext } from '$lib/server/crypto/credentials
 export const protocols = ['ssh', 'rdp', 'vnc', 'telnet', 'ftp', 'ftps'] as const;
 export type HostProtocol = (typeof protocols)[number];
 
-export const connectionProtocols = [...protocols, 'ssh_tunnel'] as const;
+export const connectionProtocols = [...protocols, 'sftp', 'ssh_tunnel'] as const;
 export type ConnectionProtocol = (typeof connectionProtocols)[number];
 
 export const credentialKinds = ['password', 'ssh_key', 'rdp_password'] as const;

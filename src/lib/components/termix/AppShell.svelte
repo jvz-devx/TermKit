@@ -28,8 +28,16 @@
 		'/settings': 'Settings'
 	};
 
-	const pageTitle = $derived(titles[page.url.pathname] ?? 'Operations');
+	const pageTitle = $derived(titleForPath(page.url.pathname));
 	const isSessionsRoute = $derived(page.url.pathname.startsWith('/sessions'));
+
+	function titleForPath(pathname: string) {
+		if (titles[pathname]) return titles[pathname];
+
+		if (/^\/fleet\/executions\/[^/]+$/.test(pathname)) return 'Fleet Execution';
+
+		return 'Operations';
+	}
 
 	function sidebarUser(user: { username: string; isAdmin: boolean } | null) {
 		const username = user?.username?.trim() || 'User';

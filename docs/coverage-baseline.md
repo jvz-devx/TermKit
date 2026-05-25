@@ -36,22 +36,22 @@ The current global CI gate intentionally ratchets just below that measured floor
 
 Additional scoped ratchets protect the owned surfaces that already clear higher local bars:
 
-| Surface                                                   | Statements | Branches | Functions | Lines |
-| --------------------------------------------------------- | ---------: | -------: | --------: | ----: |
-| `src/lib/server/**`                                       |        88% |      82% |       88% |   88% |
-| `src/lib/admin.remote.ts`                                 |        91% |      76% |       97% |   91% |
-| `src/lib/server/auth/**`                                  |        91% |      87% |       96% |   91% |
-| `src/lib/server/crypto/**`                                |        86% |      84% |       95% |   91% |
-| `src/lib/server/import/**`                                |        80% |      73% |       90% |   82% |
-| `src/lib/server/protocols/**`                             |        89% |      84% |       90% |   92% |
-| `src/lib/server/rdp/**`                                   |        92% |      80% |       90% |   93% |
-| `src/lib/server/ws/**`                                    |        79% |      77% |       68% |   82% |
-| `src/routes/api/**`                                       |        95% |      81% |       92% |   98% |
-| `src/lib/termix/**`                                       |        86% |      76% |       96% |   89% |
-| `src/lib/server/ssh-live/**`                              |        65% |      63% |       61% |   68% |
-| `src/lib/server/services/**`                              |        73% |      69% |       71% |   77% |
-| `src/lib/server/services/bulk-job-runner.ts`              |        82% |      71% |       88% |   88% |
-| `src/lib/components/termix/session/file-manager-state.ts` |        87% |      72% |      100% |   91% |
+| Surface                                                              | Statements | Branches | Functions | Lines |
+| -------------------------------------------------------------------- | ---------: | -------: | --------: | ----: |
+| `src/lib/server/**`                                                  |        88% |      82% |       88% |   88% |
+| `src/lib/admin.remote.ts`                                            |        91% |      76% |       97% |   91% |
+| `src/lib/server/auth/**`                                             |        91% |      87% |       96% |   91% |
+| `src/lib/server/crypto/**`                                           |        86% |      84% |       95% |   91% |
+| `src/lib/server/import/**`                                           |        80% |      73% |       90% |   82% |
+| `src/lib/server/protocols/**`                                        |        89% |      84% |       90% |   92% |
+| `src/lib/server/rdp/**`                                              |        92% |      80% |       90% |   93% |
+| `src/lib/server/ws/**`                                               |        79% |      77% |       68% |   82% |
+| `src/routes/api/**`                                                  |        95% |      81% |       92% |   98% |
+| `src/lib/termix/**`                                                  |        86% |      76% |       96% |   89% |
+| `src/lib/server/ssh-live/**`                                         |        65% |      63% |       61% |   68% |
+| `src/lib/server/services/**`                                         |        73% |      69% |       71% |   77% |
+| `src/lib/server/services/bulk-job-runner.ts`                         |        82% |      71% |       88% |   88% |
+| `src/lib/components/termix/session/sftp/state/file-manager-state.ts` |        87% |      72% |      100% |   91% |
 
 Coverage includes TermKit-owned JavaScript and TypeScript under these measured
 surfaces: `src/hooks.server.ts`, `src/lib/**/*.{js,ts}`, API route handlers, and

@@ -92,6 +92,13 @@
       "when": 1779193082640,
       "tag": "0012_mixed_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1779649601910,
+      "tag": "0013_noisy_living_lightning",
+      "breakpoints": true
     }
   ]
 }

@@ -67,9 +67,7 @@ export const renameHostGroup = command<HostGroupMutationInput, void>('unchecked'
 export const deleteHostGroup = command<string, void>('unchecked', async (id) => {
 	const userId = requireRemoteUser();
 	const groupId = requireId(id, 'id');
-	await db
-		.delete(hostGroups)
-		.where(and(eq(hostGroups.id, groupId), eq(hostGroups.userId, userId)));
+	await db.delete(hostGroups).where(and(eq(hostGroups.id, groupId), eq(hostGroups.userId, userId)));
 	void listHostGroups().refresh();
 });
 
@@ -94,9 +92,7 @@ export const setHostGroupMembership = command<HostGroupMembershipInput, void>(
 		} else {
 			await db
 				.delete(hostGroupMembers)
-				.where(
-					and(eq(hostGroupMembers.hostGroupId, groupId), eq(hostGroupMembers.hostId, hostId))
-				);
+				.where(and(eq(hostGroupMembers.hostGroupId, groupId), eq(hostGroupMembers.hostId, hostId)));
 		}
 		void listHostGroups().refresh();
 	}
@@ -127,7 +123,8 @@ function requireGroupName(value: unknown): string {
 }
 
 function requireId(value: unknown, name: string): string {
-	if (typeof value !== 'string' || !value) throw new ServiceValidationError([`${name} is required`]);
+	if (typeof value !== 'string' || !value)
+		throw new ServiceValidationError([`${name} is required`]);
 	return value;
 }
 

@@ -14,15 +14,14 @@ export async function listHostGroupsForUser(userId: string): Promise<HostGroupSu
 			.where(eq(hostGroups.userId, userId))
 	]);
 	const counts = new Map<string, number>();
-	for (const member of memberRows) counts.set(member.groupId, (counts.get(member.groupId) ?? 0) + 1);
+	for (const member of memberRows)
+		counts.set(member.groupId, (counts.get(member.groupId) ?? 0) + 1);
 	return groupRows
 		.map((group) => ({ ...toHostGroupSummary(group), hostCount: counts.get(group.id) ?? 0 }))
 		.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-export async function hostGroupsByHostId(
-	userId: string
-): Promise<Map<string, HostGroupSummary[]>> {
+export async function hostGroupsByHostId(userId: string): Promise<Map<string, HostGroupSummary[]>> {
 	const groups = await listHostGroupsForUser(userId);
 	const groupById = new Map(groups.map((group) => [group.id, group]));
 	const memberships = await db
@@ -38,7 +37,8 @@ export async function hostGroupsByHostId(
 		hostGroups.push(group);
 		result.set(membership.hostId, hostGroups);
 	}
-	for (const value of result.values()) value.sort((left, right) => left.name.localeCompare(right.name));
+	for (const value of result.values())
+		value.sort((left, right) => left.name.localeCompare(right.name));
 	return result;
 }
 

@@ -6,6 +6,7 @@
 	import * as Table from '$lib/components/ui/table';
 	import { BarChart3, FileText } from '@lucide/svelte';
 	import type { FleetJob, FleetJobStatus } from './fleet-data';
+	import { formatFleetTimestamp } from './fleet-display';
 
 	let { jobs }: { jobs: FleetJob[] } = $props();
 
@@ -48,7 +49,7 @@
 							<Table.Cell>
 								<div class="font-medium">{job.name}</div>
 								<div class="text-xs text-muted-foreground">
-									{job.startedAt} · {job.duration}
+									{formatFleetTimestamp(job.startedAt)} · {job.duration}
 								</div>
 							</Table.Cell>
 							<Table.Cell>
@@ -74,6 +75,12 @@
 										<FileText class="size-4" />
 									</Button>
 								</div>
+							</Table.Cell>
+						</Table.Row>
+					{:else}
+						<Table.Row>
+							<Table.Cell colspan={6} class="h-24 text-center text-muted-foreground">
+								No fleet executions yet.
 							</Table.Cell>
 						</Table.Row>
 					{/each}

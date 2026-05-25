@@ -53,6 +53,7 @@ vi.mock('$lib/server/services/v6-resources', () => ({
 		listHostHealth: vi.fn(),
 		createAutomationTemplate: vi.fn(),
 		createBackgroundJob: vi.fn(),
+		evaluateWorkspacePolicy: vi.fn(),
 		recordOperationReason: vi.fn()
 	}
 }));
@@ -157,7 +158,7 @@ describe('fleet remote functions', () => {
 		vi.mocked(workspaceService.assertMember).mockResolvedValue({
 			userId: 'user-1',
 			workspaceId: 'workspace-1',
-			role: 'operator'
+			role: 'member'
 		} as never);
 		vi.mocked(v6ResourcesService.listAutomationTemplates).mockResolvedValue([
 			templateRecord()
@@ -165,6 +166,13 @@ describe('fleet remote functions', () => {
 		vi.mocked(v6ResourcesService.listBackgroundJobs).mockResolvedValue([]);
 		vi.mocked(v6ResourcesService.listHostFacts).mockResolvedValue([]);
 		vi.mocked(v6ResourcesService.listHostHealth).mockResolvedValue([]);
+		vi.mocked(v6ResourcesService.evaluateWorkspacePolicy).mockResolvedValue({
+			allowed: true,
+			approvalRequired: false,
+			reasonRequired: false,
+			policy: null,
+			blockedReason: null
+		} as never);
 	});
 
 	it('builds fleet overview from user-visible service resources', async () => {
@@ -408,6 +416,11 @@ describe('fleet remote functions', () => {
 		});
 
 		expect(workspaceService.assertMember).toHaveBeenCalledWith('user-1', 'workspace-1');
+		expect(v6ResourcesService.evaluateWorkspacePolicy).toHaveBeenCalledWith({
+			workspaceId: 'workspace-1',
+			role: 'member',
+			capability: 'automation_template'
+		});
 		expect(created).toMatchObject({
 			risk: 'high',
 			parameters: ['service']
@@ -425,6 +438,28 @@ describe('fleet remote functions', () => {
 				metadata: { source: 'fleet-ui' }
 			})
 		);
+	});
+
+	it('rejects workspace template creation when workspace policy blocks automation templates', async () => {
+		vi.mocked(v6ResourcesService.evaluateWorkspacePolicy).mockResolvedValueOnce({
+			allowed: false,
+			approvalRequired: false,
+			reasonRequired: false,
+			policy: null,
+			blockedReason: 'automation_template is denied'
+		} as never);
+
+		await expect(
+			createFleetAutomationTemplate({
+				name: 'Restart service',
+				kind: 'ssh_command',
+				visibility: 'workspace',
+				workspaceId: 'workspace-1'
+			})
+		).rejects.toMatchObject({
+			issues: ['workspace policy blocks automation_template: automation_template is denied']
+		});
+		expect(v6ResourcesService.createAutomationTemplate).not.toHaveBeenCalled();
 	});
 
 	it('validates template kind and name before create service calls', async () => {
@@ -524,7 +559,14 @@ describe('fleet remote functions', () => {
 			concurrencyLimit: 99
 		});
 
-		expect(workspaceService.assertMember).not.toHaveBeenCalled();
+		expect(workspaceService.assertMember).toHaveBeenCalledWith('user-1', 'workspace-1');
+		expect(v6ResourcesService.evaluateWorkspacePolicy).toHaveBeenCalledWith({
+			workspaceId: 'workspace-1',
+			role: 'member',
+			capability: 'bulk_job',
+			targetCount: 2,
+			reason: 'maintenance window'
+		});
 		expect(v6ResourcesService.recordOperationReason).toHaveBeenCalledWith('user-1', {
 			workspaceId: 'workspace-1',
 			capability: 'bulk_job',
@@ -591,6 +633,38 @@ describe('fleet remote functions', () => {
 				targetHostIds: ['host-1', 'host-2']
 			})
 		);
+		expect(v6ResourcesService.evaluateWorkspacePolicy).toHaveBeenCalledWith({
+			workspaceId: 'workspace-1',
+			role: 'member',
+			capability: 'file_transfer',
+			targetCount: 2,
+			reason: 'run it'
+		});
+	});
+
+	it('rejects bulk jobs when workspace policy requires an operator reason', async () => {
+		vi.mocked(hostService.list).mockResolvedValueOnce([
+			host({ id: 'host-1', workspaceId: 'workspace-1' })
+		] as never);
+		vi.mocked(v6ResourcesService.evaluateWorkspacePolicy).mockResolvedValueOnce({
+			allowed: false,
+			approvalRequired: false,
+			reasonRequired: true,
+			policy: null,
+			blockedReason: 'reason is required'
+		} as never);
+
+		await expect(
+			queueFleetBulkOperation({
+				operationId: 'bulk-ssh-command',
+				templateId: 'template-1',
+				targetHostIds: ['host-1']
+			})
+		).rejects.toMatchObject({
+			issues: ['workspace policy blocks bulk_job: reason is required']
+		});
+		expect(v6ResourcesService.recordOperationReason).not.toHaveBeenCalled();
+		expect(v6ResourcesService.createBackgroundJob).not.toHaveBeenCalled();
 	});
 
 	it('uses the default reviewed reason when queueing without an operator reason', async () => {

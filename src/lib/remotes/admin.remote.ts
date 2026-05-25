@@ -110,7 +110,7 @@ export type AdminFileTransferActivitySummary = {
 	username: string;
 	hostName: string | null;
 	hostname: string | null;
-	protocol: Extract<AdminConnectionProtocol, 'ftp' | 'ftps'>;
+	protocol: Extract<AdminConnectionProtocol, 'sftp' | 'ftp' | 'ftps'>;
 	status: 'starting' | 'active';
 	startedAt: string;
 	updatedAt: string;
@@ -286,7 +286,7 @@ export const getAdminOverview = query(async (): Promise<AdminOverview> => {
 		fileTransferActivity: activeConnectionRows
 			.filter((session) => {
 				const protocol = toAdminConnectionProtocol(session.protocol);
-				return protocol === 'ftp' || protocol === 'ftps';
+				return protocol === 'sftp' || protocol === 'ftp' || protocol === 'ftps';
 			})
 			.map((session) => toAdminFileTransferSummary(session, usersById, hostsById, now)),
 		connectionHistory: connectionRows.map((session) =>
@@ -506,7 +506,7 @@ function toAdminFileTransferSummary(
 		username: owner?.username ?? 'Unknown user',
 		hostName: host?.name ?? null,
 		hostname: host?.hostname ?? null,
-		protocol: protocol === 'ftps' ? 'ftps' : 'ftp',
+		protocol: protocol === 'sftp' || protocol === 'ftps' ? protocol : 'ftp',
 		status: session.status === 'active' ? 'active' : 'starting',
 		startedAt: session.startedAt.toISOString(),
 		updatedAt: session.updatedAt.toISOString(),

@@ -5,6 +5,7 @@ import {
 	credentialPassphraseContext,
 	credentialSecretContext
 } from '../credentials';
+import { HostService } from '../hosts';
 import { InMemoryTermixServicesRepository } from '../repository';
 import type { EncryptionMetadata } from '../types';
 
@@ -362,4 +363,116 @@ describe('CredentialService', () => {
 			'member-secret'
 		);
 	});
+
+	it('rejects moving a private credential into a workspace when a private host references it', async () => {
+		const repository = new InMemoryTermixServicesRepository();
+		const credentials = new CredentialService(
+			repository,
+			new AesGcmCredentialCrypto('test-master-key')
+		);
+		const hosts = new HostService(repository);
+		await createOwnedWorkspace(repository, 'workspace-1', 'user-1');
+		const credential = await credentials.create('user-1', {
+			name: 'Private password',
+			kind: 'password',
+			secret: 'private-secret'
+		});
+		await hosts.create('user-1', {
+			name: 'Private SSH',
+			protocol: 'ssh',
+			hostname: 'private.example.test',
+			port: 22,
+			credentialId: credential.id
+		});
+
+		await expect(
+			credentials.update('user-1', credential.id, { workspaceId: 'workspace-1' })
+		).rejects.toMatchObject({
+			issues: ['workspaceId cannot change while hosts in another scope reference this credential']
+		});
+		await expect(credentials.get('user-1', credential.id)).resolves.toMatchObject({
+			workspaceId: null
+		});
+	});
+
+	it('rejects moving a workspace credential to private scope when a workspace host references it', async () => {
+		const repository = new InMemoryTermixServicesRepository();
+		const credentials = new CredentialService(
+			repository,
+			new AesGcmCredentialCrypto('test-master-key')
+		);
+		const hosts = new HostService(repository);
+		await createOwnedWorkspace(repository, 'workspace-1', 'user-1');
+		const credential = await credentials.create('user-1', {
+			workspaceId: 'workspace-1',
+			name: 'Shared password',
+			kind: 'password',
+			secret: 'shared-secret'
+		});
+		await hosts.create('user-1', {
+			workspaceId: 'workspace-1',
+			name: 'Shared SSH',
+			protocol: 'ssh',
+			hostname: 'shared.example.test',
+			port: 22,
+			credentialId: credential.id
+		});
+
+		await expect(
+			credentials.update('user-1', credential.id, { workspaceId: null })
+		).rejects.toMatchObject({
+			issues: ['workspaceId cannot change while hosts in another scope reference this credential']
+		});
+		await expect(credentials.get('user-1', credential.id)).resolves.toMatchObject({
+			workspaceId: 'workspace-1'
+		});
+	});
+
+	it('allows credential workspace moves when no hosts reference the credential', async () => {
+		const repository = new InMemoryTermixServicesRepository();
+		const credentials = new CredentialService(
+			repository,
+			new AesGcmCredentialCrypto('test-master-key')
+		);
+		await createOwnedWorkspace(repository, 'workspace-1', 'user-1');
+		await createOwnedWorkspace(repository, 'workspace-2', 'user-1');
+		const credential = await credentials.create('user-1', {
+			name: 'Unreferenced password',
+			kind: 'password',
+			secret: 'unreferenced-secret'
+		});
+
+		await expect(
+			credentials.update('user-1', credential.id, { workspaceId: 'workspace-1' })
+		).resolves.toMatchObject({ workspaceId: 'workspace-1' });
+		await expect(
+			credentials.update('user-1', credential.id, { workspaceId: 'workspace-2' })
+		).resolves.toMatchObject({ workspaceId: 'workspace-2' });
+		await expect(
+			credentials.update('user-1', credential.id, { workspaceId: null })
+		).resolves.toMatchObject({ workspaceId: null });
+	});
 });
+
+async function createOwnedWorkspace(
+	repository: InMemoryTermixServicesRepository,
+	workspaceId: string,
+	userId: string
+): Promise<void> {
+	const now = new Date('2026-05-24T12:00:00.000Z');
+	await repository.createWorkspace({
+		id: workspaceId,
+		name: workspaceId,
+		metadata: {},
+		createdAt: now,
+		updatedAt: now
+	});
+	await repository.createWorkspaceMembership({
+		id: `${workspaceId}-${userId}-owner`,
+		workspaceId,
+		userId,
+		role: 'owner',
+		createdAt: now,
+		updatedAt: now
+	});
+}

@@ -1,13 +1,17 @@
 <script lang="ts">
-	import { FolderPlus, Monitor, PanelRightClose, PanelRightOpen, Search, Server } from '@lucide/svelte';
+	import {
+		FolderPlus,
+		Monitor,
+		PanelRightClose,
+		PanelRightOpen,
+		Search,
+		Server
+	} from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { Input } from '$lib/components/ui/input';
-	import {
-		listHostGroups,
-		setHostGroupMembership
-	} from '$lib/remotes/host-groups.remote';
+	import { listHostGroups, setHostGroupMembership } from '$lib/remotes/host-groups.remote';
 	import type { HostSummary } from '$lib/remotes/hosts.remote';
 	import type { HostGroupSummary } from '$lib/remotes/termix-core.shared';
 	import { protocolsForHost, type WorkspaceProtocol } from './session-workspace-protocols';
@@ -217,8 +221,7 @@
 													checked={assigned}
 													disabled={busyGroupKey === `${host.id}:${group.id}`}
 													onclick={(event) => event.stopPropagation()}
-													onCheckedChange={(checked) =>
-														toggleGroup(host, group, checked === true)}
+													onCheckedChange={(checked) => toggleGroup(host, group, checked === true)}
 												>
 													{group.name}
 												</DropdownMenu.CheckboxItem>

@@ -1,4 +1,5 @@
 import { command, getRequestEvent, query } from '$app/server';
+import { error } from '@sveltejs/kit';
 import {
 	settingsService,
 	type BasicAppSettings,
@@ -18,7 +19,7 @@ export const getAppSettings = query(async () => {
 export const saveAppSettings = command<BasicAppSettingsInput, BasicAppSettings>(
 	'unchecked',
 	async (input) => {
-		requireRemoteUser();
+		requireRemoteAdmin();
 		const settings = await settingsService.saveBasicAppSettings(input);
 		void getAppSettings().refresh();
 		return settings;
@@ -29,4 +30,11 @@ function requireRemoteUser(): string {
 	const userId = getRequestEvent().locals.user?.id;
 	if (!userId) throw new ServiceUnauthorizedError();
 	return userId;
+}
+
+function requireRemoteAdmin(): string {
+	const user = getRequestEvent().locals.user;
+	if (!user) error(401, 'Unauthenticated');
+	if (!user.isAdmin) error(403, 'Admin access required');
+	return user.id;
 }

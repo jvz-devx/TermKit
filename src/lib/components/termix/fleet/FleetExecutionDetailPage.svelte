@@ -2,6 +2,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Card from '$lib/components/ui/card';
 	import type { FleetJob } from './fleet-data';
+	import { formatFleetTimestamp } from './fleet-display';
 
 	let { execution }: { execution: FleetJob | null } = $props();
 </script>
@@ -28,7 +29,9 @@
 						{execution.status}
 					</Badge>
 				</Card.Title>
-				<Card.Description>{execution.startedAt} · {execution.duration}</Card.Description>
+				<Card.Description>
+					{formatFleetTimestamp(execution.startedAt)} · {execution.duration}
+				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
 				<div class="rounded-md border p-3">

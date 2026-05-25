@@ -126,7 +126,8 @@
 			if (credentialFilter === 'credential:none' && host.credentialId) return false;
 			if (selectedCredentialId && host.credentialId !== selectedCredentialId) return false;
 			if (selectedFolder && host.folder !== selectedFolder) return false;
-			if (selectedGroupId && !host.groups.some((group) => group.id === selectedGroupId)) return false;
+			if (selectedGroupId && !host.groups.some((group) => group.id === selectedGroupId))
+				return false;
 			if (selectedTag && !host.tags.includes(selectedTag)) return false;
 			if (!needle) return true;
 
@@ -297,7 +298,8 @@
 					size="xs"
 					variant={selectedGroupId === group.id ? 'secondary' : 'outline'}
 					class="h-7 max-w-52 gap-1 rounded-full px-2"
-					onclick={() => (groupFilter = selectedGroupId === group.id ? 'all' : groupValue(group.id))}
+					onclick={() =>
+						(groupFilter = selectedGroupId === group.id ? 'all' : groupValue(group.id))}
 				>
 					<span class="truncate">{group.name}</span>
 					<Badge variant="outline" class="h-4 px-1 text-[10px]">{group.hostCount}</Badge>
@@ -371,7 +373,9 @@
 					<DropdownMenu.RadioGroup bind:value={groupFilter}>
 						<DropdownMenu.RadioItem value="all">All groups</DropdownMenu.RadioItem>
 						{#each groups as group (group.id)}
-							<DropdownMenu.RadioItem value={groupValue(group.id)}>{group.name}</DropdownMenu.RadioItem>
+							<DropdownMenu.RadioItem value={groupValue(group.id)}
+								>{group.name}</DropdownMenu.RadioItem
+							>
 						{/each}
 					</DropdownMenu.RadioGroup>
 				{/if}
@@ -474,13 +478,7 @@
 									>
 										<Play class="size-4" />
 									</Button>
-									<HostDialog
-										{credentials}
-										{groups}
-										{hosts}
-										{host}
-										onSaved={refreshInventory}
-									/>
+									<HostDialog {credentials} {groups} {hosts} {host} onSaved={refreshInventory} />
 									<Button
 										size="icon"
 										variant="ghost"

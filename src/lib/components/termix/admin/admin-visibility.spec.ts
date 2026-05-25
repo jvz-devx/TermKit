@@ -9,13 +9,15 @@ import {
 import type { AdminFailureReason } from '$lib/remotes/admin.remote';
 
 describe('V4 admin visibility helpers', () => {
-	it('labels SSH tunnel, FTP, and FTPS protocols for admin views', () => {
+	it('labels SSH tunnel, SFTP, FTP, and FTPS protocols for admin views', () => {
 		expect.hasAssertions();
 
 		expect(adminProtocolLabel('ssh_tunnel')).toBe('SSH tunnel');
+		expect(adminProtocolLabel('sftp')).toBe('SFTP');
 		expect(adminProtocolLabel('ftp')).toBe('FTP');
 		expect(adminProtocolLabel('ftps')).toBe('FTPS');
 		expect(isV4AdminProtocol('ssh_tunnel')).toBe(true);
+		expect(isV4AdminProtocol('sftp')).toBe(true);
 		expect(isV4AdminProtocol('ftp')).toBe(true);
 		expect(isV4AdminProtocol('ftps')).toBe(true);
 		expect(isV4AdminProtocol('ssh')).toBe(false);

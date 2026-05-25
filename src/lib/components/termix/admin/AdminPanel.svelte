@@ -45,10 +45,13 @@
 	import AdminSettingsSummary from './AdminSettingsSummary.svelte';
 	import AdminTabsList from './AdminTabsList.svelte';
 
+	const adminTabs = ['users', 'live', 'tunnels', 'transfers', 'history', 'settings'] as const;
+	type AdminTab = (typeof adminTabs)[number];
+
 	const overviewQuery = getAdminOverview();
 	const initialOverview = await overviewQuery;
 
-	let activeTab = $state(page.url.searchParams.get('tab') ?? 'users');
+	let activeTab = $state<AdminTab>(validAdminTab(page.url.searchParams.get('tab')));
 	let pendingAction = $state<string | null>(null);
 	let notice = $state<string | null>(null);
 	let error = $state<string | null>(null);
@@ -69,6 +72,10 @@
 	const failedConnections = $derived(
 		overview.connectionHistory.filter((session) => session.status === 'failed').length
 	);
+
+	function validAdminTab(value: string | null): AdminTab {
+		return adminTabs.includes(value as AdminTab) ? (value as AdminTab) : 'users';
+	}
 
 	async function createUser() {
 		await runAction('create:user', `Created ${createUsername.trim()}.`, async () => {

@@ -62,6 +62,10 @@
 						><Table.Cell>{formatDate(session.startedAt)}</Table.Cell><Table.Cell
 							>{formatDate(session.endedAt)}</Table.Cell
 						></Table.Row
+					>{:else}<Table.Row
+						><Table.Cell colspan={6} class="h-24 text-center text-muted-foreground"
+							>No connection history yet.</Table.Cell
+						></Table.Row
 					>{/each}
 			</Table.Body></Table.Root
 		></Card.Content

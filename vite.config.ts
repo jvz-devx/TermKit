@@ -102,7 +102,7 @@ export default defineConfig({
 					functions: 88,
 					lines: 88
 				},
-				'src/lib/components/termix/session/file-manager-state.ts': {
+				'src/lib/components/termix/session/sftp/state/file-manager-state.ts': {
 					statements: 87,
 					branches: 72,
 					functions: 100,

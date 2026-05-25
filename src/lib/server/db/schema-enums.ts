@@ -8,6 +8,7 @@ export const connectionProtocol = pgEnum('connection_protocol', [
 	'telnet',
 	'ftp',
 	'ftps',
+	'sftp',
 	'ssh_tunnel'
 ]);
 export const credentialKind = pgEnum('credential_kind', ['password', 'ssh_key', 'rdp_password']);

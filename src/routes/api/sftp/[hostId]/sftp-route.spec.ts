@@ -10,6 +10,7 @@ import {
 	writeSftpFile,
 	writeSftpTextFile
 } from '$lib/server/protocols/sftp';
+import { connectionSessionService } from '$lib/server/services/connection-sessions';
 import { multipartUploadBodyLimit, SFTP_UPLOAD_MAX_BYTES } from '../../_helpers';
 import { DELETE as DELETE_PATH } from './delete/+server';
 import { GET as DOWNLOAD } from './download/+server';
@@ -37,6 +38,16 @@ vi.mock('$lib/server/protocols/sftp', async (importOriginal) => {
 	};
 });
 
+vi.mock('$lib/server/services/connection-sessions', () => ({
+	connectionSessionService: {
+		start: vi.fn(),
+		markActive: vi.fn(),
+		end: vi.fn(),
+		fail: vi.fn(),
+		failWithDetails: vi.fn()
+	}
+}));
+
 describe('SFTP API routes', () => {
 	const target = {
 		userId: 'user-1',
@@ -49,6 +60,13 @@ describe('SFTP API routes', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.mocked(resolveSftpTarget).mockResolvedValue(target as never);
+		vi.mocked(connectionSessionService.start).mockResolvedValue({
+			id: 'connection-session-1'
+		} as never);
+		vi.mocked(connectionSessionService.markActive).mockResolvedValue({} as never);
+		vi.mocked(connectionSessionService.end).mockResolvedValue({} as never);
+		vi.mocked(connectionSessionService.fail).mockResolvedValue({} as never);
+		vi.mocked(connectionSessionService.failWithDetails).mockResolvedValue({} as never);
 		vi.mocked(createSftpDirectory).mockResolvedValue(undefined as never);
 		vi.mocked(deleteSftpPath).mockResolvedValue(undefined as never);
 		vi.mocked(listSftpDirectory).mockResolvedValue([] as never);
@@ -147,7 +165,14 @@ describe('SFTP API routes', () => {
 			]
 		});
 		expect(resolveSftpTarget).toHaveBeenCalledWith('user-1', 'host-1');
+		expect(connectionSessionService.start).toHaveBeenCalledWith({
+			userId: 'user-1',
+			hostId: 'host-1',
+			protocol: 'sftp'
+		});
+		expect(connectionSessionService.markActive).toHaveBeenCalledWith('connection-session-1');
 		expect(listSftpDirectory).toHaveBeenCalledWith(target, '/');
+		expect(connectionSessionService.end).toHaveBeenCalledWith('connection-session-1');
 	});
 
 	it('rejects invalid download paths before opening SFTP connections', async () => {
@@ -299,6 +324,16 @@ describe('SFTP API routes', () => {
 			category: 'authorization'
 		});
 		expect(deleteSftpPath).toHaveBeenCalledWith(target, '/srv/file.txt');
+		expect(connectionSessionService.failWithDetails).toHaveBeenCalledWith(
+			'connection-session-1',
+			'sftp_delete_failed',
+			'permission denied',
+			{
+				protocol: 'sftp',
+				action: 'delete',
+				path: '/srv/file.txt'
+			}
+		);
 	});
 
 	it('serializes policy-blocked SFTP routes before file operations run', async () => {
@@ -321,6 +356,7 @@ describe('SFTP API routes', () => {
 			details: { action: 'transfer', state: 'blocked', protocol: 'sftp' }
 		});
 		expect(listSftpDirectory).not.toHaveBeenCalled();
+		expect(connectionSessionService.start).not.toHaveBeenCalled();
 	});
 });
 

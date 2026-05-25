@@ -4,7 +4,8 @@ import { serviceJson } from '../../../_helpers';
 import {
 	downloadResponse,
 	readQueryPath,
-	requireFileTransferContext
+	requireFileTransferContext,
+	runRecordedFileTransferAction
 } from '../../../file-transfer-helpers';
 
 export const GET: RequestHandler = async (event) => {
@@ -12,7 +13,10 @@ export const GET: RequestHandler = async (event) => {
 		const { userId, hostId } = requireFileTransferContext(event);
 		const path = readQueryPath(event, validateSftpPath);
 		const target = await resolveSftpTarget(userId, hostId);
-		const data = await readSftpFile(target, path);
+		const data = await runRecordedFileTransferAction(
+			{ userId, hostId, protocol: 'sftp', action: 'download', path },
+			() => readSftpFile(target, path)
+		);
 
 		return downloadResponse(path, new Uint8Array(data), data.byteLength);
 	} catch (error) {

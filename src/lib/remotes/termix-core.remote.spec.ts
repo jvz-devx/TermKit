@@ -6,6 +6,7 @@ import { sessionTicketService } from '$lib/server/services/session-tickets';
 import { connectionSessionService } from '$lib/server/services/connection-sessions';
 import { settingsService } from '$lib/server/services/settings';
 import { termixRepository } from '$lib/server/services/repository';
+import { hostGroupsByHostId, setHostGroupIdsForHost } from '$lib/server/services/host-groups';
 import { resolveVncLaunchCredentials } from '$lib/server/protocols/vnc';
 import { resolveRdpLaunchCredentials } from '$lib/server/protocols/rdp-credentials';
 import { getSshHostKeyTrustSummary } from '$lib/server/protocols/ssh-host-key-enrollment';
@@ -147,6 +148,11 @@ vi.mock('$lib/server/services/repository', () => ({
 	}
 }));
 
+vi.mock('$lib/server/services/host-groups', () => ({
+	hostGroupsByHostId: vi.fn(),
+	setHostGroupIdsForHost: vi.fn()
+}));
+
 vi.mock('$lib/server/services/ssh-live-sessions', () => ({
 	sshLiveSessionService: {
 		listVisible: vi.fn(),
@@ -200,6 +206,7 @@ describe('termix remote functions', () => {
 		} as never);
 		vi.mocked(getSshHostKeyTrustSummary).mockResolvedValue(sshHostKeyTrustSummary() as never);
 		vi.mocked(termixRepository.listWorkspaceLayouts).mockResolvedValue([]);
+		vi.mocked(hostGroupsByHostId).mockResolvedValue(new Map() as never);
 	});
 
 	it('rejects host inventory without invoking services when auth is missing', async () => {
@@ -214,6 +221,13 @@ describe('termix remote functions', () => {
 	});
 
 	it('lists hosts with credential names and stable date serialization', async () => {
+		const productionGroup = {
+			id: 'group-1',
+			name: 'Production',
+			hostCount: 2,
+			createdAt: now.toISOString(),
+			updatedAt: now.toISOString()
+		};
 		vi.mocked(hostService.list).mockResolvedValueOnce([
 			hostRecord({ id: 'host-b', name: 'Zulu', credentialId: null }),
 			hostRecord({ id: 'host-a', name: 'Alpha', credentialId: 'cred-1' })
@@ -221,13 +235,18 @@ describe('termix remote functions', () => {
 		vi.mocked(credentialService.list).mockResolvedValueOnce([
 			credentialRecord({ id: 'cred-1', name: 'Production SSH' })
 		] as never);
+		vi.mocked(hostGroupsByHostId).mockResolvedValueOnce(
+			new Map([['host-a', [productionGroup]]]) as never
+		);
 
 		const hosts = await listHosts();
 
 		expect(hosts.map((host) => host.name)).toEqual(['Alpha', 'Zulu']);
+		expect(hostGroupsByHostId).toHaveBeenCalledWith('user-1');
 		expect(hosts[0]).toMatchObject({
 			id: 'host-a',
 			credentialName: 'Production SSH',
+			groups: [productionGroup],
 			hostKeyTrust: {
 				status: 'pinned',
 				fingerprint: 'SHA256:test'
@@ -251,6 +270,7 @@ describe('termix remote functions', () => {
 			hostname: 'api.internal',
 			port: 22,
 			credentialId: 'none',
+			groupIds: ['group-1', 42],
 			tags: 'prod, eu, ,'
 		});
 
@@ -261,6 +281,7 @@ describe('termix remote functions', () => {
 				tags: ['prod', 'eu']
 			})
 		);
+		expect(setHostGroupIdsForHost).toHaveBeenCalledWith('user-1', 'host-new', ['group-1']);
 		expect(host).toMatchObject({ id: 'host-new', credentialName: null, tags: ['prod', 'eu'] });
 		expect(appServer.refresh).toHaveBeenCalledTimes(2);
 	});
@@ -353,7 +374,7 @@ describe('termix remote functions', () => {
 		expect(connectionSessionService.start).toHaveBeenCalledWith({
 			userId: 'user-1',
 			hostId: 'host-1',
-			protocol: 'ssh'
+			protocol: 'sftp'
 		});
 		expect(launch).toMatchObject({
 			hostId: 'host-1',

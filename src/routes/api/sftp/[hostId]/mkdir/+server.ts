@@ -5,7 +5,11 @@ import {
 	validateSftpPath
 } from '$lib/server/protocols/sftp';
 import { serviceJson } from '../../../_helpers';
-import { readJsonPath, requireFileTransferContext } from '../../../file-transfer-helpers';
+import {
+	readJsonPath,
+	requireFileTransferContext,
+	runRecordedFileTransferAction
+} from '../../../file-transfer-helpers';
 
 export const POST: RequestHandler = async (event) => {
 	try {
@@ -13,7 +17,10 @@ export const POST: RequestHandler = async (event) => {
 		const path = await readJsonPath(event, validateSftpPath);
 		const target = await resolveSftpTarget(userId, hostId);
 
-		await createSftpDirectory(target, path);
+		await runRecordedFileTransferAction(
+			{ userId, hostId, protocol: 'sftp', action: 'mkdir', path },
+			() => createSftpDirectory(target, path)
+		);
 		return json({ path }, { status: 201 });
 	} catch (error) {
 		return serviceJson(error);

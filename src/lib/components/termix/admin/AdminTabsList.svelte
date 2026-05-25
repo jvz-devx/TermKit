@@ -1,12 +1,5 @@
 <script lang="ts">
-	import {
-		Cable,
-		Clock3,
-		Server,
-		Settings2,
-		SquareTerminal,
-		Users
-	} from '@lucide/svelte';
+	import { Cable, Clock3, Server, Settings2, SquareTerminal, Users } from '@lucide/svelte';
 	import * as Tabs from '$lib/components/ui/tabs';
 </script>
 

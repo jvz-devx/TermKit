@@ -5,8 +5,8 @@ import { getAppSettings, saveAppSettings } from './settings.remote';
 
 const appServer = vi.hoisted(() => ({
 	event: {
-		locals: { user: { id: 'user-1', username: 'ada' } } as {
-			user?: { id: string; username: string };
+		locals: { user: { id: 'user-1', username: 'ada', isAdmin: true } } as {
+			user?: { id: string; username: string; isAdmin?: boolean };
 		},
 		url: new URL('https://termix.test/settings')
 	},
@@ -43,7 +43,7 @@ describe('settings remote functions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		appServer.event = {
-			locals: { user: { id: 'user-1', username: 'ada' } },
+			locals: { user: { id: 'user-1', username: 'ada', isAdmin: true } },
 			url: new URL('https://termix.test/settings')
 		};
 	});
@@ -83,7 +83,31 @@ describe('settings remote functions', () => {
 		expect(settingsService.getBasicAppSettings).not.toHaveBeenCalled();
 	});
 
-	it('saves settings through the service and refreshes the settings query', async () => {
+	it('rejects settings saves without invoking the service when auth is missing', async () => {
+		appServer.event = {
+			locals: {},
+			url: new URL('https://termix.test/settings')
+		};
+
+		await expect(saveAppSettings({ ticketTtlSeconds: 120 })).rejects.toMatchObject({
+			status: 401
+		});
+		expect(settingsService.saveBasicAppSettings).not.toHaveBeenCalled();
+	});
+
+	it('rejects settings saves for non-admin users before invoking the service', async () => {
+		appServer.event = {
+			locals: { user: { id: 'user-1', username: 'ada', isAdmin: false } },
+			url: new URL('https://termix.test/settings')
+		};
+
+		await expect(saveAppSettings({ ticketTtlSeconds: 120 })).rejects.toMatchObject({
+			status: 403
+		});
+		expect(settingsService.saveBasicAppSettings).not.toHaveBeenCalled();
+	});
+
+	it('saves settings through the service for admins and refreshes the settings query', async () => {
 		const input = {
 			ticketTtlSeconds: 120,
 			rdpClipboard: {

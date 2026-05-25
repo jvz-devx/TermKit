@@ -69,6 +69,7 @@ describe('core schema', () => {
 			'telnet',
 			'ftp',
 			'ftps',
+			'sftp',
 			'ssh_tunnel'
 		]);
 	});

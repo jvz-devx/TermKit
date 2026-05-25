@@ -28,8 +28,11 @@ import type {
 	AutomationTemplateRecord,
 	BackgroundJobRecord,
 	HostFactsRecord,
-	HostHealthRecord
+	HostHealthRecord,
+	WorkspacePolicyCapability,
+	WorkspacePolicyRole
 } from '$lib/server/services/v6-resources';
+import type { WorkspaceMemberRole } from '$lib/server/services/types';
 
 export type CreateFleetAutomationTemplateInput = {
 	name?: unknown;
@@ -114,7 +117,12 @@ export const createFleetAutomationTemplate = command<
 		throw new ServiceValidationError(['workspace visibility requires workspaceId']);
 	}
 	if (workspaceId) {
-		await workspaceService.assertMember(user.id, workspaceId);
+		const membership = await workspaceService.assertMember(user.id, workspaceId);
+		await assertWorkspacePolicyAllowed({
+			workspaceId,
+			role: policyRoleForWorkspaceMember(membership.role),
+			capability: 'automation_template'
+		});
 	}
 	const template = await v6ResourcesService.createAutomationTemplate(user.id, {
 		name: requireName(input.name),
@@ -140,6 +148,13 @@ export const queueFleetBulkOperation = command<
 	const { user, operation, operationId, template, templateId, targetHostIds, targetHosts } =
 		await prepareExecution(input);
 
+	await assertBulkOperationPoliciesAllowed(
+		user.id,
+		targetHosts,
+		operation.jobKind === 'bulk_file_transfer' ? ['bulk_job', 'file_transfer'] : ['bulk_job'],
+		targetHostIds.length,
+		asTrimmedString(input.reason)
+	);
 	await recordBulkJobReason(user.id, targetHosts, asTrimmedString(input.reason));
 	const workspaceId = singleWorkspaceId(targetHosts);
 	const result = await v6ResourcesService.createBackgroundJob(user.id, {
@@ -328,6 +343,47 @@ async function recordBulkJobReason(
 			})
 		)
 	);
+}
+
+async function assertBulkOperationPoliciesAllowed(
+	userId: string,
+	targetHosts: HostRecord[],
+	capabilities: WorkspacePolicyCapability[],
+	targetCount: number,
+	reason: string | null
+) {
+	const workspaceIds = targetWorkspaceIds(targetHosts);
+	if (workspaceIds.length === 0) return;
+	await Promise.all(
+		workspaceIds.map(async (workspaceId) => {
+			const membership = await workspaceService.assertMember(userId, workspaceId);
+			const role = policyRoleForWorkspaceMember(membership.role);
+			await Promise.all(
+				capabilities.map((capability) =>
+					assertWorkspacePolicyAllowed({ workspaceId, role, capability, targetCount, reason })
+				)
+			);
+		})
+	);
+}
+
+async function assertWorkspacePolicyAllowed(input: {
+	workspaceId: string;
+	role: WorkspacePolicyRole;
+	capability: WorkspacePolicyCapability;
+	targetCount?: number;
+	reason?: string | null;
+}) {
+	const evaluation = await v6ResourcesService.evaluateWorkspacePolicy(input);
+	if (!evaluation.allowed) {
+		throw new ServiceValidationError([
+			`workspace policy blocks ${input.capability}: ${evaluation.blockedReason ?? 'not allowed'}`
+		]);
+	}
+}
+
+function policyRoleForWorkspaceMember(role: WorkspaceMemberRole): WorkspacePolicyRole {
+	return role === 'owner' ? 'owner' : 'member';
 }
 
 function toFleetTargetHealth(health: HostHealthRecord | undefined): FleetTargetHealthSummary {

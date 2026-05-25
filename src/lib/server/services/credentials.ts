@@ -8,6 +8,7 @@ import type {
 	CredentialKind,
 	CredentialRecord,
 	CredentialRepository,
+	HostRepository,
 	WorkspaceRepository
 } from './types';
 import { credentialKinds } from './types';
@@ -41,6 +42,7 @@ export type PublicCredentialRecord = Omit<CredentialRecord, 'encryptedSecret' | 
 export class CredentialService {
 	constructor(
 		private readonly repository: CredentialRepository &
+			Pick<HostRepository, 'listHosts'> &
 			Pick<WorkspaceRepository, 'getWorkspaceMembership'> = termixRepository,
 		private readonly crypto: CredentialCrypto = new AesGcmCredentialCrypto()
 	) {}
@@ -90,6 +92,9 @@ export class CredentialService {
 		const validated = validateCredentialInput({ ...current, ...input }, false);
 		await this.assertWorkspaceOwner(userId, current.workspaceId);
 		await this.assertWorkspaceOwner(userId, validated.workspaceId);
+		if (current.workspaceId !== validated.workspaceId) {
+			await this.assertReferencedHostsRemainInScope(userId, id, validated.workspaceId);
+		}
 		const kindChanged = validated.kind !== current.kind;
 		if (kindChanged && validated.secret === undefined) {
 			throw new ServiceValidationError(['secret is required when kind changes']);
@@ -165,6 +170,21 @@ export class CredentialService {
 		}
 		if (membership.role !== 'owner') {
 			throw new ServiceValidationError(['workspace owner role is required']);
+		}
+	}
+
+	private async assertReferencedHostsRemainInScope(
+		userId: string,
+		credentialId: string,
+		workspaceId: string | null
+	): Promise<void> {
+		const invalidHost = (await this.repository.listHosts(userId)).find(
+			(host) => host.credentialId === credentialId && host.workspaceId !== workspaceId
+		);
+		if (invalidHost) {
+			throw new ServiceValidationError([
+				'workspaceId cannot change while hosts in another scope reference this credential'
+			]);
 		}
 	}
 }

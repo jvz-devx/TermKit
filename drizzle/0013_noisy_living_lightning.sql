@@ -1,0 +1,1 @@
+ALTER TYPE "public"."connection_protocol" ADD VALUE 'sftp' BEFORE 'ssh_tunnel';

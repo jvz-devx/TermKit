@@ -8,6 +8,7 @@
 	import { Filter, Search, ServerCog, X } from '@lucide/svelte';
 	import type { FleetHealthStatus, FleetHost, FleetHostFilters } from './fleet-data';
 	import { explainFleetTargetHealth, fleetStatusLabel } from './fleet-data';
+	import { formatFleetTimestamp } from './fleet-display';
 
 	let {
 		hosts,
@@ -241,8 +242,12 @@
 							</Badge>
 						</Table.Cell>
 						<Table.Cell class="text-sm text-muted-foreground">
-							<div>{health.lastCheckedAt ?? `${host.lastSeenMinutes}m ago`}</div>
-							<div class="text-xs">Next {health.nextCheckAt ?? 'not scheduled'}</div>
+							<div>
+								{formatFleetTimestamp(health.lastCheckedAt, `${host.lastSeenMinutes}m ago`)}
+							</div>
+							<div class="text-xs">
+								Next {formatFleetTimestamp(health.nextCheckAt, 'not scheduled')}
+							</div>
 						</Table.Cell>
 					</Table.Row>
 				{:else}

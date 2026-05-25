@@ -341,6 +341,17 @@ describe('admin overview query', () => {
 					updatedAt: later
 				},
 				{
+					id: 'sftp-1',
+					userId: 'user-1',
+					hostId: 'host-1',
+					protocol: 'sftp',
+					status: 'active',
+					startedAt: earlier,
+					endedAt: null,
+					errorCode: null,
+					updatedAt: later
+				},
+				{
 					id: 'rdp-active',
 					userId: 'user-1',
 					hostId: 'host-2',
@@ -437,6 +448,12 @@ describe('admin overview query', () => {
 			expect.objectContaining({
 				id: 'ftp-1',
 				protocol: 'ftps',
+				status: 'active',
+				hostName: 'SSH'
+			}),
+			expect.objectContaining({
+				id: 'sftp-1',
+				protocol: 'sftp',
 				status: 'active',
 				hostName: 'SSH'
 			})

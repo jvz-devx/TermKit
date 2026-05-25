@@ -31,7 +31,7 @@
 		"test:e2e": "node scripts/run-playwright.mjs",
 		"test:unit": "vitest",
 		"test:coverage": "vitest run --coverage",
-		"test:performance": "TERMKIT_PERFORMANCE_BUDGETS=1 vitest run src/lib/server/import/service.spec.ts src/lib/components/termix/session/file-manager-state.spec.ts src/lib/components/termix/session/workspace-layout.spec.ts src/lib/termix/bulk-jobs.spec.ts src/lib/components/termix/fleet/fleet-data.spec.ts",
+		"test:performance": "TERMKIT_PERFORMANCE_BUDGETS=1 vitest run src/lib/server/import/service.spec.ts src/lib/components/termix/session/sftp/state/file-manager-state.spec.ts src/lib/components/termix/session/layout/workspace-layout.spec.ts src/lib/termix/bulk-jobs.spec.ts src/lib/components/termix/fleet/fleet-data.spec.ts",
 		"smoke:postgres": "node scripts/smoke-postgres-migrations.mjs",
 		"smoke:compose": "node scripts/smoke-compose.mjs",
 		"smoke:protocols": "node scripts/smoke-protocols.mjs",

@@ -71,6 +71,12 @@
 							</div>
 						</Table.Cell>
 					</Table.Row>
+				{:else}
+					<Table.Row>
+						<Table.Cell colspan={6} class="h-24 text-center text-muted-foreground">
+							No live SSH sessions.
+						</Table.Cell>
+					</Table.Row>
 				{/each}
 			</Table.Body>
 		</Table.Root>

@@ -5,6 +5,7 @@ export const adminProtocolLabels: Record<AdminConnectionProtocol, string> = {
 	rdp: 'RDP',
 	vnc: 'VNC',
 	telnet: 'Telnet',
+	sftp: 'SFTP',
 	ssh_tunnel: 'SSH tunnel',
 	ftp: 'FTP',
 	ftps: 'FTPS'
@@ -41,7 +42,9 @@ export function formatAdminDuration(value: number | null) {
 }
 
 export function isV4AdminProtocol(protocol: string) {
-	return protocol === 'ssh_tunnel' || protocol === 'ftp' || protocol === 'ftps';
+	return (
+		protocol === 'ssh_tunnel' || protocol === 'sftp' || protocol === 'ftp' || protocol === 'ftps'
+	);
 }
 
 function humanizeCode(value: string) {
