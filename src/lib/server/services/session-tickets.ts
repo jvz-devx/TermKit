@@ -20,6 +20,7 @@ import type {
 import { protocols } from './types';
 
 const defaultTicketTtlMs = 60_000;
+const websocketTicketProtocols = ['ssh', 'rdp', 'vnc', 'telnet'] as const;
 
 export interface CreateSessionTicketInput {
 	hostId?: unknown;
@@ -69,8 +70,9 @@ export class SessionTicketService {
 				: defaultTicketTtlMs;
 
 		if (!hostId) issues.push('hostId is required');
-		if (!protocols.includes(protocol as HostProtocol))
+		if (!websocketTicketProtocols.includes(protocol as (typeof websocketTicketProtocols)[number])) {
 			issues.push('protocol must be ssh, rdp, vnc, or telnet');
+		}
 		if (ttlMs < 1_000 || ttlMs > 300_000) issues.push('ttlMs must be between 1000 and 300000');
 		if (issues.length > 0) throw new ServiceValidationError(issues);
 

@@ -6,7 +6,11 @@ import { sessionTicketService } from '$lib/server/services/session-tickets';
 import { connectionSessionService } from '$lib/server/services/connection-sessions';
 import { settingsService } from '$lib/server/services/settings';
 import { termixRepository } from '$lib/server/services/repository';
-import { hostGroupsByHostId, setHostGroupIdsForHost } from '$lib/server/services/host-groups';
+import {
+	hostGroupsByHostId,
+	listHostGroupsForUser,
+	setHostGroupIdsForHost
+} from '$lib/server/services/host-groups';
 import { resolveVncLaunchCredentials } from '$lib/server/protocols/vnc';
 import { resolveRdpLaunchCredentials } from '$lib/server/protocols/rdp-credentials';
 import { getSshHostKeyTrustSummary } from '$lib/server/protocols/ssh-host-key-enrollment';
@@ -150,6 +154,7 @@ vi.mock('$lib/server/services/repository', () => ({
 
 vi.mock('$lib/server/services/host-groups', () => ({
 	hostGroupsByHostId: vi.fn(),
+	listHostGroupsForUser: vi.fn(),
 	setHostGroupIdsForHost: vi.fn()
 }));
 
@@ -207,6 +212,7 @@ describe('termix remote functions', () => {
 		vi.mocked(getSshHostKeyTrustSummary).mockResolvedValue(sshHostKeyTrustSummary() as never);
 		vi.mocked(termixRepository.listWorkspaceLayouts).mockResolvedValue([]);
 		vi.mocked(hostGroupsByHostId).mockResolvedValue(new Map() as never);
+		vi.mocked(listHostGroupsForUser).mockResolvedValue([]);
 	});
 
 	it('rejects host inventory without invoking services when auth is missing', async () => {
@@ -260,6 +266,14 @@ describe('termix remote functions', () => {
 	});
 
 	it('normalizes host mutations before delegating to host service', async () => {
+		const productionGroup = {
+			id: 'group-1',
+			name: 'Production',
+			hostCount: 0,
+			createdAt: now.toISOString(),
+			updatedAt: now.toISOString()
+		};
+		vi.mocked(listHostGroupsForUser).mockResolvedValueOnce([productionGroup]);
 		vi.mocked(hostService.create).mockResolvedValueOnce(
 			hostRecord({ id: 'host-new', name: 'API', credentialId: null, tags: ['prod', 'eu'] }) as never
 		);
@@ -282,8 +296,69 @@ describe('termix remote functions', () => {
 			})
 		);
 		expect(setHostGroupIdsForHost).toHaveBeenCalledWith('user-1', 'host-new', ['group-1']);
-		expect(host).toMatchObject({ id: 'host-new', credentialName: null, tags: ['prod', 'eu'] });
+		expect(host).toMatchObject({
+			id: 'host-new',
+			credentialName: null,
+			groups: [productionGroup],
+			tags: ['prod', 'eu']
+		});
 		expect(appServer.refresh).toHaveBeenCalledTimes(2);
+	});
+
+	it('rejects invalid host group ids before creating or updating hosts', async () => {
+		vi.mocked(listHostGroupsForUser).mockResolvedValue([]);
+
+		await expect(
+			saveHost({
+				name: 'API',
+				protocol: 'ssh',
+				hostname: 'api.internal',
+				port: 22,
+				groupIds: ['missing-group']
+			})
+		).rejects.toMatchObject({
+			issues: ['groupIds must reference existing groups']
+		});
+		await expect(
+			saveHost({
+				id: 'host-1',
+				name: 'API',
+				protocol: 'ssh',
+				hostname: 'api.internal',
+				port: 22,
+				groupIds: ['missing-group']
+			})
+		).rejects.toMatchObject({
+			issues: ['groupIds must reference existing groups']
+		});
+
+		expect(hostService.create).not.toHaveBeenCalled();
+		expect(hostService.update).not.toHaveBeenCalled();
+		expect(setHostGroupIdsForHost).not.toHaveBeenCalled();
+		expect(appServer.refresh).not.toHaveBeenCalled();
+	});
+
+	it('returns the assigned credential name after saving a host', async () => {
+		vi.mocked(credentialService.list).mockResolvedValueOnce([
+			credentialRecord({ id: 'cred-1', name: 'Production SSH' })
+		] as never);
+		vi.mocked(hostService.create).mockResolvedValueOnce(
+			hostRecord({ id: 'host-new', credentialId: 'cred-1' }) as never
+		);
+
+		const host = await saveHost({
+			name: 'API',
+			protocol: 'ssh',
+			hostname: 'api.internal',
+			port: 22,
+			credentialId: 'cred-1'
+		});
+
+		expect(host).toMatchObject({
+			id: 'host-new',
+			credentialId: 'cred-1',
+			credentialName: 'Production SSH'
+		});
 	});
 
 	it('lists credential summaries without returning stored or submitted secrets', async () => {

@@ -96,8 +96,14 @@ export function installWebSocketUpgrades(
 	const adapterByProtocol = new Map(adapters.map((adapter) => [adapter.protocol, adapter]));
 	const originPolicy = createOriginPolicy({ allowedOrigins, requireOrigin });
 	const liveSshAttachmentPersistence = new Map<string, Promise<void>>();
+	const liveSshSocketClosePersistence = new Map<string, Promise<void>>();
 	const releaseLiveSshClosePersistence = liveSshManager?.onSessionClose?.((event) => {
-		void persistLiveSshManagerClose(liveSshSessions, event, liveSshAttachmentPersistence);
+		void persistLiveSshManagerClose(
+			liveSshSessions,
+			event,
+			liveSshAttachmentPersistence,
+			liveSshSocketClosePersistence
+		);
 	});
 	if (releaseLiveSshClosePersistence) {
 		server.once('close', releaseLiveSshClosePersistence);
@@ -201,7 +207,8 @@ export function installWebSocketUpgrades(
 					liveSshManager,
 					attachTicket,
 					liveSshSessions,
-					liveSshAttachmentPersistence
+					liveSshAttachmentPersistence,
+					liveSshSocketClosePersistence
 				);
 			});
 			return;
@@ -440,8 +447,10 @@ async function handleLiveSshConnection(
 	liveSshManager: LiveSshManager,
 	attachTicket: SshAttachTicket,
 	liveSshSessions: Pick<SshLiveSessionService, 'markAttached' | 'markDetached' | 'end' | 'fail'>,
-	attachmentPersistence: Map<string, Promise<void>>
+	attachmentPersistence: Map<string, Promise<void>>,
+	socketClosePersistence: Map<string, Promise<void>>
 ): Promise<void> {
+	let failedBeforeAttach = false;
 	let releaseClosePersistence: () => void;
 	const attachmentRecorded = new Promise<void>((resolve) => {
 		releaseClosePersistence = resolve;
@@ -450,11 +459,18 @@ async function handleLiveSshConnection(
 
 	webSocket.once('close', (code, reason) => {
 		const closeReason = reason.toString('utf8');
-		void attachmentRecorded.then(() => {
+		const persisted = attachmentRecorded.then(() => {
+			if (failedBeforeAttach) return;
 			if (closeReason === 'ssh session reattached') return;
 			if (liveSshManager.hasActiveAttachment?.(attachTicket.sshLiveSessionId)) return;
 
 			return persistLiveSshSocketClose(liveSshSessions, attachTicket, code, closeReason);
+		});
+		socketClosePersistence.set(attachTicket.sshLiveSessionId, persisted);
+		void persisted.finally(() => {
+			if (socketClosePersistence.get(attachTicket.sshLiveSessionId) === persisted) {
+				socketClosePersistence.delete(attachTicket.sshLiveSessionId);
+			}
 		});
 	});
 
@@ -472,6 +488,7 @@ async function handleLiveSshConnection(
 			)
 			.catch(() => undefined);
 	} catch {
+		failedBeforeAttach = true;
 		void liveSshSessions
 			.fail(attachTicket.userId, attachTicket.sshLiveSessionId, {
 				errorCode: 'live_ssh_manager_failed',
@@ -545,10 +562,13 @@ async function persistLiveSshSocketClose(
 async function persistLiveSshManagerClose(
 	liveSshSessions: Pick<SshLiveSessionService, 'end' | 'fail'>,
 	event: LiveSshCloseEvent,
-	attachmentPersistence: Map<string, Promise<void>>
+	attachmentPersistence: Map<string, Promise<void>>,
+	socketClosePersistence: Map<string, Promise<void>>
 ): Promise<void> {
 	if (event.hadActiveAttachment) return;
 	await attachmentPersistence.get(event.sessionId)?.catch(() => undefined);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await socketClosePersistence.get(event.sessionId)?.catch(() => undefined);
 
 	if (event.reason === 'remote' || event.reason === 'explicit') {
 		await liveSshSessions.end(event.userId, event.sessionId).catch(() => undefined);

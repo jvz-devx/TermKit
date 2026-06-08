@@ -69,7 +69,7 @@
 				Retry VNC
 			</Button>
 		</StatePanel>
-	{:else}
+	{:else if launch}
 		<VncPane
 			websocketUrl={launch?.websocketPath ? toWebSocketUrl(launch.websocketPath) : undefined}
 			credentials={{
@@ -79,5 +79,7 @@
 			credentialStrategy={launch?.vncCredentials?.source ?? 'none'}
 			onSavedPasswordStaged={scrubParentLaunchPassword}
 		/>
+	{:else}
+		<StatePanel state="loading" title="Opening VNC" detail="Creating a session ticket." />
 	{/if}
 {/key}

@@ -252,6 +252,31 @@ describe('SFTP API routes', () => {
 		expect(renameSftpPath).toHaveBeenCalledWith(target, '/srv/a.txt', '/srv/b.txt');
 	});
 
+	it('records move lifecycle failures with the move action name', async () => {
+		vi.mocked(renameSftpPath).mockRejectedValueOnce(
+			new Error('cross-device rename failed') as never
+		);
+
+		const response = await MOVE(
+			routeEvent({ method: 'POST', body: { from: '/srv/a.txt', to: '/archive/a.txt' } })
+		);
+
+		expect(response.status).toBe(500);
+		await expect(response.json()).resolves.toMatchObject({
+			error: 'cross-device rename failed'
+		});
+		expect(connectionSessionService.failWithDetails).toHaveBeenCalledWith(
+			'connection-session-1',
+			'sftp_move_failed',
+			'cross-device rename failed',
+			{
+				protocol: 'sftp',
+				action: 'move',
+				path: '/srv/a.txt'
+			}
+		);
+	});
+
 	it('creates directories with normalized absolute paths', async () => {
 		const response = await MKDIR(routeEvent({ method: 'POST', body: { path: '/srv/new/' } }));
 

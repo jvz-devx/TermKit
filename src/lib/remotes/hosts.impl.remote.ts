@@ -6,7 +6,11 @@ import {
 	enrollSshHostKey as enrollSshHostKeyForUser
 } from '$lib/server/protocols/ssh-host-key-enrollment';
 import { ServiceValidationError } from '$lib/server/services/errors';
-import { hostGroupsByHostId, setHostGroupIdsForHost } from '$lib/server/services/host-groups';
+import {
+	hostGroupsByHostId,
+	listHostGroupsForUser,
+	setHostGroupIdsForHost
+} from '$lib/server/services/host-groups';
 import { listCredentials } from './credentials.impl.remote';
 import {
 	requireRemoteUser,
@@ -60,26 +64,51 @@ export const saveHost = command<HostMutationInput, HostSummary>('unchecked', asy
 		tags,
 		credentialId: input.credentialId === 'none' ? null : input.credentialId
 	};
+	const groupIds = normalizeGroupIds(input.groupIds);
+	const assignedGroups =
+		groupIds === undefined ? [] : await validateGroupIdsForUser(userId, groupIds);
 	const host =
 		typeof input.id === 'string' && input.id
 			? await hostService.update(userId, input.id, normalized)
 			: await hostService.create(userId, normalized);
-	if (Array.isArray(input.groupIds)) {
-		await setHostGroupIdsForHost(
-			userId,
-			host.id,
-			input.groupIds.filter((groupId): groupId is string => typeof groupId === 'string')
-		);
+	if (groupIds !== undefined) {
+		await setHostGroupIdsForHost(userId, host.id, groupIds);
 	}
+	const credentialName = await credentialNameForHost(userId, host.credentialId);
 
 	void listHosts().refresh();
 	void listCredentials().refresh();
 
-	return {
-		...toHostSummary(host, null),
-		credentialName: null
-	};
+	return toHostSummary(host, credentialName, null, assignedGroups);
 });
+
+function normalizeGroupIds(value: unknown): string[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) throw new ServiceValidationError(['groupIds must be an array']);
+	return [...new Set(value.filter((id): id is string => typeof id === 'string' && Boolean(id)))];
+}
+
+async function validateGroupIdsForUser(userId: string, groupIds: string[]) {
+	if (groupIds.length === 0) return [];
+	const groups = await listHostGroupsForUser(userId);
+	const groupsById = new Map(groups.map((group) => [group.id, group]));
+	const assignedGroups = [];
+	for (const groupId of groupIds) {
+		const group = groupsById.get(groupId);
+		if (!group) throw new ServiceValidationError(['groupIds must reference existing groups']);
+		assignedGroups.push(group);
+	}
+	return assignedGroups;
+}
+
+async function credentialNameForHost(
+	userId: string,
+	credentialId: string | null
+): Promise<string | null> {
+	if (!credentialId) return null;
+	const credentials = await credentialService.list(userId);
+	return credentials.find((credential) => credential.id === credentialId)?.name ?? null;
+}
 
 export const inspectSshHostKeyTrust = command<unknown, SshHostKeyTrustSummary>(
 	'unchecked',

@@ -17,7 +17,7 @@ const handler: RequestHandler = async (event) => {
 		const session = await sshTunnelService.touchSessionForProxy(userId, sessionId);
 		shouldRecordFailure = true;
 		const sshTarget = await resolveSshTunnelConnectTarget(userId, session.hostId);
-		const upstreamPath = buildUpstreamPath(event.params.path, event.url.search);
+		const upstreamPath = buildUpstreamPath(event.url.pathname, event.url.search);
 		const response = await proxyHttpTunnelRequest(sshTarget, session, event.request, upstreamPath);
 
 		return new Response(response.body, {
@@ -47,7 +47,9 @@ export const DELETE = handler;
 export const OPTIONS = handler;
 export const HEAD = handler;
 
-function buildUpstreamPath(path: string | undefined, search: string): string {
-	const normalizedPath = path ? `/${path}` : '/';
+function buildUpstreamPath(pathname: string, search: string): string {
+	const match = /^\/api\/tunnels\/[^/]+\/proxy(?:\/(.*))?$/.exec(pathname);
+	const encodedPath = match?.[1];
+	const normalizedPath = encodedPath ? `/${encodedPath}` : '/';
 	return `${normalizedPath}${search}`;
 }

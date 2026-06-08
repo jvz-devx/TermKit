@@ -12,7 +12,10 @@
 		SquareTerminal,
 		Users
 	} from '@lucide/svelte';
+	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { untrack } from 'svelte';
 	import {
 		createAdminMicrosoftInvitation,
 		createAdminUser,
@@ -51,6 +54,7 @@
 	const overviewQuery = getAdminOverview();
 	const initialOverview = await overviewQuery;
 
+	const requestedAdminTab = $derived(validAdminTab(page.url.searchParams.get('tab')));
 	let activeTab = $state<AdminTab>(validAdminTab(page.url.searchParams.get('tab')));
 	let pendingAction = $state<string | null>(null);
 	let notice = $state<string | null>(null);
@@ -72,6 +76,21 @@
 	const failedConnections = $derived(
 		overview.connectionHistory.filter((session) => session.status === 'failed').length
 	);
+
+	$effect(() => {
+		const requested = requestedAdminTab;
+		if (untrack(() => activeTab) !== requested) activeTab = requested;
+	});
+
+	$effect(() => {
+		const tab = activeTab;
+		const currentTab = page.url.searchParams.get('tab');
+		if (currentTab === tab) return;
+
+		const url = new URL(page.url);
+		url.searchParams.set('tab', tab);
+		replaceState(resolve(`${url.pathname}${url.search}` as '/'), page.state);
+	});
 
 	function validAdminTab(value: string | null): AdminTab {
 		return adminTabs.includes(value as AdminTab) ? (value as AdminTab) : 'users';

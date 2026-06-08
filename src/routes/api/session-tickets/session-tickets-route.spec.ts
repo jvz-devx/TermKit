@@ -64,6 +64,30 @@ describe('session tickets API route', () => {
 		});
 	});
 
+	it.each(['ftp', 'ftps'])(
+		'rejects %s ticket creation with the session-ticket validation response',
+		async (protocol) => {
+			vi.mocked(sessionTicketService.create).mockRejectedValueOnce(
+				Object.assign(new Error('protocol must be ssh, rdp, vnc, or telnet'), {
+					status: 400,
+					issues: ['protocol must be ssh, rdp, vnc, or telnet']
+				}) as never
+			);
+
+			const response = await POST(routeEvent({ hostId: 'host-1', protocol }));
+
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toMatchObject({
+				error: 'protocol must be ssh, rdp, vnc, or telnet',
+				issues: ['protocol must be ssh, rdp, vnc, or telnet']
+			});
+			expect(sessionTicketService.create).toHaveBeenCalledWith('user-1', {
+				hostId: 'host-1',
+				protocol
+			});
+		}
+	);
+
 	it('serializes policy-blocked session launch states', async () => {
 		vi.mocked(sessionTicketService.create).mockRejectedValueOnce(
 			Object.assign(new Error('Launch sessions requires the operator role.'), {

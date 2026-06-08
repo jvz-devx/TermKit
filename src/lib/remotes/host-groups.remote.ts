@@ -1,9 +1,10 @@
 import { command, getRequestEvent, query } from '$app/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
-import { hostGroupMembers, hostGroups, hosts } from '$lib/server/db/schema';
+import { hostGroups } from '$lib/server/db/schema';
 import { ServiceUnauthorizedError, ServiceValidationError } from '$lib/server/services/errors';
 import {
+	hostGroupsByHostId,
 	listHostGroupsForUser,
 	setHostGroupIdsForHost,
 	toHostGroupSummary
@@ -80,19 +81,19 @@ export const setHostGroupMembership = command<HostGroupMembershipInput, void>(
 		if (typeof input.assigned !== 'boolean') {
 			throw new ServiceValidationError(['assigned must be a boolean']);
 		}
-		await assertHostOwnedByUser(userId, hostId);
 		await assertGroupOwnedByUser(userId, groupId);
 		if (input.assigned) {
-			await db
-				.insert(hostGroupMembers)
-				.values({ hostGroupId: groupId, hostId })
-				.onConflictDoNothing({
-					target: [hostGroupMembers.hostGroupId, hostGroupMembers.hostId]
-				});
+			const currentGroups = (await hostGroupsByHostId(userId)).get(hostId) ?? [];
+			await setHostGroupIdsForHost(userId, hostId, [
+				...new Set([...currentGroups.map((group) => group.id), groupId])
+			]);
 		} else {
-			await db
-				.delete(hostGroupMembers)
-				.where(and(eq(hostGroupMembers.hostGroupId, groupId), eq(hostGroupMembers.hostId, hostId)));
+			const currentGroups = (await hostGroupsByHostId(userId)).get(hostId) ?? [];
+			await setHostGroupIdsForHost(
+				userId,
+				hostId,
+				currentGroups.map((group) => group.id).filter((id) => id !== groupId)
+			);
 		}
 		void listHostGroups().refresh();
 	}
@@ -131,15 +132,6 @@ function requireId(value: unknown, name: string): string {
 function requireGroupIds(value: unknown): string[] {
 	if (!Array.isArray(value)) throw new ServiceValidationError(['groupIds must be an array']);
 	return [...new Set(value.filter((id): id is string => typeof id === 'string' && Boolean(id)))];
-}
-
-async function assertHostOwnedByUser(userId: string, hostId: string): Promise<void> {
-	const [host] = await db
-		.select({ id: hosts.id })
-		.from(hosts)
-		.where(and(eq(hosts.id, hostId), eq(hosts.userId, userId)))
-		.limit(1);
-	if (!host) throw new ServiceValidationError(['hostId must reference an owned host']);
 }
 
 async function assertGroupOwnedByUser(userId: string, groupId: string): Promise<void> {

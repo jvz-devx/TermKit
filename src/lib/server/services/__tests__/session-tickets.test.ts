@@ -57,8 +57,8 @@ describe('SessionTicketService', () => {
 		});
 	});
 
-	it('validates missing hosts, host ownership, and create-time protocol mismatches', async () => {
-		expect.assertions(3);
+	it('validates missing hosts, host ownership, unsupported protocols, and create-time protocol mismatches', async () => {
+		expect.assertions(5);
 
 		const repository = new InMemoryTermixServicesRepository();
 		const hosts = new HostService(repository);
@@ -80,6 +80,22 @@ describe('SessionTicketService', () => {
 			})
 		).rejects.toMatchObject({
 			issues: ['hostId must reference an existing host owned by the user']
+		});
+		await expect(
+			tickets.create('user-1', {
+				hostId: host.id,
+				protocol: 'ftp'
+			})
+		).rejects.toMatchObject({
+			issues: ['protocol must be ssh, rdp, vnc, or telnet']
+		});
+		await expect(
+			tickets.create('user-1', {
+				hostId: host.id,
+				protocol: 'ftps'
+			})
+		).rejects.toMatchObject({
+			issues: ['protocol must be ssh, rdp, vnc, or telnet']
 		});
 		await expect(
 			tickets.create('user-1', {

@@ -89,7 +89,7 @@ describe('ssh-tunnel protocol helpers', () => {
 					'HTTP/1.1 201 Created',
 					'Content-Type: application/json',
 					'Connection: close',
-					'Transfer-Encoding: chunked',
+					'Trailer: X-Trace',
 					'X-Upstream: internal',
 					'',
 					'{"created":true}'
@@ -101,9 +101,56 @@ describe('ssh-tunnel protocol helpers', () => {
 		expect(response.statusText).toBe('Created');
 		expect(response.headers.get('content-type')).toBe('application/json');
 		expect(response.headers.get('connection')).toBeNull();
-		expect(response.headers.get('transfer-encoding')).toBeNull();
+		expect(response.headers.get('trailer')).toBeNull();
 		expect(response.headers.get('x-upstream')).toBe('internal');
 		expect(new TextDecoder().decode(new Uint8Array(response.body))).toBe('{"created":true}');
+	});
+
+	it('decodes chunked forwarded HTTP responses while stripping transfer encoding', () => {
+		const response = parseForwardHttpResponse(
+			Buffer.from(
+				[
+					'HTTP/1.1 200 OK',
+					'Content-Type: text/plain',
+					'Transfer-Encoding: Chunked',
+					'Content-Length: 999',
+					'X-Upstream: internal',
+					'',
+					'5',
+					'hello',
+					'7;ext=value',
+					' world!',
+					'0',
+					'X-Trailer: ignored',
+					'',
+					''
+				].join('\r\n')
+			)
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get('transfer-encoding')).toBeNull();
+		expect(response.headers.get('content-length')).toBeNull();
+		expect(response.headers.get('x-upstream')).toBe('internal');
+		expect(new TextDecoder().decode(new Uint8Array(response.body))).toBe('hello world!');
+	});
+
+	it('preserves non-chunked forwarded response bodies after hop-by-hop filtering', () => {
+		const rawBody = '5\r\nhello\r\n0\r\n\r\n';
+		const response = parseForwardHttpResponse(
+			Buffer.from(
+				[
+					'HTTP/1.1 200 OK',
+					'Content-Type: text/plain',
+					'Transfer-Encoding: identity',
+					'',
+					rawBody
+				].join('\r\n')
+			)
+		);
+
+		expect(response.headers.get('transfer-encoding')).toBeNull();
+		expect(new TextDecoder().decode(new Uint8Array(response.body))).toBe(rawBody);
 	});
 
 	it('rejects malformed forwarded HTTP responses with structured proxy errors', () => {

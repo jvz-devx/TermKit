@@ -181,21 +181,71 @@ export function parseForwardHttpResponse(data: Uint8Array): SshTunnelHttpRespons
 	}
 
 	const headers = new Headers();
+	let isChunked = false;
 	for (const line of lines) {
 		const separator = line.indexOf(':');
 		if (separator <= 0) continue;
 		const name = line.slice(0, separator).trim();
 		const value = line.slice(separator + 1).trim();
-		if (!name || proxyHopByHopHeaders.has(name.toLowerCase())) continue;
+		const normalized = name.toLowerCase();
+		if (!name) continue;
+		if (normalized === 'transfer-encoding') {
+			isChunked ||= value
+				.split(',')
+				.some((encoding) => encoding.trim().toLowerCase() === 'chunked');
+		}
+		if (proxyHopByHopHeaders.has(normalized)) continue;
 		headers.append(name, value);
 	}
+	const body = buffer.subarray(headerEnd + 4);
+	const responseBody = isChunked ? decodeChunkedBody(body) : body;
+	if (isChunked) headers.delete('content-length');
 
 	return {
 		status: Number(statusMatch[1]),
 		statusText: statusMatch[2] ?? '',
 		headers,
-		body: toArrayBuffer(buffer.subarray(headerEnd + 4))
+		body: toArrayBuffer(responseBody)
 	};
+}
+
+function decodeChunkedBody(body: Buffer): Buffer {
+	const chunks: Buffer[] = [];
+	let offset = 0;
+
+	while (true) {
+		const lineEnd = body.indexOf('\r\n', offset);
+		if (lineEnd < 0) {
+			throw new SshTunnelProxyError(
+				'tunnel_proxy_failed',
+				'Tunnel target returned an invalid chunked HTTP response'
+			);
+		}
+
+		const sizeLine = body.subarray(offset, lineEnd).toString('latin1').split(';', 1)[0].trim();
+		if (!/^[0-9a-f]+$/i.test(sizeLine)) {
+			throw new SshTunnelProxyError(
+				'tunnel_proxy_failed',
+				'Tunnel target returned an invalid chunked HTTP response'
+			);
+		}
+
+		const size = Number.parseInt(sizeLine, 16);
+		offset = lineEnd + 2;
+		if (size === 0) return Buffer.concat(chunks);
+		if (
+			offset + size + 2 > body.byteLength ||
+			body.subarray(offset + size, offset + size + 2).toString('latin1') !== '\r\n'
+		) {
+			throw new SshTunnelProxyError(
+				'tunnel_proxy_failed',
+				'Tunnel target returned an invalid chunked HTTP response'
+			);
+		}
+
+		chunks.push(body.subarray(offset, offset + size));
+		offset += size + 2;
+	}
 }
 
 async function readRequestBody(request: Request): Promise<Uint8Array> {

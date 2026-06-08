@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServiceUnauthorizedError, ServiceValidationError } from '$lib/server/services/errors';
 import {
+	hostGroupsByHostId,
 	listHostGroupsForUser,
 	setHostGroupIdsForHost,
 	toHostGroupSummary
@@ -53,6 +54,7 @@ vi.mock('$app/server', () => {
 vi.mock('$lib/server/db', () => ({ db }));
 
 vi.mock('$lib/server/services/host-groups', () => ({
+	hostGroupsByHostId: vi.fn(),
 	listHostGroupsForUser: vi.fn(),
 	setHostGroupIdsForHost: vi.fn(),
 	toHostGroupSummary: vi.fn((group: HostGroupRow) => ({
@@ -75,6 +77,7 @@ describe('host group remote functions', () => {
 		};
 		db.insert.mockReturnValue({ values: vi.fn() });
 		vi.mocked(listHostGroupsForUser).mockResolvedValue([]);
+		vi.mocked(hostGroupsByHostId).mockResolvedValue(new Map());
 	});
 
 	it('rejects host group reads without invoking services when auth is missing', async () => {
@@ -172,19 +175,7 @@ describe('host group remote functions', () => {
 		expect(appServer.refresh).toHaveBeenCalledOnce();
 	});
 
-	it('rejects membership changes for hosts or groups outside the user ownership scope', async () => {
-		queueSelectLimit([]);
-
-		await expect(
-			setHostGroupMembership({ hostId: 'host-1', groupId: 'group-1', assigned: true })
-		).rejects.toMatchObject({
-			issues: ['hostId must reference an owned host']
-		});
-		expect(db.insert).not.toHaveBeenCalled();
-		expect(db.delete).not.toHaveBeenCalled();
-		expect(appServer.refresh).not.toHaveBeenCalled();
-
-		queueSelectLimit([{ id: 'host-1' }]);
+	it('rejects membership changes for groups outside the user ownership scope', async () => {
 		queueSelectLimit([]);
 
 		await expect(
@@ -192,9 +183,69 @@ describe('host group remote functions', () => {
 		).rejects.toMatchObject({
 			issues: ['groupId must reference an owned group']
 		});
-		expect(db.insert).not.toHaveBeenCalled();
-		expect(db.delete).not.toHaveBeenCalled();
+		expect(setHostGroupIdsForHost).not.toHaveBeenCalled();
 		expect(appServer.refresh).not.toHaveBeenCalled();
+	});
+
+	it('delegates single membership assignment through the host group service', async () => {
+		queueSelectLimit([{ id: 'group-2' }]);
+		vi.mocked(hostGroupsByHostId).mockResolvedValueOnce(
+			new Map([
+				[
+					'host-1',
+					[
+						{
+							id: 'group-1',
+							name: 'Existing',
+							hostCount: 0,
+							createdAt: now.toISOString(),
+							updatedAt: now.toISOString()
+						}
+					]
+				]
+			])
+		);
+
+		await expect(
+			setHostGroupMembership({ hostId: 'host-1', groupId: 'group-2', assigned: true })
+		).resolves.toBeUndefined();
+
+		expect(setHostGroupIdsForHost).toHaveBeenCalledWith('user-1', 'host-1', ['group-1', 'group-2']);
+		expect(appServer.refresh).toHaveBeenCalledOnce();
+	});
+
+	it('delegates single membership removal through the host group service', async () => {
+		queueSelectLimit([{ id: 'group-2' }]);
+		vi.mocked(hostGroupsByHostId).mockResolvedValueOnce(
+			new Map([
+				[
+					'host-1',
+					[
+						{
+							id: 'group-1',
+							name: 'Existing',
+							hostCount: 0,
+							createdAt: now.toISOString(),
+							updatedAt: now.toISOString()
+						},
+						{
+							id: 'group-2',
+							name: 'Remove me',
+							hostCount: 0,
+							createdAt: now.toISOString(),
+							updatedAt: now.toISOString()
+						}
+					]
+				]
+			])
+		);
+
+		await expect(
+			setHostGroupMembership({ hostId: 'host-1', groupId: 'group-2', assigned: false })
+		).resolves.toBeUndefined();
+
+		expect(setHostGroupIdsForHost).toHaveBeenCalledWith('user-1', 'host-1', ['group-1']);
+		expect(appServer.refresh).toHaveBeenCalledOnce();
 	});
 
 	it('requires an explicit boolean for membership changes before ownership checks', async () => {

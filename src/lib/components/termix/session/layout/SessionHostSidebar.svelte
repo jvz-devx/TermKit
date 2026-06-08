@@ -150,88 +150,92 @@
 				{@const currentHost = host.id === selectedHostId}
 				{@const hostProtocols = protocolsForHost(host)}
 				{#if expanded}
-					<button
-						type="button"
+					<div
 						class={[
-							'flex w-full min-w-0 items-start gap-2 border-b px-3 py-2 text-left transition-colors',
+							'border-b px-3 py-2 transition-colors',
 							currentHost ? 'bg-primary/10' : 'hover:bg-muted/40'
 						]}
 						aria-current={currentHost ? 'true' : undefined}
-						onclick={() => openHost(host)}
 					>
-						<Monitor
-							class={[
-								'mt-0.5 size-4 shrink-0',
-								currentHost ? 'text-primary' : 'text-muted-foreground'
-							]}
-						/>
-						<span class="min-w-0 flex-1">
-							<span class="block truncate text-sm font-medium">{host.name}</span>
-							<span class="block truncate font-mono text-xs text-muted-foreground">
-								{host.username ? `${host.username}@` : ''}{host.hostname}:{host.port}
-							</span>
-							{#if host.groups.length}
-								<span class="mt-1 flex flex-wrap gap-1">
-									{#each host.groups as group (group.id)}
-										<Badge variant="secondary" class="h-5">{group.name}</Badge>
-									{/each}
+						<button
+							type="button"
+							class="flex w-full min-w-0 items-start gap-2 text-left"
+							onclick={() => openHost(host)}
+						>
+							<Monitor
+								class={[
+									'mt-0.5 size-4 shrink-0',
+									currentHost ? 'text-primary' : 'text-muted-foreground'
+								]}
+							/>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-sm font-medium">{host.name}</span>
+								<span class="block truncate font-mono text-xs text-muted-foreground">
+									{host.username ? `${host.username}@` : ''}{host.hostname}:{host.port}
 								</span>
-							{/if}
-							<span class="mt-1 flex flex-wrap gap-1">
-								{#each hostProtocols as protocol (protocol)}
-									<Button
-										size="sm"
-										variant={currentHost && activeProtocol === protocol ? 'secondary' : 'ghost'}
-										class="h-6 px-2 text-xs"
-										aria-pressed={currentHost && activeProtocol === protocol}
-										onclick={(event) => {
-											event.stopPropagation();
-											onOpen(host, protocol);
-										}}
-									>
-										{protocolLabels[protocol]}
-									</Button>
-								{/each}
-								{#if currentHost}
-									<Badge variant="outline" class="h-6">Open</Badge>
-								{/if}
-								{#if groups.length}
-									<DropdownMenu.Root>
-										<DropdownMenu.Trigger>
-											{#snippet child({ props })}
-												<Button
-													size="sm"
-													variant="ghost"
-													class="h-6 px-2 text-xs"
-													aria-label={`Manage groups for ${host.name}`}
-													onclick={(event) => event.stopPropagation()}
-													{...props}
-												>
-													<FolderPlus class="size-3" />
-													Groups
-												</Button>
-											{/snippet}
-										</DropdownMenu.Trigger>
-										<DropdownMenu.Content align="end" class="w-52">
-											<DropdownMenu.Label>{host.name}</DropdownMenu.Label>
-											<DropdownMenu.Separator />
-											{#each groups as group (group.id)}
-												{@const assigned = hostHasGroup(host, group.id)}
-												<DropdownMenu.CheckboxItem
-													checked={assigned}
-													disabled={busyGroupKey === `${host.id}:${group.id}`}
-													onclick={(event) => event.stopPropagation()}
-													onCheckedChange={(checked) => toggleGroup(host, group, checked === true)}
-												>
-													{group.name}
-												</DropdownMenu.CheckboxItem>
-											{/each}
-										</DropdownMenu.Content>
-									</DropdownMenu.Root>
+								{#if host.groups.length}
+									<span class="mt-1 flex flex-wrap gap-1">
+										{#each host.groups as group (group.id)}
+											<Badge variant="secondary" class="h-5">{group.name}</Badge>
+										{/each}
+									</span>
 								{/if}
 							</span>
-						</span>
-					</button>
+						</button>
+						<div class="mt-1 ml-6 flex flex-wrap gap-1">
+							{#each hostProtocols as protocol (protocol)}
+								<Button
+									size="sm"
+									variant={currentHost && activeProtocol === protocol ? 'secondary' : 'ghost'}
+									class="h-6 px-2 text-xs"
+									aria-pressed={currentHost && activeProtocol === protocol}
+									onclick={(event) => {
+										event.stopPropagation();
+										onOpen(host, protocol);
+									}}
+								>
+									{protocolLabels[protocol]}
+								</Button>
+							{/each}
+							{#if currentHost}
+								<Badge variant="outline" class="h-6">Open</Badge>
+							{/if}
+							{#if groups.length}
+								<DropdownMenu.Root>
+									<DropdownMenu.Trigger>
+										{#snippet child({ props })}
+											<Button
+												size="sm"
+												variant="ghost"
+												class="h-6 px-2 text-xs"
+												aria-label={`Manage groups for ${host.name}`}
+												onclick={(event) => event.stopPropagation()}
+												{...props}
+											>
+												<FolderPlus class="size-3" />
+												Groups
+											</Button>
+										{/snippet}
+									</DropdownMenu.Trigger>
+									<DropdownMenu.Content align="end" class="w-52">
+										<DropdownMenu.Label>{host.name}</DropdownMenu.Label>
+										<DropdownMenu.Separator />
+										{#each groups as group (group.id)}
+											{@const assigned = hostHasGroup(host, group.id)}
+											<DropdownMenu.CheckboxItem
+												checked={assigned}
+												disabled={busyGroupKey === `${host.id}:${group.id}`}
+												onclick={(event) => event.stopPropagation()}
+												onCheckedChange={(checked) => toggleGroup(host, group, checked === true)}
+											>
+												{group.name}
+											</DropdownMenu.CheckboxItem>
+										{/each}
+									</DropdownMenu.Content>
+								</DropdownMenu.Root>
+							{/if}
+						</div>
+					</div>
 				{:else}
 					<Button
 						size="icon-sm"

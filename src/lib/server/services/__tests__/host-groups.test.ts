@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { listHostGroupsForUser } from '../host-groups';
+import { listHostGroupsForUser, setHostGroupIdsForHost } from '../host-groups';
 
 const db = vi.hoisted(() => ({
 	select: vi.fn(),
@@ -46,6 +46,30 @@ describe('host group services', () => {
 		]);
 		expect(db.select).toHaveBeenCalledTimes(2);
 	});
+
+	it('allows workspace owners to assign their groups to accessible workspace hosts', async () => {
+		queueSelectLimit([
+			{
+				id: 'host-1',
+				userId: 'host-creator',
+				workspaceId: 'workspace-1'
+			}
+		]);
+		queueSelectLimit([{ id: 'membership-1' }]);
+		queueSelectWhere([hostGroupRecord({ id: 'group-1', name: 'Production' })]);
+		const deleteWhere = vi.fn().mockResolvedValue(undefined);
+		db.delete.mockReturnValueOnce({ where: deleteWhere });
+		const onConflictDoNothing = vi.fn().mockResolvedValue(undefined);
+		const values = vi.fn(() => ({ onConflictDoNothing }));
+		db.insert.mockReturnValueOnce({ values });
+
+		await expect(setHostGroupIdsForHost('user-1', 'host-1', ['group-1'])).resolves.toBeUndefined();
+
+		expect(db.select).toHaveBeenCalledTimes(3);
+		expect(deleteWhere).toHaveBeenCalledOnce();
+		expect(values).toHaveBeenCalledWith([{ hostGroupId: 'group-1', hostId: 'host-1' }]);
+		expect(onConflictDoNothing).toHaveBeenCalledOnce();
+	});
 });
 
 function queueSelectWhere(rows: unknown[]) {
@@ -63,18 +87,28 @@ function queueJoinedSelectWhere(rows: unknown[]) {
 	return { from, innerJoin, where };
 }
 
+function queueSelectLimit(rows: unknown[]) {
+	const limit = vi.fn().mockResolvedValue(rows);
+	const where = vi.fn(() => ({ limit }));
+	const from = vi.fn(() => ({ where }));
+	db.select.mockReturnValueOnce({ from });
+	return { from, where, limit };
+}
+
 function hostGroupRecord(overrides: {
 	id: string;
 	name: string;
-	createdAt: Date;
-	updatedAt: Date;
+	createdAt?: Date;
+	updatedAt?: Date;
 }) {
+	const createdAt = overrides.createdAt ?? new Date('2026-05-20T12:00:00.000Z');
+	const updatedAt = overrides.updatedAt ?? new Date('2026-05-21T12:00:00.000Z');
 	return {
 		id: overrides.id,
 		userId: 'user-1',
 		name: overrides.name,
 		metadata: {},
-		createdAt: overrides.createdAt,
-		updatedAt: overrides.updatedAt
+		createdAt,
+		updatedAt
 	};
 }
