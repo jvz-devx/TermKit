@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Cable, Clock3, Server, SquareTerminal } from '@lucide/svelte';
+	import { Cable, Server, SquareTerminal } from '@lucide/svelte';
 	import * as Card from '$lib/components/ui/card';
 	import type { AdminOverview } from '$lib/remotes/admin.remote';
 	import type { Component } from 'svelte';
@@ -12,12 +12,7 @@
 		<Card.Title>Application settings</Card.Title>
 		<Card.Description>Current session defaults</Card.Description>
 	</Card.Header>
-	<Card.Content class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-		{@render SettingTile({
-			icon: Clock3,
-			label: 'Ticket TTL',
-			value: `${overview.settings.ticketTtlSeconds}s`
-		})}
+	<Card.Content class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 		{@render SettingTile({
 			icon: SquareTerminal,
 			label: 'Terminal font',

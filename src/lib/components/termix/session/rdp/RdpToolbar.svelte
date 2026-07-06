@@ -19,7 +19,6 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as NativeSelect from '$lib/components/ui/native-select';
 	import * as Popover from '$lib/components/ui/popover';
-	import type { RdpPerformancePreset } from '$lib/remotes/settings.remote';
 	import type { Snippet } from 'svelte';
 	import type { RdpScaleMode } from './rdp-operator-controls';
 
@@ -28,7 +27,6 @@
 		statusTitle,
 		clipboardStatusVariant,
 		clipboardStatusLabel,
-		displayPresetLabel,
 		multiMonitorLabel,
 		audioRequested,
 		audioAvailable,
@@ -37,7 +35,6 @@
 		viewportReady,
 		connected,
 		fullscreenActive,
-		selectedPreset,
 		selectedScale,
 		reconnectLabel,
 		onSendCtrlAltDel,
@@ -45,10 +42,10 @@
 		onFocusRemoteDesktop,
 		onResizeRemoteDisplay,
 		onToggleFullscreen,
-		onPresetChange,
 		onScaleChange,
 		onReconnect,
 		onDisconnect,
+		toolbarControls,
 		clipboardControls,
 		detailsControls
 	}: {
@@ -56,7 +53,6 @@
 		statusTitle: string;
 		clipboardStatusVariant: BadgeVariant;
 		clipboardStatusLabel: string;
-		displayPresetLabel: string;
 		multiMonitorLabel: string;
 		audioRequested: boolean;
 		audioAvailable: boolean;
@@ -65,7 +61,6 @@
 		viewportReady: boolean;
 		connected: boolean;
 		fullscreenActive: boolean;
-		selectedPreset: RdpPerformancePreset;
 		selectedScale: RdpScaleMode;
 		reconnectLabel: string;
 		onSendCtrlAltDel: () => void;
@@ -73,10 +68,10 @@
 		onFocusRemoteDesktop: () => void;
 		onResizeRemoteDisplay: () => void;
 		onToggleFullscreen: () => void;
-		onPresetChange: (preset: string) => void;
 		onScaleChange: (scale: string) => void;
 		onReconnect: () => void;
 		onDisconnect: () => void;
+		toolbarControls?: Snippet;
 		clipboardControls?: Snippet;
 		detailsControls?: Snippet;
 	} = $props();
@@ -115,7 +110,6 @@
 			>
 				<div class="grid gap-3">
 					<div class="flex min-w-0 flex-wrap items-center gap-1.5">
-						<Badge variant="outline" class="shrink truncate">{displayPresetLabel}</Badge>
 						<Badge variant="outline" class="shrink truncate">
 							<MonitorUp class="size-3" />
 							{multiMonitorLabel}
@@ -173,16 +167,6 @@
 					<div class="grid gap-2 sm:grid-cols-2">
 						<NativeSelect.Root
 							size="sm"
-							value={selectedPreset}
-							onchange={(event) => onPresetChange(event.currentTarget.value)}
-							aria-label="RDP resize behavior"
-						>
-							<NativeSelect.Option value="balanced">Balanced resize</NativeSelect.Option>
-							<NativeSelect.Option value="performance">Stable resize</NativeSelect.Option>
-							<NativeSelect.Option value="quality">Fast resize</NativeSelect.Option>
-						</NativeSelect.Root>
-						<NativeSelect.Root
-							size="sm"
 							value={selectedScale}
 							onchange={(event) => onScaleChange(event.currentTarget.value)}
 							aria-label="RDP display scale"
@@ -200,6 +184,9 @@
 				</div>
 			</Popover.Content>
 		</Popover.Root>
+		{#if toolbarControls}
+			{@render toolbarControls()}
+		{/if}
 		{#if clipboardControls}
 			<Popover.Root>
 				<Popover.Trigger>

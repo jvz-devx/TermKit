@@ -14,10 +14,12 @@
 
 	let {
 		detailsControls,
+		toolbarControls,
 		immersive = false,
 		...controllerProps
 	}: RdpPaneControllerProps & {
 		detailsControls?: Snippet;
+		toolbarControls?: Snippet;
 		immersive?: boolean;
 	} = $props();
 	// eslint-disable-next-line svelte/no-unused-svelte-ignore
@@ -42,7 +44,6 @@
 		statusTitle={rdp.statusTitle}
 		clipboardStatusVariant={rdp.clipboardStatusVariant}
 		clipboardStatusLabel={rdp.clipboardStatusLabel}
-		displayPresetLabel={rdp.selectedDisplayPreset.label}
 		multiMonitorLabel={rdp.multiMonitorLabel}
 		audioRequested={rdp.audioRedirection}
 		audioAvailable={Boolean(rdp.gatewayFeatures?.audioRedirection)}
@@ -51,7 +52,6 @@
 		viewportReady={Boolean(rdp.viewportElement)}
 		connected={rdp.connectionState === 'connected'}
 		fullscreenActive={rdp.fullscreenActive}
-		selectedPreset={rdp.selectedPreset}
 		selectedScale={rdp.selectedScale}
 		reconnectLabel={rdp.reconnectLabel}
 		onSendCtrlAltDel={rdp.sendCtrlAltDel}
@@ -59,10 +59,10 @@
 		onFocusRemoteDesktop={rdp.focusRemoteDesktop}
 		onResizeRemoteDisplay={() => rdp.scheduleRemoteResize(true)}
 		onToggleFullscreen={rdp.toggleFullscreen}
-		onPresetChange={rdp.changePreset}
 		onScaleChange={rdp.changeScale}
 		onReconnect={rdp.onReconnect}
 		onDisconnect={rdp.disconnectRdpSession}
+		{toolbarControls}
 		{detailsControls}
 	>
 		{#snippet clipboardControls()}

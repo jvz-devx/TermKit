@@ -126,7 +126,6 @@ test.describe.serial('application onboarding and navigation', () => {
 		await ensureAdminSession(page, context);
 		await page.goto('/settings');
 
-		const ticketTtl = page.getByLabel('Ticket TTL seconds');
 		const terminalFontSize = page.getByLabel('Terminal font size');
 		const rdpTextClipboard = page.getByRole('switch', { name: 'RDP text clipboard' });
 		const rdpFileClipboard = page.getByRole('switch', { name: 'RDP file clipboard' });
@@ -142,7 +141,9 @@ test.describe.serial('application onboarding and navigation', () => {
 		});
 		const saveButton = page.getByRole('button', { name: 'Save settings' });
 
-		await expect(ticketTtl).toHaveValue('60');
+		await expect(page.getByLabel('Ticket TTL seconds')).toHaveCount(0);
+		await expect(page.getByLabel('RDP resize behavior')).toHaveCount(0);
+		await expect(page.getByRole('switch', { name: 'RDP audio redirection' })).toHaveCount(0);
 		await expect(terminalFontSize).toHaveValue('13');
 		await expectSwitchState(rdpTextClipboard, true);
 		await expectSwitchState(rdpFileClipboard, true);
@@ -152,7 +153,6 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(rdpFileLimit).toBeEnabled();
 		await expect(saveButton).toBeDisabled();
 
-		await ticketTtl.fill('90');
 		await terminalFontSize.fill('18');
 		await setSwitch(rdpFileClipboard, true);
 		await rdpFileLimit.fill('32');
@@ -166,7 +166,6 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(saveButton).toBeDisabled();
 
 		await page.reload();
-		await expect(ticketTtl).toHaveValue('90');
 		await expect(terminalFontSize).toHaveValue('18');
 		await expectSwitchState(rdpTextClipboard, false);
 		await expectSwitchState(rdpFileClipboard, true);

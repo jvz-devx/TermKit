@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
-	import { RotateCcw, X } from '@lucide/svelte';
+	import { PanelBottom, PanelRight, RotateCcw, X } from '@lucide/svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import { Button } from '$lib/components/ui/button';
 	import StatePanel from './StatePanel.svelte';
@@ -218,6 +218,30 @@
 										</div>
 									{/if}
 								</div>
+							{/snippet}
+							{#snippet rdpToolbarControls()}
+								<Button
+									size="sm"
+									variant="ghost"
+									class="gap-1.5"
+									aria-label="Split RDP right"
+									title="Split right"
+									onclick={() => workspace.selectLayout('two-columns')}
+								>
+									<PanelRight data-icon="inline-start" />
+									<span class="hidden 2xl:inline">Split right</span>
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									class="gap-1.5"
+									aria-label="Split RDP down"
+									title="Split down"
+									onclick={() => workspace.selectLayout('two-rows')}
+								>
+									<PanelBottom data-icon="inline-start" />
+									<span class="hidden 2xl:inline">Split down</span>
+								</Button>
 							{/snippet}
 							{#if !immersiveRdp}
 								<SessionPaneHeader
@@ -438,6 +462,9 @@
 												audioRedirection={workspace.appSettings.rdpAudioRedirection}
 												immersive={immersiveRdp}
 											>
+												{#snippet toolbarControls()}
+													{@render rdpToolbarControls()}
+												{/snippet}
 												{#snippet detailsControls()}
 													{@render rdpDetailsControls(paneLiveRdpAttach.session)}
 												{/snippet}
@@ -454,6 +481,9 @@
 											audioRedirection={workspace.appSettings.rdpAudioRedirection}
 											immersive={immersiveRdp}
 										>
+											{#snippet toolbarControls()}
+												{@render rdpToolbarControls()}
+											{/snippet}
 											{#snippet detailsControls()}
 												{@render rdpDetailsControls()}
 											{/snippet}

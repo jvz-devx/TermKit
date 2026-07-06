@@ -110,28 +110,26 @@
 
 <Tooltip.Provider>
 	<div class="flex min-h-11 items-center gap-2 overflow-x-auto border-b bg-muted/20 px-2 py-1.5">
-		<Tooltip.Root>
-			<Tooltip.Trigger>
-				{#snippet child({ props })}
-					<Button
-						{...props}
-						size="sm"
-						class="h-8 shrink-0 gap-2"
-						disabled={!currentHostId || busy}
-						aria-label={currentHostId ? 'Create persistent SSH tab' : 'Select host for SSH tab'}
-						onclick={onCreate}
-					>
-						<Plus data-icon="inline-start" />
-						{currentHostId ? 'SSH tab' : 'Select host'}
-					</Button>
-				{/snippet}
-			</Tooltip.Trigger>
-			<Tooltip.Content sideOffset={6}
-				>{currentHostId
-					? 'Create persistent SSH tab'
-					: 'Select a host before creating a persistent SSH tab'}</Tooltip.Content
-			>
-		</Tooltip.Root>
+		{#if currentHostId}
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							size="sm"
+							class="h-8 shrink-0 gap-2"
+							disabled={busy}
+							aria-label="Create persistent SSH tab"
+							onclick={onCreate}
+						>
+							<Plus data-icon="inline-start" />
+							SSH tab
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content sideOffset={6}>Create persistent SSH tab</Tooltip.Content>
+			</Tooltip.Root>
+		{/if}
 
 		<div
 			class="flex min-w-0 flex-1 items-center gap-1"

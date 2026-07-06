@@ -342,7 +342,25 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		const rdpCredentialsDialog = page.getByRole('dialog', { name: 'RDP credentials required' });
 		await rdpCredentialsDialog.getByRole('button', { name: 'Cancel' }).click();
 		await expect(rdpCredentialsDialog).toBeHidden();
-		await page.getByRole('button', { name: 'RDP details and secondary controls' }).click();
+		await expect(page.getByRole('button', { name: 'Split RDP right' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Split RDP down' })).toBeVisible();
+		await test.info().attach('persistent-rdp-pane-controls', {
+			body: await page.screenshot({
+				fullPage: true,
+				path: test.info().outputPath('persistent-rdp-pane-controls.png')
+			}),
+			contentType: 'image/png'
+		});
+		await page.getByRole('button', { name: 'Split RDP right' }).click();
+		await expect(page.getByRole('button', { name: 'Split pane down' }).first()).toBeVisible();
+		const remountedRdpCredentialsDialog = page.getByRole('dialog', {
+			name: 'RDP credentials required'
+		});
+		if (await remountedRdpCredentialsDialog.isVisible().catch(() => false)) {
+			await remountedRdpCredentialsDialog.getByRole('button', { name: 'Cancel' }).click();
+			await expect(remountedRdpCredentialsDialog).toBeHidden();
+		}
+		await page.getByRole('button', { name: 'RDP details and secondary controls' }).first().click();
 		await expect(page.getByRole('button', { name: 'Close persistent session' })).toBeVisible();
 		await page.waitForTimeout(150);
 		await test.info().attach('persistent-rdp-close-control', {
@@ -355,8 +373,16 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		await page.getByRole('button', { name: 'Close persistent session' }).click();
 		await expect(page.getByText('Remote disconnected', { exact: true })).toBeVisible();
 		await expect(page.getByText('Reconnect to attach the RDP session again.')).toBeVisible();
-		await page.getByRole('button', { name: 'Reconnect' }).click();
+		await page.getByRole('button', { name: 'Reconnect' }).first().click();
 		await expect(page.getByText('RDP credentials required', { exact: true }).first()).toBeVisible();
+		const reconnectedRdpCredentialsDialog = page.getByRole('dialog', {
+			name: 'RDP credentials required'
+		});
+		if (await reconnectedRdpCredentialsDialog.isVisible().catch(() => false)) {
+			await reconnectedRdpCredentialsDialog.getByRole('button', { name: 'Cancel' }).click();
+			await expect(reconnectedRdpCredentialsDialog).toBeHidden();
+		}
+		await page.getByLabel('Single pane').click();
 		await expectWorkspacePane(page, byName(v7VncName).id, 'vnc', [
 			v7VncName,
 			'VNC session',

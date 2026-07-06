@@ -85,30 +85,26 @@
 
 <Tooltip.Provider>
 	<div class="flex min-h-11 items-center gap-2 overflow-x-auto border-b bg-muted/20 px-2 py-1.5">
-		<Tooltip.Root>
-			<Tooltip.Trigger>
-				{#snippet child({ props })}
-					<Button
-						{...props}
-						size="sm"
-						class="h-8 shrink-0 gap-2"
-						disabled={!currentHostId || busy}
-						aria-label={currentHostId
-							? 'Create persistent RDP session'
-							: 'Select host for RDP session'}
-						onclick={onCreate}
-					>
-						<Plus data-icon="inline-start" />
-						{currentHostId ? 'RDP session' : 'Select host'}
-					</Button>
-				{/snippet}
-			</Tooltip.Trigger>
-			<Tooltip.Content sideOffset={6}
-				>{currentHostId
-					? 'Create persistent RDP session'
-					: 'Select a host before creating a persistent RDP session'}</Tooltip.Content
-			>
-		</Tooltip.Root>
+		{#if currentHostId}
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							size="sm"
+							class="h-8 shrink-0 gap-2"
+							disabled={busy}
+							aria-label="Create persistent RDP session"
+							onclick={onCreate}
+						>
+							<Plus data-icon="inline-start" />
+							RDP session
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content sideOffset={6}>Create persistent RDP session</Tooltip.Content>
+			</Tooltip.Root>
+		{/if}
 
 		<div
 			class="flex min-w-0 flex-1 items-center gap-1"

@@ -249,11 +249,17 @@ export function createSessionWorkspaceController() {
 
 		return {
 			...resized,
-			panes: resized.panes.map((pane) => ({
-				...pane,
-				kind: paneKindOverrides[pane.id] ?? pane.kind,
-				hostId: paneHostIdOverrides[pane.id] ?? pane.hostId ?? primaryPaneHostId
-			}))
+			panes: resized.panes.map((pane, index) => {
+				const isPrimarySinglePane = layout === 'single' && index === 0;
+
+				return {
+					...pane,
+					kind: isPrimarySinglePane ? primaryPaneKind : (paneKindOverrides[pane.id] ?? pane.kind),
+					hostId: isPrimarySinglePane
+						? primaryPaneHostId
+						: (paneHostIdOverrides[pane.id] ?? pane.hostId ?? primaryPaneHostId)
+				};
+			})
 		};
 	});
 	const workspaceHasSshPane = $derived(

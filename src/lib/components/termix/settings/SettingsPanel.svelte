@@ -13,9 +13,7 @@
 	import * as Card from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import * as NativeSelect from '$lib/components/ui/native-select';
 	import { Switch } from '$lib/components/ui/switch';
-	import { rdpDisplayPresets } from '$lib/components/termix/session/rdp/rdp-operator-controls';
 	import {
 		getAppSettings,
 		saveAppSettings,
@@ -77,14 +75,6 @@
 
 	function validateForm(): FieldErrors {
 		const nextErrors: FieldErrors = {};
-
-		if (
-			!Number.isInteger(form.ticketTtlSeconds) ||
-			form.ticketTtlSeconds < 10 ||
-			form.ticketTtlSeconds > 300
-		) {
-			nextErrors.ticketTtlSeconds = 'Use 10 to 300 seconds.';
-		}
 
 		if (
 			!Number.isInteger(form.terminalFontSize) ||
@@ -200,23 +190,6 @@
 				<Card.Description>Defaults applied when launching new browser sessions.</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-4 sm:grid-cols-2">
-				<div class="space-y-2">
-					<Label for="timeout">Ticket TTL seconds</Label>
-					<Input
-						id="timeout"
-						type="number"
-						min="10"
-						max="300"
-						bind:value={form.ticketTtlSeconds}
-						aria-invalid={Boolean(fieldErrors.ticketTtlSeconds)}
-						aria-describedby={fieldErrors.ticketTtlSeconds ? 'ticket-ttl-error' : undefined}
-					/>
-					{#if fieldErrors.ticketTtlSeconds}
-						<p id="ticket-ttl-error" class="text-xs text-destructive">
-							{fieldErrors.ticketTtlSeconds}
-						</p>
-					{/if}
-				</div>
 				<div class="space-y-2">
 					<Label for="terminal">Terminal font size</Label>
 					<Input
@@ -337,40 +310,10 @@
 
 		<Card.Root>
 			<Card.Header>
-				<Card.Title>Protocol features</Card.Title>
-				<Card.Description>Feature flags shared by supported connection panes.</Card.Description>
+				<Card.Title>Session behavior</Card.Title>
+				<Card.Description>Small preferences for how connection panes reopen.</Card.Description>
 			</Card.Header>
 			<Card.Content class="space-y-4">
-				<div class="grid gap-2 sm:max-w-xs">
-					<Label for="rdp-performance-preset">RDP resize behavior</Label>
-					<NativeSelect.Root
-						id="rdp-performance-preset"
-						class="w-full"
-						bind:value={form.rdpPerformancePreset}
-					>
-						<NativeSelect.Option value="balanced">
-							{rdpDisplayPresets.balanced.label}
-						</NativeSelect.Option>
-						<NativeSelect.Option value="performance">
-							{rdpDisplayPresets.performance.label}
-						</NativeSelect.Option>
-						<NativeSelect.Option value="quality"
-							>{rdpDisplayPresets.quality.label}</NativeSelect.Option
-						>
-					</NativeSelect.Root>
-					<p class="text-xs text-muted-foreground">
-						{rdpDisplayPresets[form.rdpPerformancePreset].detail}
-					</p>
-				</div>
-				<label class="flex items-center justify-between gap-4 text-sm">
-					<span>
-						<span class="block font-medium">RDP audio redirection</span>
-						<span class="text-muted-foreground"
-							>Request remote audio when the deployment and client support it.</span
-						>
-					</span>
-					<Switch bind:checked={form.rdpAudioRedirection} aria-label="RDP audio redirection" />
-				</label>
 				<label class="flex items-center justify-between gap-4 text-sm">
 					<span>
 						<span class="block font-medium">Remember last active tab per host</span>

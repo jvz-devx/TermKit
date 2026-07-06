@@ -12,6 +12,7 @@
 		clipboardPolicy,
 		performancePreset = 'balanced',
 		audioRedirection = false,
+		toolbarControls,
 		detailsControls,
 		immersive = false
 	}: {
@@ -21,6 +22,7 @@
 		clipboardPolicy?: RdpClipboardPolicy;
 		performancePreset?: RdpPerformancePreset;
 		audioRedirection?: boolean;
+		toolbarControls?: Snippet;
 		detailsControls?: Snippet;
 		immersive?: boolean;
 	} = $props();
@@ -72,6 +74,7 @@
 		{clipboardPolicy}
 		{performancePreset}
 		{audioRedirection}
+		{toolbarControls}
 		{detailsControls}
 		{immersive}
 	/>
