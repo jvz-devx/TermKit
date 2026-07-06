@@ -11,31 +11,18 @@ import {
 	uuid
 } from 'drizzle-orm/pg-core';
 import {
-	approvalRequestStatus,
 	authIdentityProvider,
-	automationTemplateKind,
-	automationTemplateVisibility,
-	automationVariableKind,
-	backgroundJobKind,
-	backgroundJobStatus,
 	connectionProtocol,
 	connectionSessionStatus,
 	credentialKind,
 	fileTransferProtocol,
 	ftpsMode,
-	hostFactSource,
-	hostHealthState,
 	hostProtocol,
-	jobEventSeverity,
-	jobReportFormat,
-	jobTargetStatus,
 	sshLiveSessionStatus,
 	sshTunnelSessionStatus,
 	terminalRecordingStatus,
 	timestamps,
-	workspaceMemberRole,
-	workspacePolicyCapability,
-	workspacePolicyEffect
+	workspaceMemberRole
 } from './schema-enums';
 export * from './schema-enums';
 
@@ -648,304 +635,6 @@ export const importJobs = pgTable(
 	]
 );
 
-export const automationTemplates = pgTable(
-	'automation_templates',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		userId: uuid('user_id')
-			.notNull()
-			.references(() => users.id, { onDelete: 'cascade' }),
-		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
-		name: text('name').notNull(),
-		kind: automationTemplateKind('kind').notNull(),
-		visibility: automationTemplateVisibility('visibility').notNull().default('private'),
-		version: integer('version').notNull().default(1),
-		description: text('description'),
-		definition: jsonb('definition').$type<Record<string, unknown>>().notNull().default({}),
-		variables: jsonb('variables')
-			.$type<
-				Array<{
-					name: string;
-					kind: (typeof automationVariableKind.enumValues)[number];
-					required?: boolean;
-					defaultValue?: unknown;
-					options?: string[];
-				}>
-			>()
-			.notNull()
-			.default([]),
-		isDangerous: boolean('is_dangerous').notNull().default(false),
-		requiresApproval: boolean('requires_approval').notNull().default(false),
-		lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
-		usageCount: integer('usage_count').notNull().default(0),
-		updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
-		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-		...timestamps
-	},
-	(table) => [
-		index('automation_templates_user_id_idx').on(table.userId),
-		index('automation_templates_workspace_id_idx').on(table.workspaceId),
-		index('automation_templates_kind_idx').on(table.kind),
-		index('automation_templates_visibility_idx').on(table.visibility)
-	]
-);
-
-export const backgroundJobs = pgTable(
-	'background_jobs',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		userId: uuid('user_id')
-			.notNull()
-			.references(() => users.id, { onDelete: 'cascade' }),
-		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
-		templateId: uuid('template_id').references(() => automationTemplates.id, {
-			onDelete: 'set null'
-		}),
-		templateVersion: integer('template_version'),
-		kind: backgroundJobKind('kind').notNull(),
-		status: backgroundJobStatus('status').notNull().default('pending'),
-		title: text('title').notNull(),
-		request: jsonb('request').$type<Record<string, unknown>>().notNull().default({}),
-		targetCount: integer('target_count').notNull().default(0),
-		completedCount: integer('completed_count').notNull().default(0),
-		failedCount: integer('failed_count').notNull().default(0),
-		skippedCount: integer('skipped_count').notNull().default(0),
-		concurrencyLimit: integer('concurrency_limit').notNull().default(1),
-		reason: text('reason'),
-		cancellationRequestedAt: timestamp('cancellation_requested_at', { withTimezone: true }),
-		startedAt: timestamp('started_at', { withTimezone: true }),
-		finishedAt: timestamp('finished_at', { withTimezone: true }),
-		retentionExpiresAt: timestamp('retention_expires_at', { withTimezone: true }),
-		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-		...timestamps
-	},
-	(table) => [
-		index('background_jobs_user_id_idx').on(table.userId),
-		index('background_jobs_workspace_id_idx').on(table.workspaceId),
-		index('background_jobs_template_id_idx').on(table.templateId),
-		index('background_jobs_kind_idx').on(table.kind),
-		index('background_jobs_status_idx').on(table.status),
-		index('background_jobs_retention_expires_at_idx').on(table.retentionExpiresAt)
-	]
-);
-
-export const jobTargets = pgTable(
-	'job_targets',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		jobId: uuid('job_id')
-			.notNull()
-			.references(() => backgroundJobs.id, { onDelete: 'cascade' }),
-		hostId: uuid('host_id').references(() => hosts.id, { onDelete: 'set null' }),
-		status: jobTargetStatus('status').notNull().default('pending'),
-		attempt: integer('attempt').notNull().default(0),
-		maxAttempts: integer('max_attempts').notNull().default(1),
-		startedAt: timestamp('started_at', { withTimezone: true }),
-		finishedAt: timestamp('finished_at', { withTimezone: true }),
-		errorCode: text('error_code'),
-		errorMessage: text('error_message'),
-		output: jsonb('output').$type<Record<string, unknown>>().notNull().default({}),
-		report: jsonb('report').$type<Record<string, unknown>>().notNull().default({}),
-		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-		...timestamps
-	},
-	(table) => [
-		uniqueIndex('job_targets_job_host_unique').on(table.jobId, table.hostId),
-		index('job_targets_job_id_idx').on(table.jobId),
-		index('job_targets_host_id_idx').on(table.hostId),
-		index('job_targets_status_idx').on(table.status)
-	]
-);
-
-export const jobEvents = pgTable(
-	'job_events',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		jobId: uuid('job_id')
-			.notNull()
-			.references(() => backgroundJobs.id, { onDelete: 'cascade' }),
-		targetId: uuid('target_id').references(() => jobTargets.id, { onDelete: 'cascade' }),
-		severity: jobEventSeverity('severity').notNull().default('info'),
-		code: text('code').notNull(),
-		message: text('message').notNull(),
-		details: jsonb('details').$type<Record<string, unknown>>().notNull().default({}),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-	},
-	(table) => [
-		index('job_events_job_id_idx').on(table.jobId),
-		index('job_events_target_id_idx').on(table.targetId),
-		index('job_events_severity_idx').on(table.severity),
-		index('job_events_created_at_idx').on(table.createdAt)
-	]
-);
-
-export const jobReports = pgTable(
-	'job_reports',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		jobId: uuid('job_id')
-			.notNull()
-			.references(() => backgroundJobs.id, { onDelete: 'cascade' }),
-		format: jobReportFormat('format').notNull(),
-		storageKey: text('storage_key').notNull(),
-		summary: jsonb('summary').$type<Record<string, unknown>>().notNull().default({}),
-		generatedBy: uuid('generated_by').references(() => users.id, { onDelete: 'set null' }),
-		generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow(),
-		expiresAt: timestamp('expires_at', { withTimezone: true }),
-		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-	},
-	(table) => [
-		index('job_reports_job_id_idx').on(table.jobId),
-		index('job_reports_generated_by_idx').on(table.generatedBy),
-		index('job_reports_expires_at_idx').on(table.expiresAt)
-	]
-);
-
-export const workspacePolicies = pgTable(
-	'workspace_policies',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		workspaceId: uuid('workspace_id')
-			.notNull()
-			.references(() => workspaces.id, { onDelete: 'cascade' }),
-		capability: workspacePolicyCapability('capability').notNull(),
-		effect: workspacePolicyEffect('effect').notNull().default('allow'),
-		minimumRole: text('minimum_role').notNull().default('owner'),
-		maxTargets: integer('max_targets'),
-		requireReason: boolean('require_reason').notNull().default(false),
-		settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
-		...timestamps
-	},
-	(table) => [
-		uniqueIndex('workspace_policies_workspace_capability_unique').on(
-			table.workspaceId,
-			table.capability
-		),
-		index('workspace_policies_workspace_id_idx').on(table.workspaceId),
-		index('workspace_policies_capability_idx').on(table.capability)
-	]
-);
-
-export const approvalRequests = pgTable(
-	'approval_requests',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
-		jobId: uuid('job_id').references(() => backgroundJobs.id, { onDelete: 'set null' }),
-		templateId: uuid('template_id').references(() => automationTemplates.id, {
-			onDelete: 'set null'
-		}),
-		capability: workspacePolicyCapability('capability').notNull(),
-		status: approvalRequestStatus('status').notNull().default('pending'),
-		requestedBy: uuid('requested_by')
-			.notNull()
-			.references(() => users.id, { onDelete: 'cascade' }),
-		decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'set null' }),
-		reason: text('reason'),
-		decisionReason: text('decision_reason'),
-		requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
-		decidedAt: timestamp('decided_at', { withTimezone: true }),
-		expiresAt: timestamp('expires_at', { withTimezone: true }),
-		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-		...timestamps
-	},
-	(table) => [
-		index('approval_requests_workspace_id_idx').on(table.workspaceId),
-		index('approval_requests_job_id_idx').on(table.jobId),
-		index('approval_requests_template_id_idx').on(table.templateId),
-		index('approval_requests_requested_by_idx').on(table.requestedBy),
-		index('approval_requests_status_idx').on(table.status),
-		index('approval_requests_expires_at_idx').on(table.expiresAt)
-	]
-);
-
-export const operationReasons = pgTable(
-	'operation_reasons',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
-		userId: uuid('user_id')
-			.notNull()
-			.references(() => users.id, { onDelete: 'cascade' }),
-		hostId: uuid('host_id').references(() => hosts.id, { onDelete: 'set null' }),
-		jobId: uuid('job_id').references(() => backgroundJobs.id, { onDelete: 'set null' }),
-		templateId: uuid('template_id').references(() => automationTemplates.id, {
-			onDelete: 'set null'
-		}),
-		capability: workspacePolicyCapability('capability').notNull(),
-		reason: text('reason').notNull(),
-		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-	},
-	(table) => [
-		index('operation_reasons_workspace_id_idx').on(table.workspaceId),
-		index('operation_reasons_user_id_idx').on(table.userId),
-		index('operation_reasons_host_id_idx').on(table.hostId),
-		index('operation_reasons_job_id_idx').on(table.jobId),
-		index('operation_reasons_template_id_idx').on(table.templateId),
-		index('operation_reasons_capability_idx').on(table.capability)
-	]
-);
-
-export const hostFacts = pgTable(
-	'host_facts',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		hostId: uuid('host_id')
-			.notNull()
-			.references(() => hosts.id, { onDelete: 'cascade' }),
-		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
-		collectedBy: uuid('collected_by').references(() => users.id, { onDelete: 'set null' }),
-		source: hostFactSource('source').notNull().default('ssh'),
-		osName: text('os_name'),
-		osVersion: text('os_version'),
-		kernel: text('kernel'),
-		uptimeSeconds: integer('uptime_seconds'),
-		cpu: jsonb('cpu').$type<Record<string, unknown>>().notNull().default({}),
-		memory: jsonb('memory').$type<Record<string, unknown>>().notNull().default({}),
-		disk: jsonb('disk').$type<Record<string, unknown>>().notNull().default({}),
-		serviceHints: jsonb('service_hints').$type<Record<string, unknown>[]>().notNull().default([]),
-		facts: jsonb('facts').$type<Record<string, unknown>>().notNull().default({}),
-		collectedAt: timestamp('collected_at', { withTimezone: true }).notNull().defaultNow(),
-		...timestamps
-	},
-	(table) => [
-		uniqueIndex('host_facts_host_unique').on(table.hostId),
-		index('host_facts_workspace_id_idx').on(table.workspaceId),
-		index('host_facts_collected_by_idx').on(table.collectedBy),
-		index('host_facts_source_idx').on(table.source),
-		index('host_facts_collected_at_idx').on(table.collectedAt)
-	]
-);
-
-export const hostHealth = pgTable(
-	'host_health',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		hostId: uuid('host_id')
-			.notNull()
-			.references(() => hosts.id, { onDelete: 'cascade' }),
-		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
-		state: hostHealthState('state').notNull().default('unknown'),
-		lastSuccessfulConnectionAt: timestamp('last_successful_connection_at', { withTimezone: true }),
-		lastFailedConnectionAt: timestamp('last_failed_connection_at', { withTimezone: true }),
-		consecutiveFailures: integer('consecutive_failures').notNull().default(0),
-		failureReason: text('failure_reason'),
-		checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
-		nextCheckAt: timestamp('next_check_at', { withTimezone: true }),
-		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-		...timestamps
-	},
-	(table) => [
-		uniqueIndex('host_health_host_unique').on(table.hostId),
-		index('host_health_workspace_id_idx').on(table.workspaceId),
-		index('host_health_state_idx').on(table.state),
-		index('host_health_checked_at_idx').on(table.checkedAt),
-		index('host_health_next_check_at_idx').on(table.nextCheckAt)
-	]
-);
-
 export const usersRelations = relations(users, ({ many }) => ({
 	authIdentities: many(authIdentities),
 	sentMicrosoftInvitations: many(microsoftInvitations, {
@@ -970,14 +659,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 	fileBookmarks: many(fileBookmarks),
 	ftpsHostSettings: many(ftpsHostSettings),
 	rdpHostSettings: many(rdpHostSettings),
-	importJobs: many(importJobs),
-	automationTemplates: many(automationTemplates),
-	backgroundJobs: many(backgroundJobs),
-	jobReports: many(jobReports),
-	requestedApprovals: many(approvalRequests, { relationName: 'approvalRequestedBy' }),
-	decidedApprovals: many(approvalRequests, { relationName: 'approvalDecidedBy' }),
-	operationReasons: many(operationReasons),
-	collectedHostFacts: many(hostFacts)
+	importJobs: many(importJobs)
 }));
 
 export const authIdentitiesRelations = relations(authIdentities, ({ one }) => ({
@@ -1009,14 +691,7 @@ export const workspacesRelations = relations(workspaces, ({ many }) => ({
 	sshTunnelProfiles: many(sshTunnelProfiles),
 	sshTunnelSessions: many(sshTunnelSessions),
 	workspaceLayouts: many(workspaceLayouts),
-	commandSnippets: many(commandSnippets),
-	automationTemplates: many(automationTemplates),
-	backgroundJobs: many(backgroundJobs),
-	workspacePolicies: many(workspacePolicies),
-	approvalRequests: many(approvalRequests),
-	operationReasons: many(operationReasons),
-	hostFacts: many(hostFacts),
-	hostHealth: many(hostHealth)
+	commandSnippets: many(commandSnippets)
 }));
 
 export const workspaceMembershipsRelations = relations(workspaceMemberships, ({ one }) => ({
@@ -1047,11 +722,7 @@ export const hostsRelations = relations(hosts, ({ one, many }) => ({
 	terminalRecordings: many(terminalRecordings),
 	fileBookmarks: many(fileBookmarks),
 	ftpsHostSettings: many(ftpsHostSettings),
-	rdpHostSettings: many(rdpHostSettings),
-	jobTargets: many(jobTargets),
-	operationReasons: many(operationReasons),
-	hostFacts: many(hostFacts),
-	hostHealth: many(hostHealth)
+	rdpHostSettings: many(rdpHostSettings)
 }));
 
 export const hostGroupMembersRelations = relations(hostGroupMembers, ({ one }) => ({
@@ -1176,107 +847,4 @@ export const rdpHostSettingsRelations = relations(rdpHostSettings, ({ one }) => 
 
 export const importJobsRelations = relations(importJobs, ({ one }) => ({
 	user: one(users, { fields: [importJobs.userId], references: [users.id] })
-}));
-
-export const automationTemplatesRelations = relations(automationTemplates, ({ one, many }) => ({
-	user: one(users, { fields: [automationTemplates.userId], references: [users.id] }),
-	workspace: one(workspaces, {
-		fields: [automationTemplates.workspaceId],
-		references: [workspaces.id]
-	}),
-	lastEditor: one(users, {
-		fields: [automationTemplates.updatedBy],
-		references: [users.id],
-		relationName: 'automationTemplateUpdatedBy'
-	}),
-	backgroundJobs: many(backgroundJobs),
-	approvalRequests: many(approvalRequests),
-	operationReasons: many(operationReasons)
-}));
-
-export const backgroundJobsRelations = relations(backgroundJobs, ({ one, many }) => ({
-	user: one(users, { fields: [backgroundJobs.userId], references: [users.id] }),
-	workspace: one(workspaces, {
-		fields: [backgroundJobs.workspaceId],
-		references: [workspaces.id]
-	}),
-	template: one(automationTemplates, {
-		fields: [backgroundJobs.templateId],
-		references: [automationTemplates.id]
-	}),
-	targets: many(jobTargets),
-	events: many(jobEvents),
-	reports: many(jobReports),
-	approvalRequests: many(approvalRequests),
-	operationReasons: many(operationReasons)
-}));
-
-export const jobTargetsRelations = relations(jobTargets, ({ one, many }) => ({
-	job: one(backgroundJobs, { fields: [jobTargets.jobId], references: [backgroundJobs.id] }),
-	host: one(hosts, { fields: [jobTargets.hostId], references: [hosts.id] }),
-	events: many(jobEvents)
-}));
-
-export const jobEventsRelations = relations(jobEvents, ({ one }) => ({
-	job: one(backgroundJobs, { fields: [jobEvents.jobId], references: [backgroundJobs.id] }),
-	target: one(jobTargets, { fields: [jobEvents.targetId], references: [jobTargets.id] })
-}));
-
-export const jobReportsRelations = relations(jobReports, ({ one }) => ({
-	job: one(backgroundJobs, { fields: [jobReports.jobId], references: [backgroundJobs.id] }),
-	generator: one(users, { fields: [jobReports.generatedBy], references: [users.id] })
-}));
-
-export const workspacePoliciesRelations = relations(workspacePolicies, ({ one }) => ({
-	workspace: one(workspaces, {
-		fields: [workspacePolicies.workspaceId],
-		references: [workspaces.id]
-	})
-}));
-
-export const approvalRequestsRelations = relations(approvalRequests, ({ one }) => ({
-	workspace: one(workspaces, {
-		fields: [approvalRequests.workspaceId],
-		references: [workspaces.id]
-	}),
-	job: one(backgroundJobs, { fields: [approvalRequests.jobId], references: [backgroundJobs.id] }),
-	template: one(automationTemplates, {
-		fields: [approvalRequests.templateId],
-		references: [automationTemplates.id]
-	}),
-	requester: one(users, {
-		fields: [approvalRequests.requestedBy],
-		references: [users.id],
-		relationName: 'approvalRequestedBy'
-	}),
-	decider: one(users, {
-		fields: [approvalRequests.decidedBy],
-		references: [users.id],
-		relationName: 'approvalDecidedBy'
-	})
-}));
-
-export const operationReasonsRelations = relations(operationReasons, ({ one }) => ({
-	workspace: one(workspaces, {
-		fields: [operationReasons.workspaceId],
-		references: [workspaces.id]
-	}),
-	user: one(users, { fields: [operationReasons.userId], references: [users.id] }),
-	host: one(hosts, { fields: [operationReasons.hostId], references: [hosts.id] }),
-	job: one(backgroundJobs, { fields: [operationReasons.jobId], references: [backgroundJobs.id] }),
-	template: one(automationTemplates, {
-		fields: [operationReasons.templateId],
-		references: [automationTemplates.id]
-	})
-}));
-
-export const hostFactsRelations = relations(hostFacts, ({ one }) => ({
-	host: one(hosts, { fields: [hostFacts.hostId], references: [hosts.id] }),
-	workspace: one(workspaces, { fields: [hostFacts.workspaceId], references: [workspaces.id] }),
-	collector: one(users, { fields: [hostFacts.collectedBy], references: [users.id] })
-}));
-
-export const hostHealthRelations = relations(hostHealth, ({ one }) => ({
-	host: one(hosts, { fields: [hostHealth.hostId], references: [hosts.id] }),
-	workspace: one(workspaces, { fields: [hostHealth.workspaceId], references: [workspaces.id] })
 }));

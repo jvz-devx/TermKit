@@ -1,21 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryTermixServicesRepository } from './index';
 import { InMemoryV5ResourcesRepository } from '../v5-resources';
-import { InMemoryV6ResourcesRepository } from '../v6-resources';
 import {
-	approvalRequest,
-	automationTemplate,
-	backgroundJob,
 	connectionSessionPatch,
 	credential,
 	host,
-	hostFacts,
-	hostHealth,
-	jobEvent,
-	jobReport,
-	jobTarget,
 	membership,
-	operationReason,
 	session,
 	sshAttachTicket,
 	sshLiveSession,
@@ -23,8 +13,7 @@ import {
 	sshTunnelSession,
 	terminalRecording,
 	ticket,
-	workspace,
-	workspacePolicy
+	workspace
 } from './repository-test-helpers';
 
 describe('InMemoryTermixServicesRepository filtering and mapping', () => {
@@ -427,7 +416,7 @@ describe('InMemoryTermixServicesRepository filtering and mapping', () => {
 	});
 });
 
-describe('In-memory V5/V6 repository resources', () => {
+describe('In-memory V5 repository resources', () => {
 	it('stores terminal recordings with owner-scoped updates and filters', async () => {
 		expect.assertions(5);
 
@@ -479,150 +468,5 @@ describe('In-memory V5/V6 repository resources', () => {
 		await expect(
 			repository.listTerminalRecordings('user-2', { status: 'completed' })
 		).resolves.toEqual([expect.objectContaining({ id: 'recording-2' })]);
-	});
-
-	it('stores V6 automation, job reports, job events, policies, reasons, and host intelligence', async () => {
-		expect.assertions(21);
-
-		const repository = new InMemoryV6ResourcesRepository();
-		const now = new Date('2026-05-15T10:00:00.000Z');
-		await repository.createAutomationTemplate(
-			automationTemplate({
-				id: 'template-private',
-				userId: 'user-1',
-				workspaceId: null,
-				visibility: 'private'
-			})
-		);
-		await repository.createAutomationTemplate(
-			automationTemplate({
-				id: 'template-workspace',
-				userId: 'owner-1',
-				workspaceId: 'workspace-1',
-				visibility: 'workspace',
-				requiresApproval: true
-			})
-		);
-		await repository.createBackgroundJobWithTargets(
-			backgroundJob({
-				id: 'job-1',
-				userId: 'owner-1',
-				workspaceId: 'workspace-1',
-				templateId: 'template-workspace',
-				reason: 'Patch approved CVE window'
-			}),
-			[
-				jobTarget({ id: 'target-1', jobId: 'job-1', hostId: 'host-1' }),
-				jobTarget({ id: 'target-2', jobId: 'job-1', hostId: 'host-2', status: 'queued' })
-			]
-		);
-
-		await expect(repository.listAutomationTemplates('user-1')).resolves.toEqual([
-			expect.objectContaining({ id: 'template-private' })
-		]);
-		await expect(repository.listAutomationTemplates('member-1', ['workspace-1'])).resolves.toEqual([
-			expect.objectContaining({ id: 'template-workspace', requiresApproval: true })
-		]);
-		await expect(repository.getAutomationTemplate('missing-template')).resolves.toBeNull();
-		await expect(repository.listBackgroundJobs('member-1', ['workspace-1'])).resolves.toEqual([
-			expect.objectContaining({ id: 'job-1', reason: 'Patch approved CVE window' })
-		]);
-		await expect(
-			repository.updateBackgroundJob('job-1', {
-				status: 'running',
-				startedAt: now,
-				updatedAt: now
-			})
-		).resolves.toMatchObject({ id: 'job-1', status: 'running', startedAt: now });
-		await expect(
-			repository.updateBackgroundJob('missing-job', { status: 'failed' })
-		).resolves.toBeNull();
-		await expect(repository.listJobTargets('job-1')).resolves.toEqual([
-			expect.objectContaining({ id: 'target-1' }),
-			expect.objectContaining({ id: 'target-2' })
-		]);
-		await expect(
-			repository.updateJobTarget('target-1', {
-				status: 'succeeded',
-				output: { stdout: 'ok' },
-				updatedAt: now
-			})
-		).resolves.toMatchObject({ id: 'target-1', status: 'succeeded', output: { stdout: 'ok' } });
-		await expect(
-			repository.updateJobTarget('missing-target', { status: 'failed' })
-		).resolves.toBeNull();
-		await expect(
-			repository.recordJobEvent(jobEvent({ id: 'event-1', jobId: 'job-1' }))
-		).resolves.toMatchObject({
-			id: 'event-1',
-			code: 'job.started'
-		});
-		await expect(
-			repository.createJobReport(jobReport({ id: 'report-1', jobId: 'job-1' }))
-		).resolves.toMatchObject({
-			id: 'report-1',
-			format: 'json',
-			storageKey: 'reports/job-1.json'
-		});
-		await expect(
-			repository.upsertWorkspacePolicy(workspacePolicy({ workspaceId: 'workspace-1' }))
-		).resolves.toMatchObject({
-			workspaceId: 'workspace-1',
-			capability: 'bulk_job',
-			effect: 'approval_required',
-			requireReason: true
-		});
-		await expect(repository.getWorkspacePolicy('workspace-1', 'bulk_job')).resolves.toMatchObject({
-			effect: 'approval_required'
-		});
-		await expect(
-			repository.createApprovalRequest(approvalRequest({ id: 'approval-1' }))
-		).resolves.toMatchObject({
-			id: 'approval-1',
-			status: 'pending',
-			reason: 'Patch approved CVE window'
-		});
-		await expect(
-			repository.updateApprovalRequest('approval-1', {
-				status: 'approved',
-				decidedBy: 'owner-1',
-				decisionReason: 'Reviewed target list',
-				decidedAt: now,
-				updatedAt: now
-			})
-		).resolves.toMatchObject({
-			id: 'approval-1',
-			status: 'approved',
-			decisionReason: 'Reviewed target list'
-		});
-		await expect(
-			repository.updateApprovalRequest('missing-approval', { status: 'rejected' })
-		).resolves.toBeNull();
-		await expect(
-			repository.recordOperationReason(operationReason({ id: 'reason-1' }))
-		).resolves.toMatchObject({
-			id: 'reason-1',
-			reason: 'Patch approved CVE window'
-		});
-		await expect(
-			repository.upsertHostFacts(hostFacts({ hostId: 'host-1' }))
-		).resolves.toMatchObject({
-			hostId: 'host-1',
-			osName: 'NixOS',
-			serviceHints: [{ name: 'sshd', state: 'running' }]
-		});
-		await expect(
-			repository.upsertHostHealth(hostHealth({ hostId: 'host-1' }))
-		).resolves.toMatchObject({
-			hostId: 'host-1',
-			state: 'healthy',
-			consecutiveFailures: 0
-		});
-		await expect(repository.listHostFacts(['host-1', 'missing-host'])).resolves.toEqual([
-			expect.objectContaining({ hostId: 'host-1' })
-		]);
-		await expect(repository.listHostHealth(['host-1', 'missing-host'])).resolves.toEqual([
-			expect.objectContaining({ hostId: 'host-1' })
-		]);
 	});
 });

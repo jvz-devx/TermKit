@@ -33,7 +33,11 @@ export function preferredDesktopSize({
 			false
 		)
 	};
-	return applyRdpDisplayPreset(rawSize, preset);
+	const presetSize = applyRdpDisplayPreset(rawSize, preset);
+	return {
+		width: normalizeDesktopDimension(presetSize.width, minDesktopWidth, maxDesktopWidth, true),
+		height: normalizeDesktopDimension(presetSize.height, minDesktopHeight, maxDesktopHeight, false)
+	};
 }
 
 export function desktopSizeChanged(

@@ -77,9 +77,6 @@ async function captureScreenshots(baseUrl) {
 		await openVisibleSshTerminal(page);
 		await page.screenshot({ path: join(outputDir, 'sessions.png') });
 
-		await screenshotPage(page, '/fleet', 'heading', 'Fleet overview');
-		await page.screenshot({ path: join(outputDir, 'fleet.png') });
-
 		await screenshotPage(page, '/admin', 'heading', 'Admin');
 		await page.getByRole('tab', { name: 'Settings' }).click();
 		await page.screenshot({ path: join(outputDir, 'admin.png') });

@@ -140,13 +140,13 @@ describe('import API routes', () => {
 		expect(importService.import).not.toHaveBeenCalled();
 	});
 
-	it('serializes policy-blocked import jobs with stable fields', async () => {
+	it('serializes blocked import jobs with stable fields', async () => {
 		vi.mocked(importService.import).mockRejectedValueOnce(
-			Object.assign(new Error('Bulk import jobs are disabled by workspace policy.'), {
+			Object.assign(new Error('Import jobs are disabled.'), {
 				status: 403,
 				code: 'policy_action_disabled',
 				category: 'authorization',
-				details: { action: 'bulkJobs', state: 'blocked' }
+				details: { action: 'importJobs', state: 'blocked' }
 			}) as never
 		);
 
@@ -154,10 +154,10 @@ describe('import API routes', () => {
 
 		expect(response.status).toBe(403);
 		await expect(response.json()).resolves.toMatchObject({
-			error: 'Bulk import jobs are disabled by workspace policy.',
+			error: 'Import jobs are disabled.',
 			code: 'policy_action_disabled',
 			category: 'authorization',
-			details: { action: 'bulkJobs', state: 'blocked' }
+			details: { action: 'importJobs', state: 'blocked' }
 		});
 	});
 

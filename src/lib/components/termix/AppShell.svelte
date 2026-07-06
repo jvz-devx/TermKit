@@ -19,11 +19,6 @@
 		'/history': 'History',
 		'/credentials': 'Credentials',
 		'/import': 'Import',
-		'/fleet': 'Fleet Overview',
-		'/fleet/runbooks': 'Fleet Runbooks',
-		'/fleet/targets': 'Fleet Targets',
-		'/fleet/executions': 'Fleet Executions',
-		'/fleet/executions/new': 'New Fleet Execution',
 		'/admin': 'Admin',
 		'/settings': 'Settings'
 	};
@@ -33,8 +28,6 @@
 
 	function titleForPath(pathname: string) {
 		if (titles[pathname]) return titles[pathname];
-
-		if (/^\/fleet\/executions\/[^/]+$/.test(pathname)) return 'Fleet Execution';
 
 		return 'Operations';
 	}

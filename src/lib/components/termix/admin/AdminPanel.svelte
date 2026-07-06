@@ -35,8 +35,9 @@
 	import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
+	import * as Empty from '$lib/components/ui/empty';
+	import * as Field from '$lib/components/ui/field';
 	import { Input } from '$lib/components/ui/input';
-	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
 	import * as Table from '$lib/components/ui/table';
 	import * as Tabs from '$lib/components/ui/tabs';
@@ -299,227 +300,293 @@
 	disableUser: (user: AdminUserSummary) => Promise<void>;
 	revokeInvitation: (invitation: AdminMicrosoftInvitationSummary) => Promise<void>;
 })}
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>User operations</Card.Title>
-			<Card.Description>
-				{overview.users.length} account records, {overview.microsoftInvitations.length} Microsoft invites
-			</Card.Description>
-		</Card.Header>
-		<Card.Content class="space-y-4">
-			<form
-				class="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-[minmax(0,1fr)_auto_auto]"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void createInvitation();
-				}}
-			>
-				<div class="grid gap-2">
-					<Label for="admin-invite-email">Microsoft email</Label>
-					<Input
-						id="admin-invite-email"
-						type="email"
-						bind:value={inviteEmail}
-						autocomplete="email"
-						placeholder="operator@example.com"
-						required
-					/>
-				</div>
-				<label
-					class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2 text-sm md:self-end"
-				>
-					<span class="font-medium">Admin</span>
-					<Switch bind:checked={inviteAsAdmin} aria-label="Invite as admin" />
-				</label>
-				<Button
-					type="submit"
-					class="md:self-end"
-					disabled={pendingAction === 'create:microsoft-invitation'}
-				>
-					<MailPlus class="size-4" />
-					Invite
-				</Button>
-			</form>
+	<div class="flex flex-col gap-4">
+		<div class="grid gap-4 xl:grid-cols-2">
+			<Card.Root>
+				<Card.Header>
+					<Card.Title>Invite Microsoft user</Card.Title>
+					<Card.Description>Send an invite to a Microsoft account.</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<form
+						class="flex flex-col gap-4"
+						onsubmit={(event) => {
+							event.preventDefault();
+							void createInvitation();
+						}}
+					>
+						<Field.Group class="gap-4">
+							<Field.Field>
+								<Field.Label for="admin-invite-email">Microsoft email</Field.Label>
+								<Input
+									id="admin-invite-email"
+									type="email"
+									bind:value={inviteEmail}
+									autocomplete="email"
+									placeholder="operator@example.com"
+									required
+								/>
+							</Field.Field>
+							<Field.Field orientation="horizontal" class="rounded-md border bg-muted/20 p-3">
+								<Field.Content>
+									<Field.Label for="admin-invite-is-admin">Administrator access</Field.Label>
+									<Field.Description
+										>Allow full admin settings and user management.</Field.Description
+									>
+								</Field.Content>
+								<Switch
+									id="admin-invite-is-admin"
+									bind:checked={inviteAsAdmin}
+									aria-label="Invite with administrator access"
+								/>
+							</Field.Field>
+						</Field.Group>
+						<Button
+							type="submit"
+							class="self-start"
+							disabled={pendingAction === 'create:microsoft-invitation'}
+						>
+							<MailPlus class="size-4" />
+							Invite
+						</Button>
+					</form>
+				</Card.Content>
+			</Card.Root>
 
-			{#if overview.microsoftInvitations.length > 0}
-				<div class="overflow-x-auto">
-					<Table.Root>
-						<Table.Header>
-							<Table.Row>
-								<Table.Head>Microsoft invite</Table.Head>
-								<Table.Head>Status</Table.Head>
-								<Table.Head>Created</Table.Head>
-								<Table.Head>Accepted by</Table.Head>
-								<Table.Head class="text-right">Actions</Table.Head>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each overview.microsoftInvitations as invitation (invitation.id)}
+			<Card.Root>
+				<Card.Header>
+					<Card.Title>Create local user</Card.Title>
+					<Card.Description>Add a username and password login.</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<form
+						class="flex flex-col gap-4"
+						onsubmit={(event) => {
+							event.preventDefault();
+							void createUser();
+						}}
+					>
+						<div class="grid gap-4 md:grid-cols-2">
+							<Field.Field>
+								<Field.Label for="admin-create-username">Username</Field.Label>
+								<Input
+									id="admin-create-username"
+									bind:value={createUsername}
+									autocomplete="username"
+									placeholder="operator"
+									required
+								/>
+							</Field.Field>
+							<Field.Field>
+								<Field.Label for="admin-create-password">Password</Field.Label>
+								<Input
+									id="admin-create-password"
+									type="password"
+									bind:value={createPassword}
+									autocomplete="new-password"
+									minlength={8}
+									required
+								/>
+							</Field.Field>
+						</div>
+						<Field.Field orientation="horizontal" class="rounded-md border bg-muted/20 p-3">
+							<Field.Content>
+								<Field.Label for="admin-create-is-admin">Administrator access</Field.Label>
+								<Field.Description>Allow full admin settings and user management.</Field.Description
+								>
+							</Field.Content>
+							<Switch
+								id="admin-create-is-admin"
+								bind:checked={createAsAdmin}
+								aria-label="Create with administrator access"
+							/>
+						</Field.Field>
+						<Button type="submit" class="self-start" disabled={pendingAction === 'create:user'}>
+							<Users class="size-4" />
+							Create
+						</Button>
+					</form>
+				</Card.Content>
+			</Card.Root>
+		</div>
+
+		<Card.Root>
+			<Card.Header>
+				<Card.Title>Microsoft invitations</Card.Title>
+				<Card.Description>
+					{overview.microsoftInvitations.length} invites, {overview.microsoftInvitations.filter(
+						(invitation) => invitation.status === 'pending'
+					).length} pending
+				</Card.Description>
+			</Card.Header>
+			<Card.Content>
+				{#if overview.microsoftInvitations.length > 0}
+					<div class="overflow-x-auto">
+						<Table.Root>
+							<Table.Header>
 								<Table.Row>
-									<Table.Cell>
-										<div class="font-medium">{invitation.email}</div>
-										<div class="text-xs text-muted-foreground">
-											{invitation.invitedByUsername ?? shortId(invitation.id)}
-										</div>
-									</Table.Cell>
-									<Table.Cell>
-										<div class="flex flex-wrap gap-1">
-											<Badge
-												variant={invitation.status === 'revoked'
-													? 'destructive'
-													: invitation.status === 'accepted'
-														? 'secondary'
-														: 'default'}
-											>
-												{invitation.status}
-											</Badge>
-											{#if invitation.isAdmin}
-												<Badge variant="outline"><ShieldCheck class="size-3" />Admin</Badge>
-											{/if}
-										</div>
-									</Table.Cell>
-									<Table.Cell>{formatDate(invitation.createdAt)}</Table.Cell>
-									<Table.Cell>
-										{invitation.acceptedUsername ?? formatDate(invitation.acceptedAt)}
-									</Table.Cell>
-									<Table.Cell>
-										<div class="flex justify-end">
-											<Button
-												size="sm"
-												variant="outline"
-												disabled={invitation.status !== 'pending' ||
-													pendingAction === `revoke:microsoft-invitation:${invitation.id}`}
-												onclick={() => revokeInvitation(invitation)}
-											>
-												<Ban class="size-4" />
-												Revoke
-											</Button>
-										</div>
-									</Table.Cell>
+									<Table.Head class="min-w-60">Invitation</Table.Head>
+									<Table.Head>Status</Table.Head>
+									<Table.Head>Created</Table.Head>
+									<Table.Head>Accepted</Table.Head>
+									<Table.Head class="text-right">Actions</Table.Head>
 								</Table.Row>
-							{/each}
-						</Table.Body>
-					</Table.Root>
-				</div>
-			{/if}
+							</Table.Header>
+							<Table.Body>
+								{#each overview.microsoftInvitations as invitation (invitation.id)}
+									<Table.Row>
+										<Table.Cell>
+											<div class="font-medium">{invitation.email}</div>
+											<div class="text-xs text-muted-foreground">
+												Invited by {invitation.invitedByUsername ?? shortId(invitation.id)}
+											</div>
+										</Table.Cell>
+										<Table.Cell>
+											<div class="flex flex-wrap gap-1">
+												<Badge
+													variant={invitation.status === 'revoked'
+														? 'destructive'
+														: invitation.status === 'accepted'
+															? 'secondary'
+															: 'default'}
+												>
+													{invitation.status}
+												</Badge>
+												{#if invitation.isAdmin}
+													<Badge variant="outline"><ShieldCheck class="size-3" />Admin</Badge>
+												{/if}
+											</div>
+										</Table.Cell>
+										<Table.Cell>{formatDate(invitation.createdAt)}</Table.Cell>
+										<Table.Cell>
+											{invitation.acceptedUsername ?? formatDate(invitation.acceptedAt)}
+										</Table.Cell>
+										<Table.Cell>
+											<div class="flex justify-end">
+												<Button
+													size="sm"
+													variant="outline"
+													disabled={invitation.status !== 'pending' ||
+														pendingAction === `revoke:microsoft-invitation:${invitation.id}`}
+													onclick={() => revokeInvitation(invitation)}
+												>
+													<Ban class="size-4" />
+													Revoke
+												</Button>
+											</div>
+										</Table.Cell>
+									</Table.Row>
+								{/each}
+							</Table.Body>
+						</Table.Root>
+					</div>
+				{:else}
+					<Empty.Root class="min-h-36 border bg-muted/10 p-6">
+						<Empty.Header>
+							<Empty.Title>No Microsoft invitations</Empty.Title>
+							<Empty.Description>Invites sent from this panel will appear here.</Empty.Description>
+						</Empty.Header>
+					</Empty.Root>
+				{/if}
+			</Card.Content>
+		</Card.Root>
 
-			<form
-				class="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void createUser();
-				}}
-			>
-				<div class="grid gap-2">
-					<Label for="admin-create-username">Username</Label>
-					<Input
-						id="admin-create-username"
-						bind:value={createUsername}
-						autocomplete="username"
-						placeholder="operator"
-						required
-					/>
-				</div>
-				<div class="grid gap-2">
-					<Label for="admin-create-password">Password</Label>
-					<Input
-						id="admin-create-password"
-						type="password"
-						bind:value={createPassword}
-						autocomplete="new-password"
-						minlength={8}
-						required
-					/>
-				</div>
-				<label
-					class="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2 text-sm md:self-end"
-				>
-					<span class="font-medium">Admin</span>
-					<Switch bind:checked={createAsAdmin} aria-label="Create as admin" />
-				</label>
-				<Button type="submit" class="md:self-end" disabled={pendingAction === 'create:user'}>
-					<Users class="size-4" />
-					Create
-				</Button>
-			</form>
-
-			<div class="overflow-x-auto">
-				<Table.Root>
-					<Table.Header>
-						<Table.Row>
-							<Table.Head>User</Table.Head>
-							<Table.Head>Role</Table.Head>
-							<Table.Head>Inventory</Table.Head>
-							<Table.Head>Sessions</Table.Head>
-							<Table.Head>Last seen</Table.Head>
-							<Table.Head class="text-right">Actions</Table.Head>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{#each overview.users as user (user.id)}
-							<Table.Row>
-								<Table.Cell>
-									<div class="font-medium">{user.username}</div>
-									<div class="text-xs text-muted-foreground">
-										{user.identityEmails[0] ?? shortId(user.id)}
-									</div>
-								</Table.Cell>
-								<Table.Cell>
-									<div class="flex flex-wrap gap-1">
-										<Badge variant={user.isAdmin ? 'default' : 'secondary'}>
-											{#if user.isAdmin}<ShieldCheck class="size-3" />{:else}<Shield
-													class="size-3"
-												/>{/if}
-											{user.isAdmin ? 'Admin' : 'User'}
-										</Badge>
-										{#if user.disabled}
-											<Badge variant="destructive"><Ban class="size-3" />Disabled</Badge>
-										{/if}
-									</div>
-								</Table.Cell>
-								<Table.Cell>
-									<div class="text-sm">{user.hostCount} hosts</div>
-									<div class="text-xs text-muted-foreground">
-										{user.credentialCount} credentials
-									</div>
-								</Table.Cell>
-								<Table.Cell>
-									<div class="text-sm">{user.activeAppSessions} app</div>
-									<div class="text-xs text-muted-foreground">
-										{user.liveSshSessionCount} live SSH
-									</div>
-								</Table.Cell>
-								<Table.Cell>{formatDate(user.lastSeenAt)}</Table.Cell>
-								<Table.Cell>
-									<div class="flex justify-end gap-2">
-										<Button
-											size="sm"
-											variant="outline"
-											disabled={user.isAdmin ||
-												user.disabled ||
-												pendingAction === `promote:${user.id}`}
-											onclick={() => promoteUser(user)}
-										>
-											<ShieldCheck class="size-4" />
-											Promote
-										</Button>
-										<Button
-											size="sm"
-											variant="destructive"
-											disabled={user.disabled || pendingAction === `disable:${user.id}`}
-											title="Disable local and Microsoft login, then revoke active app sessions"
-											onclick={() => disableUser(user)}
-										>
-											<Ban class="size-4" />
-											Disable login
-										</Button>
-									</div>
-								</Table.Cell>
-							</Table.Row>
-						{/each}
-					</Table.Body>
-				</Table.Root>
-			</div>
-		</Card.Content>
-	</Card.Root>
+		<Card.Root>
+			<Card.Header>
+				<Card.Title>Users and access</Card.Title>
+				<Card.Description>
+					{overview.users.length} accounts, {overview.users.filter((user) => user.isAdmin).length} admins,
+					{overview.users.filter((user) => user.disabled).length} disabled
+				</Card.Description>
+			</Card.Header>
+			<Card.Content>
+				{#if overview.users.length > 0}
+					<div class="overflow-x-auto">
+						<Table.Root>
+							<Table.Header>
+								<Table.Row>
+									<Table.Head class="min-w-60">User</Table.Head>
+									<Table.Head>Access</Table.Head>
+									<Table.Head>Inventory</Table.Head>
+									<Table.Head>Sessions</Table.Head>
+									<Table.Head>Last seen</Table.Head>
+									<Table.Head class="text-right">Actions</Table.Head>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{#each overview.users as user (user.id)}
+									<Table.Row>
+										<Table.Cell>
+											<div class="font-medium">{user.username}</div>
+											<div class="text-xs text-muted-foreground">
+												{user.identityEmails[0] ?? shortId(user.id)}
+											</div>
+										</Table.Cell>
+										<Table.Cell>
+											<div class="flex flex-wrap gap-1">
+												<Badge variant={user.isAdmin ? 'default' : 'secondary'}>
+													{#if user.isAdmin}<ShieldCheck class="size-3" />{:else}<Shield
+															class="size-3"
+														/>{/if}
+													{user.isAdmin ? 'Admin' : 'User'}
+												</Badge>
+												{#if user.disabled}
+													<Badge variant="destructive"><Ban class="size-3" />Disabled</Badge>
+												{/if}
+											</div>
+										</Table.Cell>
+										<Table.Cell>
+											<div class="text-sm">{user.hostCount} hosts</div>
+											<div class="text-xs text-muted-foreground">
+												{user.credentialCount} credentials
+											</div>
+										</Table.Cell>
+										<Table.Cell>
+											<div class="text-sm">{user.activeAppSessions} app</div>
+											<div class="text-xs text-muted-foreground">
+												{user.liveSshSessionCount} live SSH
+											</div>
+										</Table.Cell>
+										<Table.Cell>{formatDate(user.lastSeenAt)}</Table.Cell>
+										<Table.Cell>
+											<div class="flex justify-end gap-2">
+												<Button
+													size="sm"
+													variant="outline"
+													disabled={user.isAdmin ||
+														user.disabled ||
+														pendingAction === `promote:${user.id}`}
+													onclick={() => promoteUser(user)}
+												>
+													<ShieldCheck class="size-4" />
+													Promote
+												</Button>
+												<Button
+													size="sm"
+													variant="destructive"
+													disabled={user.disabled || pendingAction === `disable:${user.id}`}
+													title="Disable local and Microsoft login, then revoke active app sessions"
+													onclick={() => disableUser(user)}
+												>
+													<Ban class="size-4" />
+													Disable login
+												</Button>
+											</div>
+										</Table.Cell>
+									</Table.Row>
+								{/each}
+							</Table.Body>
+						</Table.Root>
+					</div>
+				{:else}
+					<Empty.Root class="min-h-36 border bg-muted/10 p-6">
+						<Empty.Header>
+							<Empty.Title>No users</Empty.Title>
+							<Empty.Description>Create a local user or send a Microsoft invite.</Empty.Description>
+						</Empty.Header>
+					</Empty.Root>
+				{/if}
+			</Card.Content>
+		</Card.Root>
+	</div>
 {/snippet}

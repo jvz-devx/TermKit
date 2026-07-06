@@ -12,6 +12,16 @@ describe('RDP display sizing helpers', () => {
 		).toEqual({ width: 1280, height: 720 });
 	});
 
+	it('preserves ultrawide viewport aspect when applying preset caps', () => {
+		expect(
+			preferredDesktopSize({
+				viewportRect: { width: 3440, height: 1440 },
+				fallback: { width: 1440, height: 900 },
+				preset: 'balanced'
+			})
+		).toEqual({ width: 1920, height: 804 });
+	});
+
 	it('clamps collapsed viewport bounds to a usable RDP desktop size', () => {
 		expect(
 			preferredDesktopSize({

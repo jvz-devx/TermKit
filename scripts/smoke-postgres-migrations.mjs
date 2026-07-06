@@ -12,23 +12,14 @@ const username = 'termkit_migration_smoke';
 const password = `termkit-smoke-${randomBytes(18).toString('base64url')}`;
 const containerName = `termkit-postgres-migration-smoke-${process.pid}-${Date.now().toString(36)}`;
 const expectedTables = [
-	'approval_requests',
 	'auth_identities',
-	'automation_templates',
-	'background_jobs',
 	'command_snippets',
 	'connection_sessions',
 	'credentials',
 	'file_bookmarks',
 	'ftps_host_settings',
-	'host_facts',
-	'host_health',
 	'hosts',
 	'import_jobs',
-	'job_events',
-	'job_reports',
-	'job_targets',
-	'operation_reasons',
 	'rdp_host_settings',
 	'session_tickets',
 	'sessions',
@@ -37,8 +28,7 @@ const expectedTables = [
 	'ssh_live_sessions',
 	'terminal_preferences',
 	'terminal_recordings',
-	'users',
-	'workspace_policies'
+	'users'
 ];
 
 try {
@@ -315,77 +305,6 @@ async function verifyMigratedSchema(url) {
 			throw new Error(
 				'Migration did not create set-null terminal recording connection-session foreign key.'
 			);
-		}
-
-		const v6Enums = [
-			'approval_request_status',
-			'automation_template_kind',
-			'automation_template_visibility',
-			'automation_variable_kind',
-			'background_job_kind',
-			'background_job_status',
-			'host_fact_source',
-			'host_health_state',
-			'job_event_severity',
-			'job_report_format',
-			'job_target_status',
-			'workspace_policy_capability',
-			'workspace_policy_effect'
-		];
-
-		for (const enumName of v6Enums) {
-			const [row] = await sql`
-				select exists (
-					select 1
-					from pg_type
-					where typname = ${enumName}
-				) as exists
-			`;
-
-			if (!row?.exists) {
-				throw new Error(`Migration did not create ${enumName} enum.`);
-			}
-		}
-
-		const v6UniqueIndexes = [
-			'job_targets_job_host_unique',
-			'host_facts_host_unique',
-			'host_health_host_unique',
-			'workspace_policies_workspace_capability_unique'
-		];
-
-		for (const indexName of v6UniqueIndexes) {
-			const [row] = await sql`
-				select to_regclass(${`public.${indexName}`}) as index_name
-			`;
-
-			if (!row?.index_name) {
-				throw new Error(`Migration did not create ${indexName}.`);
-			}
-		}
-
-		const v6ForeignKeys = new Map([
-			['background_jobs_template_id_automation_templates_id_fk', 'n'],
-			['job_targets_job_id_background_jobs_id_fk', 'c'],
-			['job_events_job_id_background_jobs_id_fk', 'c'],
-			['job_reports_job_id_background_jobs_id_fk', 'c'],
-			['workspace_policies_workspace_id_workspaces_id_fk', 'c'],
-			['approval_requests_requested_by_users_id_fk', 'c'],
-			['operation_reasons_user_id_users_id_fk', 'c'],
-			['host_facts_host_id_hosts_id_fk', 'c'],
-			['host_health_host_id_hosts_id_fk', 'c']
-		]);
-
-		for (const [constraintName, expectedDeleteAction] of v6ForeignKeys) {
-			const [row] = await sql`
-				select confdeltype
-				from pg_constraint
-				where conname = ${constraintName}
-			`;
-
-			if (row?.confdeltype !== expectedDeleteAction) {
-				throw new Error(`Migration did not create expected delete action for ${constraintName}.`);
-			}
 		}
 	} finally {
 		await sql.end();

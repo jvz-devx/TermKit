@@ -320,13 +320,6 @@ describe('acceptance proof scripts', () => {
 			'[local] V5 FTP and FTPS mode settings plus runtime TLS behavior'
 		);
 		expect(result.stdout).toContain('[local] V5 RDP operator controls and host settings');
-		expect(result.stdout).toContain(
-			'[local] V6 automation templates support typed previews and secret masking'
-		);
-		expect(result.stdout).toContain(
-			'[local] V6 bulk jobs enforce reviewed targets, concurrency, retry, cancellation, and reports'
-		);
-		expect(result.stdout).toContain('[local] V6 fleet operations UI shell and navigation');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain('acceptance audit: no blocked requirements detected');
 	});
@@ -346,7 +339,6 @@ describe('acceptance proof scripts', () => {
 		expect(v7AuditRows(result.stdout)).toEqual([
 			'[local] V7 coverage tooling and baseline reporting',
 			'[local] V7 server and security regression foundation',
-			'[local] V7 fleet wiring and browser workflow foundation',
 			'[local] V7 coverage ratchet threshold foundation',
 			'[local] V7 final coverage target achievement',
 			'[local] V7 full workflow and protocol browser coverage',
@@ -471,10 +463,6 @@ describe('acceptance proof scripts', () => {
 			'[local] V5 terminal session recording controls, capture, and retention cleanup'
 		);
 		expect(result.stdout).toContain('[local] V5 RDP operator controls and host settings');
-		expect(result.stdout).toContain(
-			'[local] V6 workspace governance and server-side policy decisions'
-		);
-		expect(result.stdout).toContain('[local] V6 host health and SSH fact intelligence');
 		expectV7Rows(result.stdout);
 		expect(result.stdout).toContain(
 			'acceptance audit: repo-owned requirements passed; 2 external proof item(s) remain blocked until real tenant or target infrastructure is available'
@@ -502,7 +490,6 @@ describe('acceptance proof scripts', () => {
 function expectV7Rows(output: string) {
 	expect(output).toContain('[local] V7 coverage tooling and baseline reporting');
 	expect(output).toContain('[local] V7 server and security regression foundation');
-	expect(output).toContain('[local] V7 fleet wiring and browser workflow foundation');
 	expect(output).toContain('[local] V7 coverage ratchet threshold foundation');
 	expect(output).toContain('[local] V7 final coverage target achievement');
 	expect(output).toContain('[local] V7 full workflow and protocol browser coverage');

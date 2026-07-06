@@ -121,9 +121,11 @@ export function applyRdpDisplayPreset(
 	preset: RdpPerformancePreset
 ): RdpDesktopSize {
 	const maxDesktop = rdpDisplayPresets[preset].maxDesktop;
+	const scale = Math.min(1, maxDesktop.width / size.width, maxDesktop.height / size.height);
+
 	return {
-		width: Math.min(size.width, maxDesktop.width),
-		height: Math.min(size.height, maxDesktop.height)
+		width: normalizeDesktopDimension(size.width * scale, 1, maxDesktop.width, true),
+		height: normalizeDesktopDimension(size.height * scale, 1, maxDesktop.height, false)
 	};
 }
 

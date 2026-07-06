@@ -3,7 +3,6 @@
 	import ServerIcon from '@lucide/svelte/icons/server';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
 	import SquareTerminalIcon from '@lucide/svelte/icons/square-terminal';
-	import WorkflowIcon from '@lucide/svelte/icons/workflow';
 	import type { Component } from 'svelte';
 
 	type NavItem = {
@@ -51,17 +50,6 @@
 				items: [
 					{ title: 'Sessions', url: '/sessions' },
 					{ title: 'History', url: '/history' }
-				]
-			},
-			{
-				title: 'Fleet operations',
-				url: '/fleet',
-				icon: WorkflowIcon,
-				items: [
-					{ title: 'Overview', url: '/fleet' },
-					{ title: 'Runbooks', url: '/fleet/runbooks' },
-					{ title: 'Targets', url: '/fleet/targets' },
-					{ title: 'Executions', url: '/fleet/executions' }
 				]
 			},
 			{

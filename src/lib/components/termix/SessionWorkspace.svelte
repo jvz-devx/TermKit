@@ -362,8 +362,6 @@
 											performancePreset={workspace.appSettings.rdpPerformancePreset}
 											audioRedirection={workspace.appSettings.rdpAudioRedirection}
 											immersive={immersiveRdp}
-											sidebarOpen={rdpSidebarExpanded}
-											onToggleSidebar={() => (rdpSidebarExpanded = !rdpSidebarExpanded)}
 										>
 											{#snippet detailsControls()}
 												{@render rdpDetailsControls()}
@@ -379,8 +377,6 @@
 												performancePreset={workspace.appSettings.rdpPerformancePreset}
 												audioRedirection={workspace.appSettings.rdpAudioRedirection}
 												immersive={immersiveRdp}
-												sidebarOpen={rdpSidebarExpanded}
-												onToggleSidebar={() => (rdpSidebarExpanded = !rdpSidebarExpanded)}
 											>
 												{#snippet detailsControls()}
 													{@render rdpDetailsControls()}

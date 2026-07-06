@@ -11,7 +11,7 @@
 
 # TermKit
 
-TermKit is a self-hosted remote access workspace for operators who need practical SSH, RDP, VNC, Telnet, SFTP, FTP, and FTPS workflows without scattering hosts, credentials, launch history, and bulk operations across separate tools.
+TermKit is a self-hosted remote access workspace for operators who need practical SSH, RDP, VNC, Telnet, SFTP, FTP, and FTPS workflows without scattering hosts, credentials, and launch history across separate tools.
 
 It is built with SvelteKit, Postgres, checked-in Drizzle migrations, encrypted credential storage, Microsoft Entra sign-in support, and a Docker Compose deployment shape that exposes one public app port.
 
@@ -22,7 +22,6 @@ It is built with SvelteKit, Postgres, checked-in Drizzle migrations, encrypted c
   <img src="./docs/assets/readme/sessions.png" alt="TermKit session workspace" width="49%" />
 </p>
 <p>
-  <img src="./docs/assets/readme/fleet.png" alt="TermKit fleet operations" width="49%" />
   <img src="./docs/assets/readme/admin.png" alt="TermKit admin panel" width="49%" />
 </p>
 
@@ -34,7 +33,6 @@ It is built with SvelteKit, Postgres, checked-in Drizzle migrations, encrypted c
 - **RDP through the app boundary**: proxy browser RDP traffic through the app to Devolutions Gateway so the gateway container stays internal.
 - **Workspaces and history**: organize shared hosts and credentials, then review connection history by user, workspace, protocol, host, status, and date.
 - **Invite-only Microsoft auth**: allow Microsoft Entra sign-in only for configured invited users or allowed domains, while local login remains available.
-- **Fleet operations**: select visible targets, review policy/approval requirements, and queue operator actions across multiple hosts.
 - **Fresh-server startup**: production startup runs checked-in database migrations before the app accepts traffic.
 
 ## Quick Start

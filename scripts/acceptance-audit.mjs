@@ -338,42 +338,6 @@ const checks = [
 			'npm test covers V5 RDP host settings, operator-control helpers, audio gateway capability, and npm run smoke:app-protocols verifies the RDP launch boundary'
 	},
 	{
-		name: 'V6 automation templates support typed previews and secret masking',
-		status: 'local',
-		evidence:
-			'npm test covers SSH command, file-transfer, SSH tunnel, RDP checklist, and operator-note templates with typed variables, validation, version metadata, workspace/private visibility, and secret-safe previews'
-	},
-	{
-		name: 'V6 bulk jobs enforce reviewed targets, concurrency, retry, cancellation, and reports',
-		status: 'local',
-		evidence:
-			'npm test covers bulk SSH and SFTP/FTP/FTPS job planning, explicit host review, hidden-host rejection, concurrency scheduling, cancellation, retry eligibility, per-host status, partial failures, and secret-safe downloadable reports'
-	},
-	{
-		name: 'V6 job history and resource persistence schema',
-		status: 'local',
-		evidence:
-			'npm test covers V6 resource repositories and npm run smoke:postgres verifies automation, job, report, policy, approval, reason, host fact, and host health migration compatibility'
-	},
-	{
-		name: 'V6 workspace governance and server-side policy decisions',
-		status: 'local',
-		evidence:
-			'npm test covers viewer/operator/maintainer/owner policy decisions, blocked UI state parity, approval gates, reason gates, sensitive hosts, dangerous templates, high host counts, and risky transfers'
-	},
-	{
-		name: 'V6 host health and SSH fact intelligence',
-		status: 'local',
-		evidence:
-			'npm test covers SSH fact parsing for OS, kernel, uptime, disk, memory, service hints, and health states for stale hosts, broken credentials, repeated failures, never-used hosts, and healthy hosts'
-	},
-	{
-		name: 'V6 fleet operations UI shell and navigation',
-		status: 'local',
-		evidence:
-			'npm run check validates the slim /fleet route plus shadcn-svelte fleet panels for automation templates, reviewed bulk operations, job history/reporting, policy approvals, and host health inventory'
-	},
-	{
 		name: 'V7 coverage tooling and baseline reporting',
 		status: 'local',
 		evidence:
@@ -383,19 +347,13 @@ const checks = [
 		name: 'V7 server and security regression foundation',
 		status: 'local',
 		evidence:
-			'npm test covers added credential metadata redaction, session-ticket credential snapshots, V6 job/event/report redaction, policy reasons, and secret-safe bulk job reports'
-	},
-	{
-		name: 'V7 fleet wiring and browser workflow foundation',
-		status: 'local',
-		evidence:
-			'npm test covers the shared fleet operation contract and source-level drift checks; npm run test:e2e covers /fleet navigation, disabled no-target queue state, approval-required review state, and inventory filtering'
+			'npm test covers credential metadata redaction, session-ticket credential snapshots, and secret-safe protocol/API error serialization'
 	},
 	{
 		name: 'V7 coverage ratchet threshold foundation',
 		status: 'local',
 		evidence:
-			'npm run test:coverage enforces the current global ratchet plus scoped auth, crypto, import, Termix domain, live SSH, bulk-job runner, and file-manager-state thresholds; docs/coverage-baseline.md documents the measured floor'
+			'npm run test:coverage enforces the current global ratchet plus scoped auth, crypto, import, Termix domain, live SSH, and file-manager-state thresholds; docs/coverage-baseline.md documents the measured floor'
 	},
 	{
 		name: 'V7 final coverage target achievement',
@@ -407,19 +365,19 @@ const checks = [
 		name: 'V7 full workflow and protocol browser coverage',
 		status: 'local',
 		evidence:
-			'npm run test:e2e covers auth, inventory, importer, workspace launch states, browser-level SFTP/FTP/FTPS UI actions with mocked protocol API fixtures, RDP/VNC/Telnet launch and reconnect/close states, admin, fleet, and server-enforced policy-blocked API denial; npm run smoke:app-protocols covers browser-level SFTP/FTP/FTPS file actions against disposable real local protocol endpoints without route interception, Telnet xterm input/NAWS/close/reconnect against a disposable fixture, VNC noVNC launch/disconnect/reconnect against a disposable RFB fixture, and local mocked RDP Gateway launch/clipboard-policy/reconnect controls plus the server-side JET proxy route without proving browser-driven JET traffic or real target pixels'
+			'npm run test:e2e covers auth, inventory, importer, workspace launch states, browser-level SFTP/FTP/FTPS UI actions with mocked protocol API fixtures, RDP/VNC/Telnet launch and reconnect/close states, admin, and server-enforced policy-blocked API denial; npm run smoke:app-protocols covers browser-level SFTP/FTP/FTPS file actions against disposable real local protocol endpoints without route interception, Telnet xterm input/NAWS/close/reconnect against a disposable fixture, VNC noVNC launch/disconnect/reconnect against a disposable RFB fixture, and local mocked RDP Gateway launch/clipboard-policy/reconnect controls plus the server-side JET proxy route without proving browser-driven JET traffic or real target pixels'
 	},
 	{
 		name: 'V7 reliability and performance budget foundation',
 		status: 'local',
 		evidence:
-			'npm test covers live SSH attach takeover, connection and shell failure injection, single-use ticket rejection paths, bulk-job concurrency, cancellation, timeout/retry behavior, secret-safe reports, large fan-out planning invariants, and file-list transform invariants; npm run test:performance owns coarse wall-clock budget checks outside the default unit suite'
+			'npm test covers live SSH attach takeover, connection and shell failure injection, single-use ticket rejection paths, and file-list transform invariants; npm run test:performance owns coarse wall-clock budget checks outside the default unit suite'
 	},
 	{
 		name: 'V7 final reliability and performance budgets',
 		status: 'local',
 		evidence:
-			'npm test enforces deterministic boundedness checks for protocol failure/timeout boundaries, adapter upload-size limits, route-level multipart upload preflight/stream limits, transfer completion/cancellation/progress helpers, importer parsing, workspace layout normalization, bulk-job fan-out, retry, timeout, and cancellation behavior; npm run test:e2e covers browser-level transfer cancellation and partial-progress behavior without false completion; npm run test:performance runs the explicit coarse budget checks for importer parsing/validation, file-listing transforms, job fan-out scheduling, fleet filtering, and workspace layout/rendering helpers outside the default unit suite'
+			'npm test enforces deterministic boundedness checks for protocol failure/timeout boundaries, adapter upload-size limits, route-level multipart upload preflight/stream limits, transfer completion/cancellation/progress helpers, importer parsing, and workspace layout normalization; npm run test:e2e covers browser-level transfer cancellation and partial-progress behavior without false completion; npm run test:performance runs the explicit coarse budget checks for importer parsing/validation, file-listing transforms, and workspace layout/rendering helpers outside the default unit suite'
 	},
 	{
 		name: 'V7 real FTP external proof',
