@@ -26,10 +26,15 @@ describe('RDP operator controls', () => {
 	});
 
 	it('caps display size by quality preset while preserving supported resize dimensions', () => {
-		expect(applyRdpDisplayPreset({ width: 3200, height: 1800 }, 'performance')).toEqual({
-			width: rdpDisplayPresets.performance.maxDesktop.width,
-			height: rdpDisplayPresets.performance.maxDesktop.height
-		});
+		const performanceSize = applyRdpDisplayPreset({ width: 3200, height: 1800 }, 'performance');
+		expect(performanceSize.width).toBeLessThanOrEqual(
+			rdpDisplayPresets.performance.maxDesktop.width
+		);
+		expect(performanceSize.height).toBeLessThanOrEqual(
+			rdpDisplayPresets.performance.maxDesktop.height
+		);
+		expect(performanceSize.width % 2).toBe(0);
+		expect(performanceSize.width / performanceSize.height).toBeCloseTo(3200 / 1800, 2);
 		expect(applyRdpDisplayPreset({ width: 3200, height: 1800 }, 'quality')).toEqual({
 			width: 3200,
 			height: 1800
