@@ -68,7 +68,11 @@ export const renameHostGroup = command<HostGroupMutationInput, void>('unchecked'
 export const deleteHostGroup = command<string, void>('unchecked', async (id) => {
 	const userId = requireRemoteUser();
 	const groupId = requireId(id, 'id');
-	await db.delete(hostGroups).where(and(eq(hostGroups.id, groupId), eq(hostGroups.userId, userId)));
+	const [deleted] = await db
+		.delete(hostGroups)
+		.where(and(eq(hostGroups.id, groupId), eq(hostGroups.userId, userId)))
+		.returning({ id: hostGroups.id });
+	if (!deleted) throw new ServiceValidationError(['group not found']);
 	void listHostGroups().refresh();
 });
 

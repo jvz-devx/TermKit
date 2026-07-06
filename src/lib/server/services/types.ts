@@ -12,6 +12,9 @@ export type CredentialKind = (typeof credentialKinds)[number];
 export const workspaceMemberRoles = ['owner', 'member'] as const;
 export type WorkspaceMemberRole = (typeof workspaceMemberRoles)[number];
 
+export const hostShareInvitationStatuses = ['pending', 'accepted', 'declined'] as const;
+export type HostShareInvitationStatus = (typeof hostShareInvitationStatuses)[number];
+
 export const connectionSessionStatuses = ['starting', 'active', 'ended', 'failed'] as const;
 export type ConnectionSessionStatus = (typeof connectionSessionStatuses)[number];
 
@@ -65,6 +68,38 @@ export interface CredentialRecord {
 	metadata: Record<string, unknown>;
 	createdAt: Date;
 	updatedAt: Date;
+}
+
+export interface UserRecord {
+	id: string;
+	username: string;
+	disabledAt: Date | null;
+}
+
+export interface HostShareInvitationRecord {
+	id: string;
+	senderUserId: string;
+	recipientUserId: string;
+	hostId: string | null;
+	credentialId: string | null;
+	includeCredentials: boolean;
+	status: HostShareInvitationStatus;
+	hostSnapshot: Pick<
+		HostRecord,
+		| 'name'
+		| 'protocol'
+		| 'hostname'
+		| 'port'
+		| 'username'
+		| 'folder'
+		| 'tags'
+		| 'notes'
+		| 'metadata'
+	>;
+	credentialName: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+	respondedAt: Date | null;
 }
 
 export interface SessionTicketRecord {
@@ -324,6 +359,23 @@ export interface CredentialRepository {
 	deleteCredential(userId: string, id: string): Promise<boolean>;
 }
 
+export interface UserRepository {
+	findUserForShare(login: string): Promise<UserRecord | null>;
+}
+
+export interface HostShareInvitationRepository {
+	createHostShareInvitation(
+		invitation: HostShareInvitationRecord
+	): Promise<HostShareInvitationRecord>;
+	listPendingHostShareInvitations(userId: string): Promise<HostShareInvitationRecord[]>;
+	getHostShareInvitation(userId: string, id: string): Promise<HostShareInvitationRecord | null>;
+	updateHostShareInvitation(
+		userId: string,
+		id: string,
+		patch: Partial<HostShareInvitationRecord>
+	): Promise<HostShareInvitationRecord | null>;
+}
+
 export interface WorkspaceRepository {
 	listWorkspaces(userId: string): Promise<WorkspaceRecord[]>;
 	getWorkspace(userId: string, id: string): Promise<WorkspaceRecord | null>;
@@ -435,6 +487,8 @@ export interface TermixServicesRepository
 	extends
 		HostRepository,
 		CredentialRepository,
+		UserRepository,
+		HostShareInvitationRepository,
 		WorkspaceRepository,
 		SessionTicketRepository,
 		ConnectionSessionRepository,

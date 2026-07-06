@@ -243,7 +243,7 @@ function redactCredential(credential: CredentialRecord): PublicCredentialRecord 
 	};
 }
 
-function stripSensitiveMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+export function stripSensitiveMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(
 		Object.entries(metadata).flatMap(([key, value]) => {
 			if (sensitiveMetadataKeys.has(normalizeMetadataKey(key))) return [];

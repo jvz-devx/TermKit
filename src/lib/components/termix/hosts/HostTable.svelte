@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { FolderPlus, Play, Search, SlidersHorizontal, Trash2, X } from '@lucide/svelte';
+	import { FolderPlus, Play, Search, Share2, SlidersHorizontal, Trash2, X } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { Switch } from '$lib/components/ui/switch';
+	import { Textarea } from '$lib/components/ui/textarea';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Table from '$lib/components/ui/table';
@@ -16,7 +18,7 @@
 		deleteHostGroup,
 		listHostGroups
 	} from '$lib/remotes/host-groups.remote';
-	import { deleteHost, listHosts, type HostSummary } from '$lib/remotes/hosts.remote';
+	import { deleteHost, listHosts, shareHost, type HostSummary } from '$lib/remotes/hosts.remote';
 	import HostDialog from './HostDialog.svelte';
 
 	type HostProtocol = HostSummary['protocol'];
@@ -53,6 +55,11 @@
 	let error = $state<string | null>(null);
 	let deleteTarget = $state<HostSummary | null>(null);
 	let deleteDialogOpen = $state(false);
+	let shareTarget = $state<HostSummary | null>(null);
+	let shareDialogOpen = $state(false);
+	let shareRecipients = $state('');
+	let shareIncludeCredentials = $state(false);
+	let sharing = $state(false);
 	let hosts = $derived(hostsQuery.current ?? []);
 	let credentials = $derived(credentialsQuery.current ?? []);
 	let groups = $derived(groupsQuery.current ?? []);
@@ -235,6 +242,34 @@
 		deleteDialogOpen = true;
 	}
 
+	function requestShare(host: HostSummary) {
+		shareTarget = host;
+		shareRecipients = '';
+		shareIncludeCredentials = Boolean(host.credentialId);
+		shareDialogOpen = true;
+		error = null;
+	}
+
+	async function submitShare() {
+		if (!shareTarget) return;
+		sharing = true;
+		error = null;
+		try {
+			await shareHost({
+				hostId: shareTarget.id,
+				recipients: shareRecipients,
+				includeCredentials: shareIncludeCredentials
+			});
+			shareDialogOpen = false;
+			shareTarget = null;
+			shareRecipients = '';
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Could not share host';
+		} finally {
+			sharing = false;
+		}
+	}
+
 	async function removeTarget() {
 		if (!deleteTarget) return;
 		const host = deleteTarget;
@@ -294,16 +329,27 @@
 	{#if groups.length}
 		<div class="flex flex-wrap gap-1.5">
 			{#each groups as group (group.id)}
-				<Button
-					size="xs"
-					variant={selectedGroupId === group.id ? 'secondary' : 'outline'}
-					class="h-7 max-w-52 gap-1 rounded-full px-2"
-					onclick={() =>
-						(groupFilter = selectedGroupId === group.id ? 'all' : groupValue(group.id))}
-				>
-					<span class="truncate">{group.name}</span>
-					<Badge variant="outline" class="h-4 px-1 text-[10px]">{group.hostCount}</Badge>
-				</Button>
+				<div class="flex max-w-64 items-center rounded-full border bg-background">
+					<Button
+						size="xs"
+						variant={selectedGroupId === group.id ? 'secondary' : 'ghost'}
+						class="h-7 min-w-0 gap-1 rounded-full rounded-r-none px-2"
+						onclick={() =>
+							(groupFilter = selectedGroupId === group.id ? 'all' : groupValue(group.id))}
+					>
+						<span class="truncate">{group.name}</span>
+						<Badge variant="outline" class="h-4 px-1 text-[10px]">{group.hostCount}</Badge>
+					</Button>
+					<Button
+						size="icon"
+						variant="ghost"
+						class="h-7 w-7 rounded-full rounded-l-none"
+						aria-label={`Delete ${group.name} group`}
+						onclick={() => removeGroup(group.id)}
+					>
+						<X class="size-3" />
+					</Button>
+				</div>
 			{/each}
 		</div>
 	{/if}
@@ -482,6 +528,14 @@
 									<Button
 										size="icon"
 										variant="ghost"
+										aria-label={`Share ${host.name}`}
+										onclick={() => requestShare(host)}
+									>
+										<Share2 class="size-4" />
+									</Button>
+									<Button
+										size="icon"
+										variant="ghost"
 										aria-label={`Delete ${host.name}`}
 										disabled={deletingId === host.id}
 										onclick={() => requestRemove(host)}
@@ -502,6 +556,52 @@
 			</Table.Body>
 		</Table.Root>
 	</div>
+
+	<Dialog.Root bind:open={shareDialogOpen}>
+		<Dialog.Content class="max-w-md">
+			<Dialog.Header>
+				<Dialog.Title>Share host</Dialog.Title>
+				<Dialog.Description>
+					The recipient gets a request and chooses whether to add a copy.
+				</Dialog.Description>
+			</Dialog.Header>
+			<form
+				class="flex flex-col gap-4"
+				onsubmit={(event) => (event.preventDefault(), submitShare())}
+			>
+				<div class="flex flex-col gap-2">
+					<Label for="host-share-recipients">Users or Microsoft emails</Label>
+					<Textarea
+						id="host-share-recipients"
+						placeholder="jane@example.com, operator"
+						bind:value={shareRecipients}
+						required
+					/>
+				</div>
+				<div class="flex items-center justify-between gap-3 rounded-md border p-3">
+					<div>
+						<Label for="host-share-credentials">Include credentials</Label>
+						<p class="text-xs text-muted-foreground">
+							{shareTarget?.credentialName ?? 'This host has no saved credential'}
+						</p>
+					</div>
+					<Switch
+						id="host-share-credentials"
+						bind:checked={shareIncludeCredentials}
+						disabled={!shareTarget?.credentialId}
+					/>
+				</div>
+				<Dialog.Footer>
+					<Button type="button" variant="outline" onclick={() => (shareDialogOpen = false)}>
+						Cancel
+					</Button>
+					<Button type="submit" disabled={sharing || !shareTarget}>
+						{sharing ? 'Sharing...' : 'Share'}
+					</Button>
+				</Dialog.Footer>
+			</form>
+		</Dialog.Content>
+	</Dialog.Root>
 
 	<AlertDialog.Root bind:open={deleteDialogOpen}>
 		<AlertDialog.Content>
@@ -531,12 +631,4 @@
 			</AlertDialog.Footer>
 		</AlertDialog.Content>
 	</AlertDialog.Root>
-
-	{#if selectedGroupId}
-		<div class="flex justify-end">
-			<Button size="sm" variant="ghost" onclick={() => removeGroup(selectedGroupId)}>
-				Delete selected group
-			</Button>
-		</div>
-	{/if}
 </section>

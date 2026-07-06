@@ -306,9 +306,10 @@ function queueUpdateReturning(rows: unknown[]) {
 }
 
 function queueDelete() {
-	const where = vi.fn().mockResolvedValue(undefined);
+	const returning = vi.fn().mockResolvedValue([{ id: 'group-1' }]);
+	const where = vi.fn(() => ({ returning }));
 	db.delete.mockReturnValueOnce({ where });
-	return { where };
+	return { where, returning };
 }
 
 function queueSelectLimit(rows: unknown[]) {

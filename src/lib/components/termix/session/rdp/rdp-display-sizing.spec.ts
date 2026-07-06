@@ -22,6 +22,16 @@ describe('RDP display sizing helpers', () => {
 		).toEqual({ width: 1920, height: 804 });
 	});
 
+	it('allows narrow session sidebars without forcing horizontal clipping', () => {
+		expect(
+			preferredDesktopSize({
+				viewportRect: { width: 480, height: 603 },
+				fallback: { width: 1440, height: 900 },
+				preset: 'balanced'
+			})
+		).toEqual({ width: 480, height: 603 });
+	});
+
 	it('clamps collapsed viewport bounds to a usable RDP desktop size', () => {
 		expect(
 			preferredDesktopSize({
@@ -29,7 +39,7 @@ describe('RDP display sizing helpers', () => {
 				fallback: { width: 1440, height: 900 },
 				preset: 'balanced'
 			})
-		).toEqual({ width: 640, height: 480 });
+		).toEqual({ width: 532, height: 240 });
 	});
 
 	it('detects changed desktop size unless forced', () => {

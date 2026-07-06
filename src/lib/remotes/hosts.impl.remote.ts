@@ -23,6 +23,31 @@ import {
 
 export type { HostMutationInput, HostSummary, SshHostKeyTrustSummary } from './termix-core.shared';
 
+export type HostShareInput = {
+	hostId?: unknown;
+	recipients?: unknown;
+	includeCredentials?: unknown;
+};
+
+export type HostShareInvitationSummary = {
+	id: string;
+	host: Pick<
+		HostSummary,
+		| 'name'
+		| 'protocol'
+		| 'hostname'
+		| 'port'
+		| 'username'
+		| 'folder'
+		| 'tags'
+		| 'notes'
+		| 'metadata'
+	>;
+	includeCredentials: boolean;
+	credentialName: string | null;
+	createdAt: string;
+};
+
 export const listHosts = query(async () => {
 	const userId = requireRemoteUser();
 	const [hosts, credentials] = await Promise.all([
@@ -82,6 +107,49 @@ export const saveHost = command<HostMutationInput, HostSummary>('unchecked', asy
 	return toHostSummary(host, credentialName, null, assignedGroups);
 });
 
+export const shareHost = command<HostShareInput, { sharedCount: number }>(
+	'unchecked',
+	async (input) => {
+		const userId = requireRemoteUser();
+		const invitations = await hostService.share(userId, input);
+		return { sharedCount: invitations.length };
+	}
+);
+
+export const watchPendingHostShares = query.live(async function* (): AsyncGenerator<
+	HostShareInvitationSummary[]
+> {
+	const userId = requireRemoteUser();
+	let previous = '';
+	while (true) {
+		const shares = (await hostService.listPendingShares(userId)).map(toHostShareInvitationSummary);
+		const next = JSON.stringify(shares);
+		if (next !== previous) {
+			previous = next;
+			yield shares;
+		}
+		await sleep(2000);
+	}
+});
+
+export const acceptHostShare = command<string, HostSummary>('unchecked', async (id) => {
+	const userId = requireRemoteUser();
+	if (typeof id !== 'string' || !id) throw new ServiceValidationError(['id is required']);
+	const host = await hostService.acceptShare(userId, id);
+	const credentialName = await credentialNameForHost(userId, host.credentialId);
+	void listHosts().refresh();
+	void listCredentials().refresh();
+	void watchPendingHostShares().reconnect();
+	return toHostSummary(host, credentialName, null, []);
+});
+
+export const declineHostShare = command<string, void>('unchecked', async (id) => {
+	const userId = requireRemoteUser();
+	if (typeof id !== 'string' || !id) throw new ServiceValidationError(['id is required']);
+	await hostService.declineShare(userId, id);
+	void watchPendingHostShares().reconnect();
+});
+
 function normalizeGroupIds(value: unknown): string[] | undefined {
 	if (value === undefined) return undefined;
 	if (!Array.isArray(value)) throw new ServiceValidationError(['groupIds must be an array']);
@@ -108,6 +176,22 @@ async function credentialNameForHost(
 	if (!credentialId) return null;
 	const credentials = await credentialService.list(userId);
 	return credentials.find((credential) => credential.id === credentialId)?.name ?? null;
+}
+
+function toHostShareInvitationSummary(
+	share: Awaited<ReturnType<typeof hostService.listPendingShares>>[number]
+): HostShareInvitationSummary {
+	return {
+		id: share.id,
+		host: share.hostSnapshot,
+		includeCredentials: share.includeCredentials,
+		credentialName: share.credentialName,
+		createdAt: share.createdAt.toISOString()
+	};
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export const inspectSshHostKeyTrust = command<unknown, SshHostKeyTrustSummary>(

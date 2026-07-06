@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { AesGcmCredentialCrypto } from '../crypto';
+import { credentialSecretContext } from '../credentials';
 import { ServiceValidationError } from '../errors';
 import { HostService } from '../hosts';
 import { InMemoryTermixServicesRepository } from '../repository';
@@ -146,5 +148,100 @@ describe('HostService', () => {
 				scrollback: 10_000
 			}
 		});
+	});
+
+	it('creates pending host shares and copies accepted hosts with optional credentials only', async () => {
+		expect.assertions(10);
+
+		const repository = new InMemoryTermixServicesRepository();
+		const crypto = new AesGcmCredentialCrypto('test-master-key');
+		const service = new HostService(repository, crypto);
+		const now = new Date('2026-05-13T12:00:00.000Z');
+		repository.createUser({ id: 'owner', username: 'owner', disabledAt: null });
+		repository.createUser({ id: 'recipient', username: 'recipient', disabledAt: null }, [
+			'recipient@example.test'
+		]);
+		const encrypted = crypto.encrypt('rdp-password', credentialSecretContext('owner', 'cred-1'));
+		await repository.createCredential({
+			id: 'cred-1',
+			userId: 'owner',
+			workspaceId: null,
+			name: 'RDP password',
+			kind: 'rdp_password',
+			username: 'adminje',
+			encryptedSecret: encrypted.ciphertext,
+			encryption: encrypted.metadata,
+			metadata: { domain: 'DOMAIN' },
+			createdAt: now,
+			updatedAt: now
+		});
+		const host = await service.create('owner', {
+			name: 'SQL',
+			protocol: 'rdp',
+			hostname: 'sql.example.test',
+			port: 3389,
+			username: 'adminje',
+			credentialId: 'cred-1',
+			tags: ['db']
+		});
+
+		const [withoutCredentials] = await service.share('owner', {
+			hostId: host.id,
+			recipients: 'recipient@example.test',
+			includeCredentials: false
+		});
+		expect(withoutCredentials).toMatchObject({
+			recipientUserId: 'recipient',
+			includeCredentials: false,
+			credentialId: null,
+			status: 'pending'
+		});
+		const copiedWithoutCredential = await service.acceptShare('recipient', withoutCredentials.id);
+		expect(copiedWithoutCredential).toMatchObject({
+			userId: 'recipient',
+			name: 'SQL',
+			hostname: 'sql.example.test',
+			credentialId: null,
+			workspaceId: null
+		});
+
+		const [withCredentials] = await service.share('owner', {
+			hostId: host.id,
+			recipients: ['recipient'],
+			includeCredentials: true
+		});
+		expect(withCredentials.credentialName).toBe('RDP password');
+		const copiedWithCredential = await service.acceptShare('recipient', withCredentials.id);
+		expect(copiedWithCredential.credentialId).toEqual(expect.any(String));
+		expect(copiedWithCredential.credentialId).not.toBe('cred-1');
+
+		const copiedCredential = await repository.getCredential(
+			'recipient',
+			copiedWithCredential.credentialId!
+		);
+		expect(copiedCredential).toMatchObject({
+			userId: 'recipient',
+			name: 'RDP password',
+			workspaceId: null,
+			metadata: { domain: 'DOMAIN' }
+		});
+		expect(
+			crypto.decrypt(
+				{
+					ciphertext: copiedCredential!.encryptedSecret,
+					metadata: copiedCredential!.encryption
+				},
+				credentialSecretContext('recipient', copiedCredential!.id)
+			)
+		).toBe('rdp-password');
+		await expect(service.listPendingShares('recipient')).resolves.toHaveLength(0);
+		await expect(
+			service.share('owner', { hostId: host.id, recipients: 'missing' })
+		).rejects.toMatchObject({
+			issues: ['user not found: missing']
+		});
+		await expect(
+			service.share('recipient', { hostId: host.id, recipients: 'owner' })
+		).rejects.toMatchObject({ name: 'ServiceNotFoundError' });
 	});
 });

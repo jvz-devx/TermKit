@@ -58,7 +58,11 @@
 	}
 </script>
 
-<div class={immersive ? 'min-h-0 w-full min-w-0 flex-1 p-0' : 'min-h-0 w-full min-w-0 flex-1 p-2'}>
+<div
+	class={immersive
+		? 'h-full min-h-0 w-full min-w-0 flex-1 p-0'
+		: 'h-full min-h-0 w-full min-w-0 flex-1 p-2'}
+>
 	{#snippet paneTile(pane: SessionWorkspacePane, index: number)}
 		<section
 			class={immersive

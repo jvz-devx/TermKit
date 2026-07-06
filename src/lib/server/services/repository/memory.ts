@@ -4,6 +4,7 @@ import type {
 	ConnectionSessionPatch,
 	ConnectionSessionRecord,
 	CredentialRecord,
+	HostShareInvitationRecord,
 	HostRecord,
 	SessionTicketRecord,
 	SshAttachTicketRecord,
@@ -16,6 +17,7 @@ import type {
 	SshTunnelSessionPatch,
 	SshTunnelSessionRecord,
 	TermixServicesRepository,
+	UserRecord,
 	WorkspaceLayoutFilters,
 	WorkspaceLayoutPatch,
 	WorkspaceLayoutRecord,
@@ -34,9 +36,12 @@ import {
 } from './mappers';
 
 export class InMemoryTermixServicesRepository implements TermixServicesRepository {
+	private readonly users = new Map<string, UserRecord>();
+	private readonly userEmails = new Map<string, string>();
 	private readonly workspaces = new Map<string, WorkspaceRecord>();
 	private readonly workspaceMemberships = new Map<string, WorkspaceMembershipRecord>();
 	private readonly hosts = new Map<string, HostRecord>();
+	private readonly hostShareInvitations = new Map<string, HostShareInvitationRecord>();
 	private readonly credentials = new Map<string, CredentialRecord>();
 	private readonly tickets = new Map<string, SessionTicketRecord>();
 	private readonly connectionSessions = new Map<string, ConnectionSessionRecord>();
@@ -45,6 +50,23 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	private readonly workspaceLayouts = new Map<string, WorkspaceLayoutRecord>();
 	private readonly sshLiveSessions = new Map<string, SshLiveSessionRecord>();
 	private readonly sshAttachTickets = new Map<string, SshAttachTicketRecord>();
+
+	createUser(user: UserRecord, emails: string[] = []): UserRecord {
+		this.users.set(user.id, user);
+		for (const email of emails) this.userEmails.set(email.toLowerCase(), user.id);
+		return user;
+	}
+
+	async findUserForShare(login: string): Promise<UserRecord | null> {
+		const normalized = login.trim().toLowerCase();
+		if (!normalized) return null;
+		const user =
+			[...this.users.values()].find(
+				(candidate) => candidate.username.toLowerCase() === normalized
+			) ?? this.users.get(this.userEmails.get(normalized) ?? '');
+		if (!user || user.disabledAt) return null;
+		return user;
+	}
 
 	async listWorkspaces(userId: string): Promise<WorkspaceRecord[]> {
 		const workspaceIds = await this.accessibleWorkspaceIds(userId);
@@ -199,6 +221,40 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 		}
 
 		return true;
+	}
+
+	async createHostShareInvitation(
+		invitation: HostShareInvitationRecord
+	): Promise<HostShareInvitationRecord> {
+		this.hostShareInvitations.set(invitation.id, invitation);
+		return invitation;
+	}
+
+	async listPendingHostShareInvitations(userId: string): Promise<HostShareInvitationRecord[]> {
+		return [...this.hostShareInvitations.values()].filter(
+			(invitation) => invitation.recipientUserId === userId && invitation.status === 'pending'
+		);
+	}
+
+	async getHostShareInvitation(
+		userId: string,
+		id: string
+	): Promise<HostShareInvitationRecord | null> {
+		const invitation = this.hostShareInvitations.get(id);
+		if (!invitation || invitation.recipientUserId !== userId) return null;
+		return invitation;
+	}
+
+	async updateHostShareInvitation(
+		userId: string,
+		id: string,
+		patch: Partial<HostShareInvitationRecord>
+	): Promise<HostShareInvitationRecord | null> {
+		const invitation = await this.getHostShareInvitation(userId, id);
+		if (!invitation) return null;
+		const updated = { ...invitation, ...patch, id, recipientUserId: invitation.recipientUserId };
+		this.hostShareInvitations.set(id, updated);
+		return updated;
 	}
 
 	async listCredentials(userId: string): Promise<CredentialRecord[]> {

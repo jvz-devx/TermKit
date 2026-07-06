@@ -2,6 +2,7 @@ import * as schema from '../../db/schema';
 import {
 	connectionSessions,
 	credentials,
+	hostShareInvitations,
 	hosts,
 	sessionTickets,
 	sshTunnelProfiles,
@@ -10,6 +11,7 @@ import {
 	workspaces,
 	workspaceMemberships,
 	type credentials as credentialsTable,
+	type hostShareInvitations as hostShareInvitationsTable,
 	type hosts as hostsTable,
 	type sessionTickets as sessionTicketsTable,
 	type sshTunnelProfiles as sshTunnelProfilesTable,
@@ -25,6 +27,7 @@ import type {
 	ConnectionSessionPatch,
 	ConnectionSessionRecord,
 	CredentialRecord,
+	HostShareInvitationRecord,
 	HostRecord,
 	SshAttachTicketRecord,
 	SshLiveSessionPatch,
@@ -60,6 +63,7 @@ type IntendedSshAttachTicketsTable = typeof sessionTickets & {
 };
 export type HostRow = typeof hostsTable.$inferSelect;
 export type CredentialRow = typeof credentialsTable.$inferSelect;
+export type HostShareInvitationRow = typeof hostShareInvitationsTable.$inferSelect;
 export type SessionTicketRow = typeof sessionTicketsTable.$inferSelect;
 export type WorkspaceRow = typeof workspacesTable.$inferSelect;
 export type WorkspaceMembershipRow = typeof workspaceMembershipsTable.$inferSelect;
@@ -109,6 +113,25 @@ export function toCredentialRecord(row: CredentialRow): CredentialRecord {
 		metadata: row.metadata,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt
+	};
+}
+
+export function toHostShareInvitationRecord(
+	row: HostShareInvitationRow
+): HostShareInvitationRecord {
+	return {
+		id: row.id,
+		senderUserId: row.senderUserId,
+		recipientUserId: row.recipientUserId,
+		hostId: row.hostId,
+		credentialId: row.credentialId,
+		includeCredentials: row.includeCredentials,
+		status: row.status as HostShareInvitationRecord['status'],
+		hostSnapshot: row.hostSnapshot as HostShareInvitationRecord['hostSnapshot'],
+		credentialName: row.credentialName,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt,
+		respondedAt: row.respondedAt
 	};
 }
 
@@ -301,6 +324,21 @@ export function credentialPatchToDb(
 		encryptedSecret: patch.encryptedSecret,
 		encryptionMetadata: patch.encryption,
 		metadata: patch.metadata,
+		updatedAt: patch.updatedAt
+	};
+}
+
+export function hostShareInvitationPatchToDb(
+	patch: Partial<HostShareInvitationRecord>
+): Partial<typeof hostShareInvitations.$inferInsert> {
+	return {
+		hostId: patch.hostId,
+		credentialId: patch.credentialId,
+		includeCredentials: patch.includeCredentials,
+		status: patch.status,
+		hostSnapshot: patch.hostSnapshot,
+		credentialName: patch.credentialName,
+		respondedAt: patch.respondedAt,
 		updatedAt: patch.updatedAt
 	};
 }

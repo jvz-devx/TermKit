@@ -66,10 +66,13 @@ vi.mock('$app/server', () => {
 		Object.defineProperty(wrapper, '__', { value: { type } });
 		return wrapper;
 	}
+	const query = Object.assign((fn: () => unknown) => remoteCallable('query', fn), {
+		live: (fn: () => unknown) => remoteCallable('query', fn)
+	});
 
 	return {
 		getRequestEvent: () => appServer.event,
-		query: (fn: () => unknown) => remoteCallable('query', fn),
+		query,
 		command: (_validation: unknown, fn: (input?: unknown) => unknown) =>
 			remoteCallable('command', fn)
 	};

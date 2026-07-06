@@ -214,6 +214,32 @@ export const hosts = pgTable(
 	]
 );
 
+export const hostShareInvitations = pgTable(
+	'host_share_invitations',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		senderUserId: uuid('sender_user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		recipientUserId: uuid('recipient_user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		hostId: uuid('host_id').references(() => hosts.id, { onDelete: 'set null' }),
+		credentialId: uuid('credential_id').references(() => credentials.id, { onDelete: 'set null' }),
+		includeCredentials: boolean('include_credentials').notNull().default(false),
+		status: text('status').notNull().default('pending'),
+		hostSnapshot: jsonb('host_snapshot').$type<Record<string, unknown>>().notNull(),
+		credentialName: text('credential_name'),
+		respondedAt: timestamp('responded_at', { withTimezone: true }),
+		...timestamps
+	},
+	(table) => [
+		index('host_share_invitations_recipient_status_idx').on(table.recipientUserId, table.status),
+		index('host_share_invitations_sender_user_id_idx').on(table.senderUserId),
+		index('host_share_invitations_host_id_idx').on(table.hostId)
+	]
+);
+
 export const hostGroupMembers = pgTable(
 	'host_group_members',
 	{
@@ -647,6 +673,12 @@ export const usersRelations = relations(users, ({ many }) => ({
 	workspaceMemberships: many(workspaceMemberships),
 	hostGroups: many(hostGroups),
 	hosts: many(hosts),
+	sentHostShareInvitations: many(hostShareInvitations, {
+		relationName: 'hostShareInvitationSender'
+	}),
+	receivedHostShareInvitations: many(hostShareInvitations, {
+		relationName: 'hostShareInvitationRecipient'
+	}),
 	credentials: many(credentials),
 	sshTunnelProfiles: many(sshTunnelProfiles),
 	sshTunnelSessions: many(sshTunnelSessions),
@@ -723,6 +755,24 @@ export const hostsRelations = relations(hosts, ({ one, many }) => ({
 	fileBookmarks: many(fileBookmarks),
 	ftpsHostSettings: many(ftpsHostSettings),
 	rdpHostSettings: many(rdpHostSettings)
+}));
+
+export const hostShareInvitationsRelations = relations(hostShareInvitations, ({ one }) => ({
+	sender: one(users, {
+		fields: [hostShareInvitations.senderUserId],
+		references: [users.id],
+		relationName: 'hostShareInvitationSender'
+	}),
+	recipient: one(users, {
+		fields: [hostShareInvitations.recipientUserId],
+		references: [users.id],
+		relationName: 'hostShareInvitationRecipient'
+	}),
+	host: one(hosts, { fields: [hostShareInvitations.hostId], references: [hosts.id] }),
+	credential: one(credentials, {
+		fields: [hostShareInvitations.credentialId],
+		references: [credentials.id]
+	})
 }));
 
 export const hostGroupMembersRelations = relations(hostGroupMembers, ({ one }) => ({

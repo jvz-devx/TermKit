@@ -4,6 +4,7 @@
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
+	import HostShareInbox from './HostShareInbox.svelte';
 	import PwaInstallPrompt from './PwaInstallPrompt.svelte';
 
 	type ShellUser = {
@@ -83,5 +84,6 @@
 			{@render children()}
 		</main>
 	</Sidebar.Inset>
+	<HostShareInbox />
 	<PwaInstallPrompt />
 </Sidebar.Provider>

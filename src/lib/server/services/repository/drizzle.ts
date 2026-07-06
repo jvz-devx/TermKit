@@ -1,8 +1,10 @@
-import { and, eq, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db, type TermixDb } from '../../db';
 import {
+	authIdentities,
 	connectionSessions,
 	credentials,
+	hostShareInvitations,
 	hosts,
 	sessionTickets,
 	sshTunnelProfiles,
@@ -19,6 +21,7 @@ import type {
 	ConnectionSessionPatch,
 	ConnectionSessionRecord,
 	CredentialRecord,
+	HostShareInvitationRecord,
 	HostRecord,
 	SessionTicketRecord,
 	SshAttachTicketRecord,
@@ -42,6 +45,7 @@ import {
 	connectionSessionPatchToDb,
 	credentialPatchToDb,
 	getSshLiveSchema,
+	hostShareInvitationPatchToDb,
 	hostPatchToDb,
 	isOpenSshLiveSessionStatus,
 	matchesConnectionHistoryFilters,
@@ -56,6 +60,7 @@ import {
 	toConnectionSessionRecord,
 	toCredentialRecord,
 	toHostRecord,
+	toHostShareInvitationRecord,
 	toSessionTicketRecord,
 	toSshAttachTicketRecord,
 	toSshLiveSessionInsert,
@@ -69,6 +74,7 @@ import {
 	workspaceMembershipPatchToDb,
 	workspacePatchToDb,
 	type HostRow,
+	type HostShareInvitationRow,
 	type SshAttachTicketRow,
 	type SshLiveSessionRow,
 	type WorkspaceRow
@@ -91,6 +97,26 @@ type ReturningUpdate = {
 
 export class DrizzleTermixServicesRepository implements TermixServicesRepository {
 	constructor(private readonly database: TermixDb = db) {}
+
+	async findUserForShare(login: string) {
+		const normalized = login.trim().toLowerCase();
+		if (!normalized) return null;
+		const [byUsername] = await this.database
+			.select()
+			.from(users)
+			.where(and(sql`lower(${users.username}) = ${normalized}`, isNull(users.disabledAt)))
+			.limit(1);
+		if (byUsername) return { id: byUsername.id, username: byUsername.username, disabledAt: null };
+
+		const [byEmail] = await this.database
+			.select({ user: users })
+			.from(authIdentities)
+			.innerJoin(users, eq(authIdentities.userId, users.id))
+			.where(and(sql`lower(${authIdentities.email}) = ${normalized}`, isNull(users.disabledAt)))
+			.limit(1);
+		if (!byEmail) return null;
+		return { id: byEmail.user.id, username: byEmail.user.username, disabledAt: null };
+	}
 
 	async listWorkspaces(userId: string): Promise<WorkspaceRecord[]> {
 		const memberships = await this.listUserWorkspaceMemberships(userId);
@@ -381,6 +407,69 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 			.returning({ id: credentials.id });
 
 		return rows.length > 0;
+	}
+
+	async createHostShareInvitation(
+		invitation: HostShareInvitationRecord
+	): Promise<HostShareInvitationRecord> {
+		const [row] = await this.database
+			.insert(hostShareInvitations)
+			.values({
+				id: invitation.id,
+				senderUserId: invitation.senderUserId,
+				recipientUserId: invitation.recipientUserId,
+				hostId: invitation.hostId,
+				credentialId: invitation.credentialId,
+				includeCredentials: invitation.includeCredentials,
+				status: invitation.status,
+				hostSnapshot: invitation.hostSnapshot,
+				credentialName: invitation.credentialName,
+				createdAt: invitation.createdAt,
+				updatedAt: invitation.updatedAt,
+				respondedAt: invitation.respondedAt
+			})
+			.returning();
+
+		if (!row) throw new Error('Could not create host share invitation');
+		return toHostShareInvitationRecord(row);
+	}
+
+	async listPendingHostShareInvitations(userId: string) {
+		const rows = await this.database
+			.select()
+			.from(hostShareInvitations)
+			.where(
+				and(
+					eq(hostShareInvitations.recipientUserId, userId),
+					eq(hostShareInvitations.status, 'pending')
+				)
+			);
+
+		return rows.map(toHostShareInvitationRecord);
+	}
+
+	async getHostShareInvitation(userId: string, id: string) {
+		const [row] = await this.database
+			.select()
+			.from(hostShareInvitations)
+			.where(and(eq(hostShareInvitations.recipientUserId, userId), eq(hostShareInvitations.id, id)))
+			.limit(1);
+
+		return row ? toHostShareInvitationRecord(row) : null;
+	}
+
+	async updateHostShareInvitation(
+		userId: string,
+		id: string,
+		patch: Partial<HostShareInvitationRecord>
+	) {
+		const [row] = await this.database
+			.update(hostShareInvitations)
+			.set(hostShareInvitationPatchToDb(patch))
+			.where(and(eq(hostShareInvitations.recipientUserId, userId), eq(hostShareInvitations.id, id)))
+			.returning();
+
+		return row ? toHostShareInvitationRecord(row as HostShareInvitationRow) : null;
 	}
 
 	async createTicket(ticket: SessionTicketRecord): Promise<SessionTicketRecord> {
