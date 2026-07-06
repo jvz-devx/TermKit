@@ -4,7 +4,7 @@ import {
 	parseSessionTicketTargetSnapshot,
 	sessionTicketService
 } from '$lib/server/services/session-tickets';
-import { ServiceValidationError } from '$lib/server/services/errors';
+import { ServiceNotFoundError, ServiceValidationError } from '$lib/server/services/errors';
 import { RdpGatewayBootstrapper, type RdpGatewayBootstrap } from '$lib/server/rdp/gateway';
 import { SessionTicketConsumer } from '$lib/server/ws/ticket-consumer';
 import { resolveVncLaunchCredentials } from '$lib/server/protocols/vnc';
@@ -239,7 +239,15 @@ async function createLiveRdpAttach(userId: string, sessionId: string): Promise<L
 	try {
 		launch = await createRdpSessionLaunch(userId, session.hostId, created.record, created.ticket);
 	} catch (error) {
-		await rdpLiveSessionService.detach(userId, session.id).catch(() => null);
+		await rdpLiveSessionService
+			.fail(
+				userId,
+				session.id,
+				rdpLaunchErrorCode(error),
+				error instanceof Error ? error.message : null
+			)
+			.catch(() => null);
+		void listLiveRdpSessions().refresh();
 		throw error;
 	}
 
@@ -355,7 +363,11 @@ export const closeLiveSshSession = command<string, void>('unchecked', async (ses
 		throw new ServiceValidationError(['sessionId is required']);
 	}
 
-	await sshLiveSessionService.close(userId, sessionId);
+	try {
+		await sshLiveSessionService.close(userId, sessionId);
+	} catch (error) {
+		if (!(error instanceof ServiceNotFoundError)) throw error;
+	}
 	liveSshManager.close(sessionId);
 	void listLiveSshSessions().refresh();
 });

@@ -99,13 +99,7 @@ Out of scope for V5:
 
 V6 scope:
 
-- Fleet operations and collaboration once V5 has made each protocol strong individually.
-- Reusable automation templates for SSH commands, file-transfer workflows, RDP session checklists, and operator notes.
-- Controlled bulk operations across selected hosts with explicit confirmation, concurrency limits, cancellation, retry, and per-host status.
-- Background jobs for long-running commands and transfers with progress, history, reports, and retention controls.
-- Workspace-level sharing and governance for hosts, credentials, snippets, job templates, policies, and sensitive workflows.
-- Optional SSH-based host facts and health checks without requiring a target-side agent.
-- Access policies for clipboard, file transfer, terminal recording, RDP audio, SSH tunnels, and bulk jobs.
+- Reserved for future protocol-specific polish once current remote access workflows are stable.
 
 Out of scope for V6:
 
@@ -494,47 +488,6 @@ Behavior:
 - Add terminal copy/paste controls where deployment policy needs to restrict browser clipboard interaction.
 - Add browser smoke coverage for terminal search, snippets, per-host preferences, and jump-host launch validation using disposable SSH fixtures where practical.
 
-### V6 Fleet Operations And Collaboration
-
-V6 turns the single-session operator workspace into a controlled multi-host operations layer.
-
-Automation templates:
-
-- Support reusable snippets for SSH commands, file-transfer actions, tunnel launches, and RDP operator checklists.
-- Allow template variables with typed inputs, defaults, required flags, and preview before execution.
-- Allow secret-backed variables only through saved credentials or explicit secret references; generated previews and logs must never print secret values.
-- Allow workspace owners to share approved templates with workspace members.
-- Track template version, author, last editor, and last-used metadata.
-
-Bulk jobs:
-
-- Support bulk SSH command execution across selected hosts with explicit confirmation before fan-out.
-- Support bulk SFTP/FTP/FTPS transfers across selected hosts where credentials and protocols allow the action.
-- Support concurrency limits, per-host status, cancellation, retry, and partial-failure reporting.
-- Keep per-host stdout/stderr capture bounded and disabled or redacted by policy where needed.
-- Never run a bulk job against hidden hosts; the selected host set must be visible and reviewable before start.
-
-Job history:
-
-- Persist job metadata, status, timing, target host list, template version, actor, and structured failure reasons.
-- Keep sensitive output and transferred file contents out of default job history.
-- Provide downloadable job reports that summarize per-host outcomes without embedding secrets.
-- Add retention controls for job metadata and optional captured output.
-
-Workspace governance:
-
-- Add lightweight roles beyond owner/member where needed: viewer, operator, and maintainer.
-- Let workspace policies control who can launch sessions, transfer files, run tunnels, record terminals, use RDP clipboard/audio, and start bulk jobs.
-- Allow approval gates for dangerous templates or large bulk jobs.
-- Require optional reason/comment prompts for sensitive hosts or privileged operations when policy enables them.
-
-Host intelligence:
-
-- Add optional SSH-based host fact collection for OS, uptime, kernel, disk, memory, service hints, and last successful connection.
-- Track stale hosts, failing credentials, recent connection failures, and hosts that have not been used recently.
-- Keep fact collection on-demand or scheduled by TermKit; do not require a target-side agent.
-- Let users search inventory by workspace, tags, OS/facts, health state, last-seen state, and failure reason.
-
 ### V7 Deep Test And Bug-Seeking Program
 
 V7 makes the repo measurably hard to regress without pretending every file should have the same kind of test. It should actively seek bugs and improper wiring, not merely raise coverage percentages.
@@ -908,56 +861,6 @@ Required build checks:
 - Add migration compatibility checks for V5 tables, enums, unique indexes, and set-null/cascade foreign keys.
 - Document any deployment settings added for terminal recording, transfer limits, clipboard restrictions, audio redirection, and FTPS modes.
 - Keep existing hosts, credentials, connection history, workspace layouts, and live SSH metadata compatible through migration.
-
-### V6.1: Automation Library
-
-- Add reusable templates for SSH commands, file-transfer actions, SSH tunnel launches, and RDP operator checklists.
-- Support typed template variables, defaults, required fields, validation, and preview.
-- Support secret references without printing secret values in previews, generated commands, logs, or reports.
-- Allow per-user private templates and workspace-shared templates.
-- Track template author, last editor, version, usage count, and last-used timestamp.
-
-### V6.2: Bulk Operations
-
-- Add controlled bulk SSH command execution across selected hosts.
-- Add controlled bulk SFTP/FTP/FTPS upload and download operations across selected hosts.
-- Add bulk host edits for tags, folders, workspace assignment, and credential assignment.
-- Require explicit confirmation that shows the target host set before any fan-out starts.
-- Add concurrency limits, cancellation, retry, per-host status, and partial-failure reporting.
-- Prevent bulk operations from silently including hosts outside the user's visible selection.
-
-### V6.3: Jobs And Run History
-
-- Add a background job model for long-running commands, transfers, and inventory checks.
-- Show job progress, current stage, target host counts, per-host status, duration, actor, and structured failure reasons.
-- Persist job metadata and bounded per-host output according to workspace policy.
-- Add downloadable job reports that summarize outcomes without exposing secrets.
-- Add retention settings for job metadata and optional output.
-- Add local and browser smoke coverage for successful, cancelled, partially failed, and retried jobs.
-
-### V6.4: Sharing And Governance
-
-- Add lightweight workspace roles for viewer, operator, maintainer, and owner.
-- Let policies control session launch, file transfer, tunnel launch, terminal recording, RDP clipboard, RDP audio, automation template use, and bulk job execution.
-- Add approval gates for dangerous templates, sensitive hosts, high host counts, and high-risk file-transfer actions.
-- Add optional reason/comment prompts before opening sensitive hosts or running privileged operations.
-- Keep governance practical and avoid a full organization-wide RBAC builder.
-
-### V6.5: Host Health And Inventory Intelligence
-
-- Add optional SSH-based host fact collection for OS, uptime, kernel, disk, memory, service hints, and last successful connection.
-- Add health states for stale hosts, broken credentials, repeated connection failures, and never-used hosts.
-- Add inventory search and filters for workspace, tags, OS/facts, health state, last-seen state, and failure reason.
-- Add scheduled or on-demand fact collection without installing a target-side agent.
-- Add verification fixtures for fact parsing and health-state transitions.
-
-### V6.6: Secure Access Policies
-
-- Add per-workspace policy settings for clipboard, file transfer, terminal recording, RDP audio, SSH tunnels, automation templates, and bulk operations.
-- Support time-limited access windows for sensitive hosts, credentials, and job templates.
-- Add policy-aware UI states so blocked actions explain which policy blocked them.
-- Ensure policy checks are enforced server-side, not only hidden in the client UI.
-- Add acceptance audit rows for V6 automation, bulk jobs, governance, host intelligence, and policy enforcement.
 
 ### V7.1: Coverage Tooling And Baseline
 

@@ -93,15 +93,21 @@
 						size="sm"
 						class="h-8 shrink-0 gap-2"
 						disabled={!currentHostId || busy}
-						aria-label="Create persistent RDP session"
+						aria-label={currentHostId
+							? 'Create persistent RDP session'
+							: 'Select host for RDP session'}
 						onclick={onCreate}
 					>
-						<Plus class="size-4" />
-						RDP session
+						<Plus data-icon="inline-start" />
+						{currentHostId ? 'RDP session' : 'Select host'}
 					</Button>
 				{/snippet}
 			</Tooltip.Trigger>
-			<Tooltip.Content sideOffset={6}>Create persistent RDP session</Tooltip.Content>
+			<Tooltip.Content sideOffset={6}
+				>{currentHostId
+					? 'Create persistent RDP session'
+					: 'Select a host before creating a persistent RDP session'}</Tooltip.Content
+			>
 		</Tooltip.Root>
 
 		<div

@@ -665,21 +665,22 @@ export function createSessionWorkspaceController() {
 	}
 
 	async function closePersistentSshTab(session: LiveSshSessionSummary) {
+		dismissedLiveSshSessionIds = [...new Set([...dismissedLiveSshSessionIds, session.id])];
+		if (activeLiveSshSessionId === session.id) {
+			activeLiveSshSessionId = null;
+		}
+		clearLiveSshAttachBySession(session.id);
+		markSessionPaused(session.hostId, 'ssh');
+
 		try {
-			if (session.status === 'ended' || session.status === 'failed') {
-				dismissedLiveSshSessionIds = [...dismissedLiveSshSessionIds, session.id];
-			} else {
+			if (session.status !== 'ended' && session.status !== 'failed') {
 				await closeLiveSshSession(session.id);
-				dismissedLiveSshSessionIds = [...dismissedLiveSshSessionIds, session.id];
 				void listLiveSshSessions().refresh();
 			}
-
-			if (activeLiveSshSessionId === session.id) {
-				activeLiveSshSessionId = null;
-			}
-			clearLiveSshAttachBySession(session.id);
-			markSessionPaused(session.hostId, 'ssh');
 		} catch (caught) {
+			dismissedLiveSshSessionIds = dismissedLiveSshSessionIds.filter(
+				(sessionId) => sessionId !== session.id
+			);
 			liveSshError = {
 				action: 'close',
 				message: errorMessage(caught),

@@ -118,15 +118,19 @@
 						size="sm"
 						class="h-8 shrink-0 gap-2"
 						disabled={!currentHostId || busy}
-						aria-label="Create persistent SSH tab"
+						aria-label={currentHostId ? 'Create persistent SSH tab' : 'Select host for SSH tab'}
 						onclick={onCreate}
 					>
-						<Plus class="size-4" />
-						SSH tab
+						<Plus data-icon="inline-start" />
+						{currentHostId ? 'SSH tab' : 'Select host'}
 					</Button>
 				{/snippet}
 			</Tooltip.Trigger>
-			<Tooltip.Content sideOffset={6}>Create persistent SSH tab</Tooltip.Content>
+			<Tooltip.Content sideOffset={6}
+				>{currentHostId
+					? 'Create persistent SSH tab'
+					: 'Select a host before creating a persistent SSH tab'}</Tooltip.Content
+			>
 		</Tooltip.Root>
 
 		<div

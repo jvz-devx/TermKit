@@ -1,25 +1,19 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { FolderPlus, Play, Search, Share2, SlidersHorizontal, Trash2, X } from '@lucide/svelte';
+	import { Play, Search, Share2, SlidersHorizontal, Trash2, X } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
-	import { Label } from '$lib/components/ui/label';
-	import { Switch } from '$lib/components/ui/switch';
-	import { Textarea } from '$lib/components/ui/textarea';
-	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Table from '$lib/components/ui/table';
 	import { listCredentials } from '$lib/remotes/credentials.remote';
-	import {
-		createHostGroup,
-		deleteHostGroup,
-		listHostGroups
-	} from '$lib/remotes/host-groups.remote';
-	import { deleteHost, listHosts, shareHost, type HostSummary } from '$lib/remotes/hosts.remote';
+	import { deleteHostGroup, listHostGroups } from '$lib/remotes/host-groups.remote';
+	import { deleteHost, listHosts, type HostSummary } from '$lib/remotes/hosts.remote';
+	import CreateHostGroupDialog from './CreateHostGroupDialog.svelte';
+	import DeleteHostDialog from './DeleteHostDialog.svelte';
 	import HostDialog from './HostDialog.svelte';
+	import ShareHostDialog from './ShareHostDialog.svelte';
 
 	type HostProtocol = HostSummary['protocol'];
 	type ProtocolFilter = HostProtocol | 'all';
@@ -47,9 +41,6 @@
 	let folderFilter = $state('all');
 	let groupFilter = $state('all');
 	let tagFilter = $state('all');
-	let groupDialogOpen = $state(false);
-	let groupName = $state('');
-	let savingGroup = $state(false);
 	let launchingId = $state<string | null>(null);
 	let deletingId = $state<string | null>(null);
 	let error = $state<string | null>(null);
@@ -57,9 +48,6 @@
 	let deleteDialogOpen = $state(false);
 	let shareTarget = $state<HostSummary | null>(null);
 	let shareDialogOpen = $state(false);
-	let shareRecipients = $state('');
-	let shareIncludeCredentials = $state(false);
-	let sharing = $state(false);
 	let hosts = $derived(hostsQuery.current ?? []);
 	let credentials = $derived(credentialsQuery.current ?? []);
 	let groups = $derived(groupsQuery.current ?? []);
@@ -197,20 +185,6 @@
 		tagFilter = 'all';
 	}
 
-	async function submitGroup() {
-		savingGroup = true;
-		error = null;
-		try {
-			await createHostGroup({ name: groupName }).updates(listHostGroups);
-			groupName = '';
-			groupDialogOpen = false;
-		} catch (caught) {
-			error = caught instanceof Error ? caught.message : 'Could not save group';
-		} finally {
-			savingGroup = false;
-		}
-	}
-
 	async function removeGroup(groupId: string) {
 		error = null;
 		try {
@@ -244,30 +218,8 @@
 
 	function requestShare(host: HostSummary) {
 		shareTarget = host;
-		shareRecipients = '';
-		shareIncludeCredentials = Boolean(host.credentialId);
 		shareDialogOpen = true;
 		error = null;
-	}
-
-	async function submitShare() {
-		if (!shareTarget) return;
-		sharing = true;
-		error = null;
-		try {
-			await shareHost({
-				hostId: shareTarget.id,
-				recipients: shareRecipients,
-				includeCredentials: shareIncludeCredentials
-			});
-			shareDialogOpen = false;
-			shareTarget = null;
-			shareRecipients = '';
-		} catch (caught) {
-			error = caught instanceof Error ? caught.message : 'Could not share host';
-		} finally {
-			sharing = false;
-		}
 	}
 
 	async function removeTarget() {
@@ -296,32 +248,7 @@
 			</p>
 		</div>
 		<div class="flex flex-wrap gap-2">
-			<Dialog.Root bind:open={groupDialogOpen}>
-				<Button size="sm" variant="outline" onclick={() => (groupDialogOpen = true)}>
-					<FolderPlus class="size-4" />
-					Group
-				</Button>
-				<Dialog.Content class="max-w-md">
-					<Dialog.Header>
-						<Dialog.Title>Create group</Dialog.Title>
-						<Dialog.Description>Groups organize hosts without changing access.</Dialog.Description>
-					</Dialog.Header>
-					<form class="space-y-4" onsubmit={(event) => (event.preventDefault(), submitGroup())}>
-						<div class="space-y-2">
-							<Label for="host-group-name">Name</Label>
-							<Input id="host-group-name" bind:value={groupName} required />
-						</div>
-						<Dialog.Footer>
-							<Button type="button" variant="outline" onclick={() => (groupDialogOpen = false)}
-								>Cancel</Button
-							>
-							<Button type="submit" disabled={savingGroup}>
-								{savingGroup ? 'Saving...' : 'Create group'}
-							</Button>
-						</Dialog.Footer>
-					</form>
-				</Dialog.Content>
-			</Dialog.Root>
+			<CreateHostGroupDialog onSaved={refreshInventory} onError={(message) => (error = message)} />
 			<HostDialog {credentials} {groups} {hosts} onSaved={refreshInventory} />
 		</div>
 	</div>
@@ -557,78 +484,16 @@
 		</Table.Root>
 	</div>
 
-	<Dialog.Root bind:open={shareDialogOpen}>
-		<Dialog.Content class="max-w-md">
-			<Dialog.Header>
-				<Dialog.Title>Share host</Dialog.Title>
-				<Dialog.Description>
-					The recipient gets a request and chooses whether to add a copy.
-				</Dialog.Description>
-			</Dialog.Header>
-			<form
-				class="flex flex-col gap-4"
-				onsubmit={(event) => (event.preventDefault(), submitShare())}
-			>
-				<div class="flex flex-col gap-2">
-					<Label for="host-share-recipients">Users or Microsoft emails</Label>
-					<Textarea
-						id="host-share-recipients"
-						placeholder="jane@example.com, operator"
-						bind:value={shareRecipients}
-						required
-					/>
-				</div>
-				<div class="flex items-center justify-between gap-3 rounded-md border p-3">
-					<div>
-						<Label for="host-share-credentials">Include credentials</Label>
-						<p class="text-xs text-muted-foreground">
-							{shareTarget?.credentialName ?? 'This host has no saved credential'}
-						</p>
-					</div>
-					<Switch
-						id="host-share-credentials"
-						bind:checked={shareIncludeCredentials}
-						disabled={!shareTarget?.credentialId}
-					/>
-				</div>
-				<Dialog.Footer>
-					<Button type="button" variant="outline" onclick={() => (shareDialogOpen = false)}>
-						Cancel
-					</Button>
-					<Button type="submit" disabled={sharing || !shareTarget}>
-						{sharing ? 'Sharing...' : 'Share'}
-					</Button>
-				</Dialog.Footer>
-			</form>
-		</Dialog.Content>
-	</Dialog.Root>
-
-	<AlertDialog.Root bind:open={deleteDialogOpen}>
-		<AlertDialog.Content>
-			<AlertDialog.Header>
-				<AlertDialog.Title>Delete host?</AlertDialog.Title>
-				<AlertDialog.Description>
-					{#if deleteTarget}
-						This removes {deleteTarget.name} from the connection inventory. Existing sessions are not
-						recovered from this action.
-					{:else}
-						This host will be removed from the connection inventory.
-					{/if}
-				</AlertDialog.Description>
-			</AlertDialog.Header>
-			<AlertDialog.Footer>
-				<AlertDialog.Cancel disabled={Boolean(deletingId)}>Cancel</AlertDialog.Cancel>
-				<AlertDialog.Action
-					variant="destructive"
-					disabled={!deleteTarget || Boolean(deletingId)}
-					onclick={(event) => {
-						event.preventDefault();
-						void removeTarget();
-					}}
-				>
-					{deletingId ? 'Deleting...' : 'Delete host'}
-				</AlertDialog.Action>
-			</AlertDialog.Footer>
-		</AlertDialog.Content>
-	</AlertDialog.Root>
+	<ShareHostDialog
+		bind:open={shareDialogOpen}
+		host={shareTarget}
+		onShared={() => (shareTarget = null)}
+		onError={(message) => (error = message)}
+	/>
+	<DeleteHostDialog
+		bind:open={deleteDialogOpen}
+		host={deleteTarget}
+		deleting={Boolean(deletingId)}
+		onConfirm={removeTarget}
+	/>
 </section>

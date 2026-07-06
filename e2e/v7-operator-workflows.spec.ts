@@ -103,37 +103,42 @@ test.describe.serial('V7 operator workflow hardening', () => {
 	}) => {
 		await ensureAdminSession(page, context);
 		await page.setViewportSize({ width: 1400, height: 1200 });
+		const suffix = Date.now().toString(36);
+		const credentialName = `${v7UiCredentialName} ${suffix}`;
+		const rotatedCredentialName = `${v7UiCredentialRotatedName} ${suffix}`;
+		const hostName = `${v7UiHostName} ${suffix}`;
+		const renamedHostName = `${v7UiHostRenamedName} ${suffix}`;
 
 		await page.goto('/credentials');
 		await page.getByRole('button', { name: 'Credential' }).click();
 		let dialog = page.getByRole('dialog', { name: 'Credential' });
-		await dialog.getByLabel('Name', { exact: true }).fill(v7UiCredentialName);
+		await dialog.getByLabel('Name', { exact: true }).fill(credentialName);
 		await dialog.getByLabel('Username', { exact: true }).fill('v7-ui-operator');
 		await dialog.getByLabel('Password', { exact: true }).fill('v7-ui-secret');
 		await dialog.getByRole('button', { name: 'Save credential' }).click();
 
 		await page
 			.getByPlaceholder('Filter credentials by name, username, or kind')
-			.fill(v7UiCredentialName);
-		await expect(page.getByRole('cell', { name: v7UiCredentialName, exact: true })).toBeVisible();
+			.fill(credentialName);
+		await expect(page.getByRole('cell', { name: credentialName, exact: true })).toBeVisible();
 		await expect(page.getByRole('cell', { name: 'v7-ui-operator', exact: true })).toBeVisible();
 		await expect(page.getByText('v7-ui-secret')).toHaveCount(0);
 
-		await page.getByRole('button', { name: `Edit ${v7UiCredentialName}` }).click();
+		await page.getByRole('button', { name: `Edit ${credentialName}` }).click();
 		dialog = page.getByRole('dialog', { name: 'Edit credential' });
-		await dialog.getByLabel('Name', { exact: true }).fill(v7UiCredentialRotatedName);
+		await dialog.getByLabel('Name', { exact: true }).fill(rotatedCredentialName);
 		await dialog.getByRole('button', { name: 'Save changes' }).click();
 		await page
 			.getByPlaceholder('Filter credentials by name, username, or kind')
-			.fill(v7UiCredentialRotatedName);
+			.fill(rotatedCredentialName);
 		await expect(
-			page.getByRole('cell', { name: v7UiCredentialRotatedName, exact: true })
+			page.getByRole('cell', { name: rotatedCredentialName, exact: true })
 		).toBeVisible();
 
 		await page.goto('/hosts');
 		await page.getByRole('button', { name: 'Host', exact: true }).click();
 		dialog = page.getByRole('dialog', { name: 'Host configuration' });
-		await dialog.getByLabel('Name', { exact: true }).fill(v7UiHostName);
+		await dialog.getByLabel('Name', { exact: true }).fill(hostName);
 		await dialog.getByLabel('Hostname', { exact: true }).fill('v7-ui-host.example.test');
 		await dialog.getByLabel('Port', { exact: true }).fill('2022');
 		await dialog.getByLabel('Username', { exact: true }).fill('v7-ui-operator');
@@ -144,31 +149,31 @@ test.describe.serial('V7 operator workflow hardening', () => {
 			.fill('Created by V7 browser workflow coverage.');
 		await dialog.getByRole('button', { name: 'Save host' }).click({ force: true });
 
-		await page.getByPlaceholder('Search name, address, folder, or tag').fill(v7UiHostName);
-		await expect(page.getByText(v7UiHostName, { exact: true })).toBeVisible();
+		await page.getByPlaceholder('Search name, address, folder, or tag').fill(hostName);
+		await expect(page.getByText(hostName, { exact: true })).toBeVisible();
 		await expect(page.getByText('v7-ui-operator@v7-ui-host.example.test:2022')).toBeVisible();
 		await expect(page.getByText('V7/UI CRUD')).toBeVisible();
 
-		await page.getByRole('button', { name: `Edit ${v7UiHostName}` }).click();
+		await page.getByRole('button', { name: `Edit ${hostName}` }).click();
 		dialog = page.getByRole('dialog', { name: 'Edit host' });
-		await dialog.getByLabel('Name', { exact: true }).fill(v7UiHostRenamedName);
+		await dialog.getByLabel('Name', { exact: true }).fill(renamedHostName);
 		await dialog.getByLabel('Port', { exact: true }).fill('2023');
 		await dialog.getByRole('button', { name: 'Save changes' }).click({ force: true });
-		await page.getByPlaceholder('Search name, address, folder, or tag').fill(v7UiHostRenamedName);
-		await expect(page.getByText(v7UiHostRenamedName, { exact: true })).toBeVisible();
+		await page.getByPlaceholder('Search name, address, folder, or tag').fill(renamedHostName);
+		await expect(page.getByText(renamedHostName, { exact: true })).toBeVisible();
 		await expect(page.getByText('v7-ui-operator@v7-ui-host.example.test:2023')).toBeVisible();
 
-		await page.getByRole('button', { name: `Delete ${v7UiHostRenamedName}` }).click();
+		await page.getByRole('button', { name: `Delete ${renamedHostName}` }).click();
 		await page.getByRole('alertdialog').getByRole('button', { name: 'Delete host' }).click();
-		await expect(page.getByText(v7UiHostRenamedName, { exact: true })).toHaveCount(0);
+		await expect(page.getByText(renamedHostName, { exact: true })).toHaveCount(0);
 
 		await page.goto('/credentials');
 		await page
 			.getByPlaceholder('Filter credentials by name, username, or kind')
-			.fill(v7UiCredentialRotatedName);
-		await page.getByRole('button', { name: `Delete ${v7UiCredentialRotatedName}` }).click();
+			.fill(rotatedCredentialName);
+		await page.getByRole('button', { name: `Delete ${rotatedCredentialName}` }).click();
 		await page.getByRole('alertdialog').getByRole('button', { name: 'Delete credential' }).click();
-		await expect(page.getByText(v7UiCredentialRotatedName, { exact: true })).toHaveCount(0);
+		await expect(page.getByText(rotatedCredentialName, { exact: true })).toHaveCount(0);
 	});
 
 	test('validates and imports a local Termix export from the importer UI', async ({
@@ -278,6 +283,47 @@ test.describe.serial('V7 operator workflow hardening', () => {
 			'SSH tabs available',
 			'Attach an existing live tab or create a new SSH tab.'
 		]);
+		await expect(page.getByRole('button', { name: 'Split pane right' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Split pane down' })).toBeVisible();
+		await expect(page.getByText('Split right', { exact: true })).toBeVisible();
+		await expect(page.getByText('Split down', { exact: true })).toBeVisible();
+		await test.info().attach('persistent-tmux-controls', {
+			body: await page.screenshot({
+				fullPage: true,
+				path: test.info().outputPath('persistent-tmux-controls.png')
+			}),
+			contentType: 'image/png'
+		});
+		await page.getByRole('button', { name: 'Attach tab' }).click();
+		await expect(
+			page.getByRole('tab', { name: new RegExp(`Active SSH tab ${v7SshName}`) })
+		).toBeVisible();
+		await test.info().attach('persistent-ssh-attached', {
+			body: await page.screenshot({
+				fullPage: true,
+				path: test.info().outputPath('persistent-ssh-attached.png')
+			}),
+			contentType: 'image/png'
+		});
+		await page.getByRole('button', { name: `Close SSH tab ${v7SshName}` }).click();
+		await expect(page.getByText('SSH disconnected', { exact: true })).toBeVisible();
+		await expect(page.getByText('No persistent SSH tabs', { exact: true })).toBeVisible();
+		await test.info().attach('persistent-ssh-closed', {
+			body: await page.screenshot({
+				fullPage: true,
+				path: test.info().outputPath('persistent-ssh-closed.png')
+			}),
+			contentType: 'image/png'
+		});
+		await page.getByRole('button', { name: 'Reconnect', exact: true }).first().click();
+		await expect(page.getByText('Opening SSH tab', { exact: true })).toBeVisible();
+		await test.info().attach('persistent-ssh-reconnect', {
+			body: await page.screenshot({
+				fullPage: true,
+				path: test.info().outputPath('persistent-ssh-reconnect.png')
+			}),
+			contentType: 'image/png'
+		});
 		await expectWorkspacePane(page, byName(v7SshName).id, 'sftp', [v7SshName, 'SFTP session']);
 		await expect(page.getByRole('region', { name: 'SFTP file manager' })).toBeVisible();
 		await expect(page.getByLabel('Remote path')).toBeVisible();
@@ -293,10 +339,24 @@ test.describe.serial('V7 operator workflow hardening', () => {
 			}),
 			contentType: 'image/png'
 		});
-		await page
-			.getByRole('dialog', { name: 'RDP credentials required' })
-			.getByRole('button', { name: 'Cancel' })
-			.click();
+		const rdpCredentialsDialog = page.getByRole('dialog', { name: 'RDP credentials required' });
+		await rdpCredentialsDialog.getByRole('button', { name: 'Cancel' }).click();
+		await expect(rdpCredentialsDialog).toBeHidden();
+		await page.getByRole('button', { name: 'RDP details and secondary controls' }).click();
+		await expect(page.getByRole('button', { name: 'Close persistent session' })).toBeVisible();
+		await page.waitForTimeout(150);
+		await test.info().attach('persistent-rdp-close-control', {
+			body: await page.screenshot({
+				fullPage: true,
+				path: test.info().outputPath('persistent-rdp-close-control.png')
+			}),
+			contentType: 'image/png'
+		});
+		await page.getByRole('button', { name: 'Close persistent session' }).click();
+		await expect(page.getByText('Remote disconnected', { exact: true })).toBeVisible();
+		await expect(page.getByText('Reconnect to attach the RDP session again.')).toBeVisible();
+		await page.getByRole('button', { name: 'Reconnect' }).click();
+		await expect(page.getByText('RDP credentials required', { exact: true }).first()).toBeVisible();
 		await expectWorkspacePane(page, byName(v7VncName).id, 'vnc', [
 			v7VncName,
 			'VNC session',
@@ -397,41 +457,6 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		await expectWorkspacePane(page, ftpsHost!.id, 'ftps', [v7FtpsName, 'FTPS session']);
 		await expect(page.getByRole('region', { name: 'FTPS file manager' })).toBeVisible();
 		await expect(page.getByLabel('Remote path')).toBeVisible();
-	});
-
-	test('covers fleet no-target and approval-required review states', async ({ context, page }) => {
-		await ensureAdminSession(page, context);
-		await seedCoreHosts(page);
-
-		await page.goto('/fleet');
-		await expect(page.getByRole('heading', { name: 'Fleet operations' })).toBeVisible();
-		const operationsPanel = page.getByRole('tabpanel', { name: 'Operations' });
-		await expect(operationsPanel.getByText('Bulk operations', { exact: true })).toBeVisible();
-
-		const visibleToggle = operationsPanel.getByRole('button', {
-			name: /^(Select visible|Clear visible)$/
-		});
-		if ((await visibleToggle.textContent())?.includes('Select visible')) {
-			await visibleToggle.click();
-			await expect(visibleToggle).toContainText('Clear visible');
-		}
-		await visibleToggle.click();
-		await expect(operationsPanel.getByText('No targets selected.', { exact: true })).toBeVisible();
-		await expect(
-			operationsPanel.getByText('Select at least one target.', { exact: true })
-		).toBeVisible();
-		await expect(operationsPanel.getByRole('button', { name: 'Queue operation' })).toBeDisabled();
-
-		await operationsPanel.getByPlaceholder('Search host, owner, tag, OS').fill(v7SshName);
-		await operationsPanel.getByRole('button', { name: 'Select visible' }).click();
-		await expect(operationsPanel.getByText('Approval required before execution')).toBeVisible();
-		await expect(operationsPanel.getByText(v7SshName, { exact: true }).first()).toBeVisible();
-		await expect(operationsPanel.getByRole('button', { name: 'Queue operation' })).toBeEnabled();
-
-		await page.getByRole('tab', { name: 'Policies' }).click();
-		await expect(page.getByRole('tabpanel', { name: 'Policies' })).toContainText(
-			'Workspace policies and approvals'
-		);
 	});
 
 	test('surfaces admin views and local user management actions', async ({ context, page }) => {
@@ -811,7 +836,9 @@ function isExpectedBrowserConsoleError(message: string) {
 }
 
 function isExpectedRequestAbort(url: string, errorText: string | undefined) {
-	return url.startsWith('http://127.0.0.1:4173/') && errorText === 'net::ERR_ABORTED';
+	if (errorText !== 'net::ERR_ABORTED') return false;
+	const { hostname } = new URL(url);
+	return hostname === '127.0.0.1' || hostname === 'localhost';
 }
 
 async function ensureLocalUser(

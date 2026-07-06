@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ServiceUnauthorizedError, ServiceValidationError } from '$lib/server/services/errors';
+import {
+	ServiceNotFoundError,
+	ServiceUnauthorizedError,
+	ServiceValidationError
+} from '$lib/server/services/errors';
 import { credentialService } from '$lib/server/services/credentials';
 import { hostService } from '$lib/server/services/hosts';
 import { sessionTicketService } from '$lib/server/services/session-tickets';
@@ -15,8 +19,10 @@ import { resolveVncLaunchCredentials } from '$lib/server/protocols/vnc';
 import { resolveRdpLaunchCredentials } from '$lib/server/protocols/rdp-credentials';
 import { getSshHostKeyTrustSummary } from '$lib/server/protocols/ssh-host-key-enrollment';
 import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
+import { rdpLiveSessionService } from '$lib/server/services/rdp-live-sessions';
 import { liveSshManager } from '$lib/server/ssh-live/manager';
 import {
+	attachLiveRdpSession,
 	attachLiveSshSession,
 	closeLiveSshSession,
 	createLiveSshSession,
@@ -173,6 +179,18 @@ vi.mock('$lib/server/services/ssh-live-sessions', () => ({
 	}
 }));
 
+vi.mock('$lib/server/services/rdp-live-sessions', () => ({
+	rdpLiveSessionService: {
+		listVisible: vi.fn(),
+		create: vi.fn(),
+		prepareAttach: vi.fn(),
+		detach: vi.fn(),
+		fail: vi.fn(),
+		rename: vi.fn(),
+		close: vi.fn()
+	}
+}));
+
 vi.mock('$lib/server/services/ssh-tunnels', () => ({
 	publicSshTunnelPath: (sessionId: string) => `/tunnels/${encodeURIComponent(sessionId)}`,
 	sshTunnelService: {
@@ -213,6 +231,7 @@ describe('termix remote functions', () => {
 			ticketTtlSeconds: 60
 		} as never);
 		vi.mocked(getSshHostKeyTrustSummary).mockResolvedValue(sshHostKeyTrustSummary() as never);
+		vi.mocked(rdpLiveSessionService.listVisible).mockResolvedValue([]);
 		vi.mocked(termixRepository.listWorkspaceLayouts).mockResolvedValue([]);
 		vi.mocked(hostGroupsByHostId).mockResolvedValue(new Map() as never);
 		vi.mocked(listHostGroupsForUser).mockResolvedValue([]);
@@ -929,6 +948,71 @@ describe('termix remote functions', () => {
 
 		await expect(closeLiveSshSession('live-1')).resolves.toBe(undefined);
 		expect(liveSshManager.close).toHaveBeenCalledWith('live-1');
+		expect(appServer.refresh).toHaveBeenCalledOnce();
+	});
+
+	it('treats already-ended live SSH session close as idempotent', async () => {
+		vi.mocked(sshLiveSessionService.close).mockRejectedValueOnce(
+			new ServiceNotFoundError('SSH live session not found')
+		);
+
+		await expect(closeLiveSshSession('live-1')).resolves.toBe(undefined);
+		expect(liveSshManager.close).toHaveBeenCalledWith('live-1');
+		expect(appServer.refresh).toHaveBeenCalledOnce();
+	});
+
+	it('marks live RDP sessions failed when attach launch fails', async () => {
+		const session = {
+			id: 'rdp-live-1',
+			userId: 'user-1',
+			hostId: 'host-1',
+			title: 'Windows desktop',
+			status: 'active',
+			startedAt: now,
+			lastAttachedAt: now,
+			endedAt: null,
+			errorCode: null,
+			errorMessage: null,
+			createdAt: now,
+			updatedAt: now
+		};
+		const error = new Error('gateway offline');
+		error.name = 'Gateway Offline!';
+		vi.mocked(rdpLiveSessionService.prepareAttach).mockResolvedValueOnce(session as never);
+		vi.mocked(hostService.get).mockResolvedValueOnce(
+			hostRecord({
+				name: 'Windows desktop',
+				protocol: 'rdp',
+				hostname: 'windows.internal',
+				port: 3389
+			}) as never
+		);
+		vi.mocked(sessionTicketService.create).mockResolvedValueOnce({
+			ticket: 'rdp-ticket',
+			record: {
+				hostId: 'host-1',
+				protocol: 'rdp',
+				expiresAt: new Date('2026-05-15T10:01:00.000Z'),
+				target: JSON.stringify({ host: { credentialId: null, username: 'desktop' } })
+			}
+		} as never);
+		vi.mocked(resolveRdpLaunchCredentials).mockRejectedValueOnce(error);
+		vi.mocked(rdpLiveSessionService.fail).mockResolvedValueOnce({
+			...session,
+			status: 'failed',
+			endedAt: now,
+			errorCode: 'rdp_gateway_offline_',
+			errorMessage: 'gateway offline'
+		} as never);
+
+		await expect(attachLiveRdpSession({ sessionId: 'rdp-live-1' })).rejects.toBe(error);
+		expect(rdpLiveSessionService.fail).toHaveBeenCalledWith(
+			'user-1',
+			'rdp-live-1',
+			'rdp_gateway_offline_',
+			'gateway offline'
+		);
+		expect(rdpLiveSessionService.detach).not.toHaveBeenCalled();
 		expect(appServer.refresh).toHaveBeenCalledOnce();
 	});
 

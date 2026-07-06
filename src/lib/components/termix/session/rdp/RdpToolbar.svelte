@@ -109,7 +109,10 @@
 					</Button>
 				{/snippet}
 			</Popover.Trigger>
-			<Popover.Content align="end" class="w-[min(32rem,calc(100vw-2rem))] p-3">
+			<Popover.Content
+				align="end"
+				class="w-[min(32rem,calc(100vw-2rem))] bg-background p-3 text-foreground"
+			>
 				<div class="grid gap-3">
 					<div class="flex min-w-0 flex-wrap items-center gap-1.5">
 						<Badge variant="outline" class="shrink truncate">{displayPresetLabel}</Badge>

@@ -48,13 +48,13 @@ test.describe.serial('application onboarding and navigation', () => {
 
 		const sidebar = page.locator('[data-sidebar="sidebar"]').first();
 		await expect(sidebar).toContainText('Inventory');
-		await expect(sidebar).toContainText('Connections');
+		await expect(sidebar).toContainText('Remote Access');
 		await expect(sidebar).toContainText('Administration');
 		await expect(sidebar).toContainText('Hosts');
 		await expect(sidebar).toContainText('Credentials');
 		await expect(sidebar).toContainText('Import from Termix');
-		await expect(sidebar).toContainText('Session workspace');
-		await expect(sidebar).toContainText('Fleet operations');
+		await expect(sidebar).toContainText('Persistent Sessions');
+		await expect(sidebar).toContainText('History');
 		await expect(sidebar).toContainText('Application');
 
 		for (const host of seededHosts) {
@@ -69,10 +69,10 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(page).toHaveURL(/\/import$/);
 		await expect(page.getByRole('heading', { name: 'Termix import' })).toBeVisible();
 
-		await expandSidebarGroup(page, 'Connections');
-		await page.getByRole('link', { name: 'Session workspace' }).click();
+		await expandSidebarGroup(page, 'Remote Access');
+		await page.getByRole('link', { name: 'Persistent Sessions' }).click();
 		await expect(page).toHaveURL(/\/sessions$/);
-		await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Persistent Sessions' })).toBeVisible();
 		const protocolFilters = page.getByLabel('Protocol filters');
 		await expect(protocolFilters.getByRole('button', { name: 'All' })).toBeVisible();
 		await expect(protocolFilters.getByRole('button', { name: 'SSH' })).toBeVisible();
@@ -80,37 +80,6 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(protocolFilters.getByRole('button', { name: 'RDP' })).toBeVisible();
 		await expect(protocolFilters.getByRole('button', { name: 'VNC' })).toBeVisible();
 		await expect(protocolFilters.getByRole('button', { name: 'Telnet' })).toBeVisible();
-
-		await expandSidebarGroup(page, 'Fleet operations');
-		await page.getByRole('link', { name: 'Overview' }).click();
-		await expect(page).toHaveURL(/\/fleet$/);
-		await expect(page.getByRole('heading', { name: 'Fleet overview' })).toBeVisible();
-		await expect(page.getByText('remote functions', { exact: true })).toBeVisible();
-		await expect(page.getByRole('link', { name: 'Runbooks', exact: true })).toBeVisible();
-		await expect(page.getByRole('link', { name: 'Targets', exact: true })).toBeVisible();
-		await expect(page.getByRole('link', { name: 'Executions', exact: true })).toBeVisible();
-		await expect(page.getByRole('link', { name: 'Approvals', exact: true })).toBeVisible();
-
-		await page.getByRole('link', { name: 'New execution' }).click();
-		await expect(page).toHaveURL(/\/fleet\/executions\/new$/);
-		await expect(page.getByRole('heading', { name: 'New execution' })).toBeVisible();
-		await expect(page.getByText('1. Runbook', { exact: true })).toBeVisible();
-		await expect(page.getByText('2. Operation', { exact: true })).toBeVisible();
-		await expect(page.getByText('No targets selected.', { exact: true })).toBeVisible();
-		await expect(page.getByText('Select at least one target.', { exact: true })).toBeVisible();
-		await expect(page.getByRole('button', { name: 'Queue execution' })).toBeDisabled();
-		await expect(page.getByRole('heading', { name: 'Targets' })).toBeVisible();
-		await expect(
-			page.getByText('3 of 3 targets match the current filters.', { exact: true })
-		).toBeVisible();
-		for (const host of seededHosts) {
-			await expect(page.getByText(host.name, { exact: true })).toBeVisible();
-		}
-		await page.getByPlaceholder('Search host, owner, tag, OS').fill('missing-fleet-host');
-		await expect(
-			page.getByText('0 of 3 targets match the current filters.', { exact: true })
-		).toBeVisible();
-		await expect(page.getByText('No hosts match these filters.', { exact: true })).toBeVisible();
 
 		await expandSidebarGroup(page, 'Administration');
 		await page.getByRole('link', { name: 'Application' }).click();
@@ -176,11 +145,11 @@ test.describe.serial('application onboarding and navigation', () => {
 		await expect(ticketTtl).toHaveValue('60');
 		await expect(terminalFontSize).toHaveValue('13');
 		await expectSwitchState(rdpTextClipboard, true);
-		await expectSwitchState(rdpFileClipboard, false);
+		await expectSwitchState(rdpFileClipboard, true);
 		await expectSwitchState(rdpClientToRemote, true);
 		await expectSwitchState(rdpRemoteToClient, true);
 		await expect(rdpFileLimit).toHaveValue('16');
-		await expect(rdpFileLimit).toBeDisabled();
+		await expect(rdpFileLimit).toBeEnabled();
 		await expect(saveButton).toBeDisabled();
 
 		await ticketTtl.fill('90');

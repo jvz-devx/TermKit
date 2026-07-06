@@ -128,6 +128,25 @@ export class RdpLiveSessionService {
 		return updated;
 	}
 
+	async fail(
+		userId: string,
+		id: string,
+		errorCode = 'rdp_session_failed',
+		errorMessage: string | null = null,
+		now = new Date()
+	): Promise<RdpLiveSessionRecord> {
+		const session = await this.getOpenSession(userId, id);
+		const updated = await this.repository.updateRdpLiveSession(userId, session.id, {
+			status: 'failed',
+			endedAt: now,
+			errorCode,
+			errorMessage,
+			updatedAt: now
+		});
+		if (!updated) throw new ServiceNotFoundError('RDP live session not found');
+		return updated;
+	}
+
 	private async getOpenSession(userId: string, id: string): Promise<RdpLiveSessionRecord> {
 		const session = await this.repository.getRdpLiveSession(userId, id);
 		if (!session || !openStatuses.includes(session.status)) {

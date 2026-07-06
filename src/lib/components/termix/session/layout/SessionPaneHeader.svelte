@@ -14,6 +14,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Select from '$lib/components/ui/select';
+	import * as Tooltip from '$lib/components/ui/tooltip';
 	import type { HostSummary } from '$lib/remotes/sessions.remote';
 	import { isSessionPaneKind, sessionPaneKinds, type SessionPaneKind } from './workspace-layout';
 
@@ -136,32 +137,75 @@
 				{/each}
 			</Select.Content>
 		</Select.Root>
-		<Button
-			size="icon-sm"
-			variant="ghost"
-			aria-label="Reconnect pane"
-			onclick={() => onReconnect(paneId)}
-		>
-			<RotateCcw class="size-4" />
-		</Button>
-		<Button
-			size="icon-sm"
-			variant="ghost"
-			aria-label="Split pane right"
-			onclick={() => onSplitHorizontal(paneId)}
-		>
-			<PanelRight class="size-4" />
-		</Button>
-		<Button
-			size="icon-sm"
-			variant="ghost"
-			aria-label="Split pane down"
-			onclick={() => onSplitVertical(paneId)}
-		>
-			<PanelBottom class="size-4" />
-		</Button>
-		<Button size="icon-sm" variant="ghost" aria-label="Close pane" onclick={() => onClose(paneId)}>
-			<X class="size-4" />
-		</Button>
+		<Tooltip.Root>
+			<Tooltip.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						size="icon-sm"
+						variant="ghost"
+						aria-label="Reconnect pane"
+						onclick={() => onReconnect(paneId)}
+					>
+						<RotateCcw data-icon />
+					</Button>
+				{/snippet}
+			</Tooltip.Trigger>
+			<Tooltip.Content sideOffset={6}>Reconnect pane</Tooltip.Content>
+		</Tooltip.Root>
+		<Tooltip.Root>
+			<Tooltip.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						size={compact ? 'icon-sm' : 'sm'}
+						variant="ghost"
+						aria-label="Split pane right"
+						onclick={() => onSplitHorizontal(paneId)}
+					>
+						<PanelRight data-icon={compact ? undefined : 'inline-start'} />
+						{#if !compact}
+							<span class="hidden xl:inline">Split right</span>
+						{/if}
+					</Button>
+				{/snippet}
+			</Tooltip.Trigger>
+			<Tooltip.Content sideOffset={6}>Split pane right</Tooltip.Content>
+		</Tooltip.Root>
+		<Tooltip.Root>
+			<Tooltip.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						size={compact ? 'icon-sm' : 'sm'}
+						variant="ghost"
+						aria-label="Split pane down"
+						onclick={() => onSplitVertical(paneId)}
+					>
+						<PanelBottom data-icon={compact ? undefined : 'inline-start'} />
+						{#if !compact}
+							<span class="hidden xl:inline">Split down</span>
+						{/if}
+					</Button>
+				{/snippet}
+			</Tooltip.Trigger>
+			<Tooltip.Content sideOffset={6}>Split pane down</Tooltip.Content>
+		</Tooltip.Root>
+		<Tooltip.Root>
+			<Tooltip.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						size="icon-sm"
+						variant="ghost"
+						aria-label="Close pane"
+						onclick={() => onClose(paneId)}
+					>
+						<X data-icon />
+					</Button>
+				{/snippet}
+			</Tooltip.Trigger>
+			<Tooltip.Content sideOffset={6}>Close pane</Tooltip.Content>
+		</Tooltip.Root>
 	</div>
 </header>

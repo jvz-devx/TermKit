@@ -39,6 +39,40 @@ describe('RdpLiveSessionService', () => {
 		});
 	});
 
+	it('marks failed attaches terminal so they cannot be reattached', async () => {
+		const repository = new InMemoryTermixServicesRepository();
+		const hosts = new HostService(repository);
+		const service = new RdpLiveSessionService(repository, hosts);
+		const host = await hosts.create('user-1', {
+			name: 'Windows desktop',
+			protocol: 'rdp',
+			hostname: 'windows.example.test',
+			port: 3389
+		});
+		const session = await service.create('user-1', {
+			hostId: host.id,
+			now: new Date('2026-07-06T10:00:00.000Z')
+		});
+
+		await expect(
+			service.fail(
+				'user-1',
+				session.id,
+				'rdp_gateway_failed',
+				'Gateway failed',
+				new Date('2026-07-06T10:01:00.000Z')
+			)
+		).resolves.toMatchObject({
+			status: 'failed',
+			endedAt: new Date('2026-07-06T10:01:00.000Z'),
+			errorCode: 'rdp_gateway_failed',
+			errorMessage: 'Gateway failed'
+		});
+		await expect(service.prepareAttach('user-1', session.id)).rejects.toThrow(
+			'RDP live session not found'
+		);
+	});
+
 	it('rejects non-RDP hosts and enforces per-user open session limits', async () => {
 		const repository = new InMemoryTermixServicesRepository();
 		const hosts = new HostService(repository);

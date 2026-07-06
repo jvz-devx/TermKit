@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
-	import { RotateCcw } from '@lucide/svelte';
+	import { RotateCcw, X } from '@lucide/svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import { Button } from '$lib/components/ui/button';
 	import StatePanel from './StatePanel.svelte';
@@ -25,6 +25,7 @@
 	import TerminalPane from './session/ssh/TerminalPane.svelte';
 	import VncLaunchPane from './session/vnc/VncLaunchPane.svelte';
 	import { createSessionWorkspaceController } from './session/layout/session-workspace-controller.svelte';
+	import type { LiveRdpSessionSummary } from '$lib/remotes/sessions.remote';
 
 	const workspace = createSessionWorkspaceController();
 	let rdpSidebarExpanded = $state(true);
@@ -167,7 +168,7 @@
 					>
 						{#snippet children(pane, index)}
 							{@const paneHost = workspace.hostForPane(pane)}
-							{#snippet rdpDetailsControls()}
+							{#snippet rdpDetailsControls(rdpSession: LiveRdpSessionSummary | null = null)}
 								<div class="grid gap-3 text-sm">
 									<div class="min-w-0">
 										<p class="text-xs font-medium text-muted-foreground">Session target</p>
@@ -188,6 +189,16 @@
 										<Button size="sm" variant="outline" onclick={workspace.returnToLauncher}>
 											Change host
 										</Button>
+										{#if rdpSession}
+											<Button
+												size="sm"
+												variant="outline"
+												onclick={() => workspace.closePersistentRdpSession(rdpSession)}
+											>
+												<X class="size-4" />
+												Close persistent session
+											</Button>
+										{/if}
 									</div>
 									{#if workspace.availableTabs.length > 1}
 										<div class="grid gap-2">
@@ -428,7 +439,7 @@
 												immersive={immersiveRdp}
 											>
 												{#snippet detailsControls()}
-													{@render rdpDetailsControls()}
+													{@render rdpDetailsControls(paneLiveRdpAttach.session)}
 												{/snippet}
 											</RdpPane>
 										{/key}
