@@ -44,11 +44,11 @@
 				]
 			},
 			{
-				title: 'Connections',
+				title: 'Remote Access',
 				url: '/sessions',
 				icon: SquareTerminalIcon,
 				items: [
-					{ title: 'Sessions', url: '/sessions' },
+					{ title: 'Persistent Sessions', url: '/sessions' },
 					{ title: 'History', url: '/history' }
 				]
 			},

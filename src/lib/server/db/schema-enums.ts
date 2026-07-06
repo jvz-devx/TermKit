@@ -36,6 +36,12 @@ export const sshLiveSessionStatus = pgEnum('ssh_live_session_status', [
 	'failed',
 	'stale'
 ]);
+export const rdpLiveSessionStatus = pgEnum('rdp_live_session_status', [
+	'active',
+	'detached',
+	'ended',
+	'failed'
+]);
 export const terminalRecordingStatus = pgEnum('terminal_recording_status', [
 	'recording',
 	'completed',

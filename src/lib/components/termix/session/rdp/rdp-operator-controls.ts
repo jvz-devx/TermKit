@@ -20,7 +20,6 @@ export type RdpDisplayPreset = {
 	id: RdpPerformancePreset;
 	label: string;
 	detail: string;
-	maxDesktop: RdpDesktopSize;
 	resizeDebounceMs: number;
 	scale: RdpScaleMode;
 };
@@ -36,25 +35,22 @@ export const defaultRdpClipboardPolicy: RdpClipboardPolicy = {
 export const rdpDisplayPresets: Record<RdpPerformancePreset, RdpDisplayPreset> = {
 	balanced: {
 		id: 'balanced',
-		label: 'Balanced',
-		detail: 'Responsive resizing with a 1920 x 1200 desktop cap.',
-		maxDesktop: { width: 1920, height: 1200 },
+		label: 'Balanced resize',
+		detail: 'Resize the remote desktop to the available viewport with normal smoothing.',
 		resizeDebounceMs: 120,
 		scale: 'fit'
 	},
 	performance: {
 		id: 'performance',
-		label: 'Performance',
-		detail: 'Bandwidth-sensitive resizing with a 1366 x 768 desktop cap.',
-		maxDesktop: { width: 1366, height: 768 },
+		label: 'Stable resize',
+		detail: 'Resize less often while the viewport is changing.',
 		resizeDebounceMs: 220,
 		scale: 'fit'
 	},
 	quality: {
 		id: 'quality',
-		label: 'Quality',
-		detail: 'Sharper resizing with a 3840 x 2160 desktop cap.',
-		maxDesktop: { width: 3840, height: 2160 },
+		label: 'Fast resize',
+		detail: 'Resize quickly to match the available viewport.',
 		resizeDebounceMs: 50,
 		scale: 'fit'
 	}
@@ -118,14 +114,11 @@ export function formatClipboardPolicyDetail(policy: RdpClipboardPolicy): string 
 
 export function applyRdpDisplayPreset(
 	size: RdpDesktopSize,
-	preset: RdpPerformancePreset
+	_preset: RdpPerformancePreset
 ): RdpDesktopSize {
-	const maxDesktop = rdpDisplayPresets[preset].maxDesktop;
-	const scale = Math.min(1, maxDesktop.width / size.width, maxDesktop.height / size.height);
-
 	return {
-		width: normalizeDesktopDimension(size.width * scale, 1, maxDesktop.width, true),
-		height: normalizeDesktopDimension(size.height * scale, 1, maxDesktop.height, false)
+		width: normalizeDesktopDimension(size.width, 1, Number.MAX_SAFE_INTEGER, true),
+		height: normalizeDesktopDimension(size.height, 1, Number.MAX_SAFE_INTEGER, false)
 	};
 }
 

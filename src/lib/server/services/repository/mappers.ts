@@ -29,6 +29,8 @@ import type {
 	CredentialRecord,
 	HostShareInvitationRecord,
 	HostRecord,
+	RdpLiveSessionPatch,
+	RdpLiveSessionRecord,
 	SshAttachTicketRecord,
 	SshLiveSessionPatch,
 	SshLiveSessionRecord,
@@ -61,6 +63,13 @@ type IntendedSshAttachTicketsTable = typeof sessionTickets & {
 	sshLiveSessionId: typeof sessionTickets.hostId;
 	consumedAt: typeof sessionTickets.consumedAt;
 };
+type IntendedRdpLiveSessionsTable = typeof connectionSessions & {
+	title: typeof connectionSessions.errorCode;
+	status: typeof hosts.name;
+	hostId: typeof hosts.id;
+	lastAttachedAt: typeof connectionSessions.endedAt;
+	createdAt: typeof connectionSessions.startedAt;
+};
 export type HostRow = typeof hostsTable.$inferSelect;
 export type CredentialRow = typeof credentialsTable.$inferSelect;
 export type HostShareInvitationRow = typeof hostShareInvitationsTable.$inferSelect;
@@ -74,10 +83,12 @@ export type SshTunnelSessionRow = typeof sshTunnelSessionsTable.$inferSelect;
 export type WorkspaceLayoutRow = typeof workspaceLayoutsTable.$inferSelect;
 export type SshLiveSessionRow = SshLiveSessionRecord;
 export type SshAttachTicketRow = SshAttachTicketRecord;
+export type RdpLiveSessionRow = RdpLiveSessionRecord;
 
 const intendedSchema = schema as unknown as {
 	sshLiveSessions?: IntendedSshLiveSessionsTable;
 	sshAttachTickets?: IntendedSshAttachTicketsTable;
+	rdpLiveSessions?: IntendedRdpLiveSessionsTable;
 };
 
 export function toHostRecord(row: HostRow): HostRecord {
@@ -258,6 +269,7 @@ export function toWorkspaceLayoutRecord(row: WorkspaceLayoutRow): WorkspaceLayou
 		workspaceId: row.workspaceId,
 		layoutKind: row.layoutKind,
 		panes: row.panes,
+		tree: row.tree,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt
 	};
@@ -293,6 +305,23 @@ export function toSshAttachTicketRecord(row: SshAttachTicketRow): SshAttachTicke
 		expiresAt: row.expiresAt,
 		consumedAt: row.consumedAt,
 		createdAt: row.createdAt
+	};
+}
+
+export function toRdpLiveSessionRecord(row: RdpLiveSessionRow): RdpLiveSessionRecord {
+	return {
+		id: row.id,
+		userId: row.userId,
+		hostId: row.hostId,
+		title: row.title,
+		status: row.status,
+		startedAt: row.startedAt,
+		lastAttachedAt: row.lastAttachedAt,
+		endedAt: row.endedAt,
+		errorCode: row.errorCode,
+		errorMessage: row.errorMessage,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
 	};
 }
 
@@ -414,6 +443,7 @@ export function workspaceLayoutPatchToDb(
 		workspaceId: patch.workspaceId,
 		layoutKind: patch.layoutKind,
 		panes: patch.panes,
+		tree: patch.tree,
 		updatedAt: patch.updatedAt
 	};
 }
@@ -511,6 +541,35 @@ export function sshLiveSessionPatchToDb(patch: SshLiveSessionPatch): Record<stri
 	};
 }
 
+export function toRdpLiveSessionInsert(session: RdpLiveSessionRecord): Record<string, unknown> {
+	return {
+		id: session.id,
+		userId: session.userId,
+		hostId: session.hostId,
+		title: session.title,
+		status: session.status,
+		startedAt: session.startedAt,
+		lastAttachedAt: session.lastAttachedAt,
+		endedAt: session.endedAt,
+		errorCode: session.errorCode,
+		errorMessage: session.errorMessage,
+		createdAt: session.createdAt,
+		updatedAt: session.updatedAt
+	};
+}
+
+export function rdpLiveSessionPatchToDb(patch: RdpLiveSessionPatch): Record<string, unknown> {
+	return {
+		title: patch.title,
+		status: patch.status,
+		lastAttachedAt: patch.lastAttachedAt,
+		endedAt: patch.endedAt,
+		errorCode: patch.errorCode,
+		errorMessage: patch.errorMessage,
+		updatedAt: patch.updatedAt
+	};
+}
+
 export function getSshLiveSchema(): {
 	sshLiveSessions: IntendedSshLiveSessionsTable;
 	sshAttachTickets: IntendedSshAttachTicketsTable;
@@ -525,6 +584,17 @@ export function getSshLiveSchema(): {
 		sshLiveSessions: intendedSchema.sshLiveSessions,
 		sshAttachTickets: intendedSchema.sshAttachTickets
 	};
+}
+
+export function getRdpLiveSchema(): {
+	rdpLiveSessions: IntendedRdpLiveSessionsTable;
+} {
+	if (!intendedSchema.rdpLiveSessions) {
+		throw new Error(
+			'RDP live session schema is not available; expected rdpLiveSessions export backed by rdp_live_sessions'
+		);
+	}
+	return { rdpLiveSessions: intendedSchema.rdpLiveSessions };
 }
 
 export function isOpenSshLiveSessionStatus(status: SshLiveSessionRecord['status']): boolean {

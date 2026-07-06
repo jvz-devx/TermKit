@@ -21,6 +21,7 @@ import type {
 	CredentialKind,
 	HostProtocol,
 	HostRecord,
+	RdpLiveSessionRecord,
 	SshLiveSessionRecord
 } from '$lib/server/services/types';
 import {
@@ -29,7 +30,10 @@ import {
 	type SshJumpHostMetadata,
 	type TerminalPreferences
 } from '$lib/termix/host-metadata';
-import { isSessionLayoutKind } from '$lib/components/termix/session/layout/workspace-layout';
+import {
+	isSessionLayoutKind,
+	maxSessionPanes
+} from '$lib/components/termix/session/layout/workspace-layout';
 
 export type { RdpLaunchCredentials };
 export type { SshHostKeyTrustSummary };
@@ -140,6 +144,27 @@ export type LiveSshAttach = {
 	expiresAt: string;
 };
 
+export type LiveRdpSessionSummary = {
+	id: string;
+	hostId: string;
+	hostName: string;
+	hostname: string;
+	username: string | null;
+	title: string;
+	status: 'active' | 'detached' | 'ended' | 'failed';
+	startedAt: string;
+	lastAttachedAt: string | null;
+	endedAt: string | null;
+	errorCode: string | null;
+	errorMessage: string | null;
+	updatedAt: string;
+};
+
+export type LiveRdpAttach = {
+	session: LiveRdpSessionSummary;
+	launch: SessionLaunch;
+};
+
 export type SshTunnelProfileSummary = {
 	id: string;
 	hostId: string;
@@ -185,6 +210,7 @@ export type StartSshTunnelInput = {
 export type SessionWorkspaceLayoutMetadata = {
 	layout: string;
 	panes: Record<string, unknown>[];
+	tree?: Record<string, unknown>;
 	updatedAt?: string;
 };
 
@@ -297,13 +323,16 @@ export function validateSessionWorkspaceLayoutMetadata(
 	if (!isSessionLayoutKind(layout)) {
 		throw new ServiceValidationError(['layout is invalid']);
 	}
-	if (panes.length < 1 || panes.length > 4) {
-		throw new ServiceValidationError(['panes must contain between 1 and 4 entries']);
+	if (panes.length < 1 || panes.length > maxSessionPanes) {
+		throw new ServiceValidationError([
+			`panes must contain between 1 and ${maxSessionPanes} entries`
+		]);
 	}
 
 	return {
 		layout,
 		panes,
+		tree: isRecord(value.tree) ? value.tree : undefined,
 		updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : undefined
 	};
 }
@@ -370,6 +399,27 @@ export function toLiveSshSessionSummary(
 		errorMessage: session.errorMessage,
 		terminalCols: session.terminalCols,
 		terminalRows: session.terminalRows,
+		updatedAt: session.updatedAt.toISOString()
+	};
+}
+
+export function toLiveRdpSessionSummary(
+	session: RdpLiveSessionRecord,
+	host: HostRecord | undefined
+): LiveRdpSessionSummary {
+	return {
+		id: session.id,
+		hostId: session.hostId,
+		hostName: host?.name ?? 'Deleted host',
+		hostname: host?.hostname ?? 'Unknown host',
+		username: host?.username ?? null,
+		title: session.title,
+		status: session.status,
+		startedAt: session.startedAt.toISOString(),
+		lastAttachedAt: session.lastAttachedAt?.toISOString() ?? null,
+		endedAt: session.endedAt?.toISOString() ?? null,
+		errorCode: session.errorCode,
+		errorMessage: session.errorMessage,
 		updatedAt: session.updatedAt.toISOString()
 	};
 }

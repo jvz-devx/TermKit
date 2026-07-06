@@ -4,8 +4,7 @@ import {
 	classifyRdpFailure,
 	defaultRdpClipboardPolicy,
 	normalizeDesktopDimension,
-	normalizeRdpClipboardPolicy,
-	rdpDisplayPresets
+	normalizeRdpClipboardPolicy
 } from './rdp-operator-controls';
 
 describe('RDP operator controls', () => {
@@ -25,21 +24,15 @@ describe('RDP operator controls', () => {
 		});
 	});
 
-	it('caps display size by quality preset while preserving supported resize dimensions', () => {
+	it('does not cap display size by preset while preserving supported resize dimensions', () => {
 		const performanceSize = applyRdpDisplayPreset({ width: 3200, height: 1800 }, 'performance');
-		expect(performanceSize.width).toBeLessThanOrEqual(
-			rdpDisplayPresets.performance.maxDesktop.width
-		);
-		expect(performanceSize.height).toBeLessThanOrEqual(
-			rdpDisplayPresets.performance.maxDesktop.height
-		);
+		expect(performanceSize).toEqual({ width: 3200, height: 1800 });
 		expect(performanceSize.width % 2).toBe(0);
-		expect(performanceSize.width / performanceSize.height).toBeCloseTo(3200 / 1800, 2);
 		expect(applyRdpDisplayPreset({ width: 3200, height: 1800 }, 'quality')).toEqual({
 			width: 3200,
 			height: 1800
 		});
-		expect(normalizeDesktopDimension(1439, 2, 7680, true)).toBe(1438);
+		expect(normalizeDesktopDimension(1439, 2, 2000, true)).toBe(1438);
 	});
 
 	it('normalizes disabled clipboard payloads to disabled directions', () => {

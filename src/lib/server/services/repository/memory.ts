@@ -6,6 +6,8 @@ import type {
 	CredentialRecord,
 	HostShareInvitationRecord,
 	HostRecord,
+	RdpLiveSessionPatch,
+	RdpLiveSessionRecord,
 	SessionTicketRecord,
 	SshAttachTicketRecord,
 	SshLiveSessionPatch,
@@ -50,6 +52,7 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 	private readonly workspaceLayouts = new Map<string, WorkspaceLayoutRecord>();
 	private readonly sshLiveSessions = new Map<string, SshLiveSessionRecord>();
 	private readonly sshAttachTickets = new Map<string, SshAttachTicketRecord>();
+	private readonly rdpLiveSessions = new Map<string, RdpLiveSessionRecord>();
 
 	createUser(user: UserRecord, emails: string[] = []): UserRecord {
 		this.users.set(user.id, user);
@@ -209,6 +212,9 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 			if (deletedSshLiveSessionIds.has(ticket.sshLiveSessionId)) {
 				this.sshAttachTickets.delete(ticketHash);
 			}
+		}
+		for (const [sessionId, session] of this.rdpLiveSessions.entries()) {
+			if (session.hostId === id) this.rdpLiveSessions.delete(sessionId);
 		}
 		for (const tunnelSession of this.sshTunnelSessions.values()) {
 			if (tunnelSession.sshHostId === id) {
@@ -615,6 +621,32 @@ export class InMemoryTermixServicesRepository implements TermixServicesRepositor
 		const consumed = { ...ticket, consumedAt };
 		this.sshAttachTickets.set(ticketHash, consumed);
 		return consumed;
+	}
+
+	async listRdpLiveSessions(userId: string): Promise<RdpLiveSessionRecord[]> {
+		return [...this.rdpLiveSessions.values()].filter((session) => session.userId === userId);
+	}
+
+	async getRdpLiveSession(userId: string, id: string): Promise<RdpLiveSessionRecord | null> {
+		const session = this.rdpLiveSessions.get(id);
+		return session?.userId === userId ? session : null;
+	}
+
+	async createRdpLiveSession(session: RdpLiveSessionRecord): Promise<RdpLiveSessionRecord> {
+		this.rdpLiveSessions.set(session.id, session);
+		return session;
+	}
+
+	async updateRdpLiveSession(
+		userId: string,
+		id: string,
+		patch: RdpLiveSessionPatch
+	): Promise<RdpLiveSessionRecord | null> {
+		const session = await this.getRdpLiveSession(userId, id);
+		if (!session) return null;
+		const updated = { ...session, ...patch, id, userId };
+		this.rdpLiveSessions.set(id, updated);
+		return updated;
 	}
 
 	private async accessibleWorkspaceIds(userId: string): Promise<string[]> {

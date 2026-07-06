@@ -19,6 +19,7 @@ export const getSessionWorkspaceLayout = query(
 		return {
 			layout: layout.layoutKind,
 			panes: layout.panes,
+			tree: layout.tree ?? undefined,
 			updatedAt: layout.updatedAt.toISOString()
 		};
 	}
@@ -36,6 +37,7 @@ export const saveSessionWorkspaceLayout = command<
 		? await termixRepository.updateWorkspaceLayout(userId, existing.id, {
 				layoutKind: metadata.layout,
 				panes: metadata.panes,
+				tree: metadata.tree ?? null,
 				updatedAt: now
 			})
 		: await termixRepository.createWorkspaceLayout({
@@ -44,6 +46,7 @@ export const saveSessionWorkspaceLayout = command<
 				workspaceId: null,
 				layoutKind: metadata.layout,
 				panes: metadata.panes,
+				tree: metadata.tree ?? null,
 				createdAt: now,
 				updatedAt: now
 			});
@@ -54,6 +57,7 @@ export const saveSessionWorkspaceLayout = command<
 	return {
 		layout: saved.layoutKind,
 		panes: saved.panes,
+		tree: saved.tree ?? undefined,
 		updatedAt: saved.updatedAt.toISOString()
 	};
 });

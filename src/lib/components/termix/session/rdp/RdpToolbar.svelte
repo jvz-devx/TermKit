@@ -172,11 +172,11 @@
 							size="sm"
 							value={selectedPreset}
 							onchange={(event) => onPresetChange(event.currentTarget.value)}
-							aria-label="RDP quality preset"
+							aria-label="RDP resize behavior"
 						>
-							<NativeSelect.Option value="balanced">Balanced quality</NativeSelect.Option>
-							<NativeSelect.Option value="performance">Performance quality</NativeSelect.Option>
-							<NativeSelect.Option value="quality">Best quality</NativeSelect.Option>
+							<NativeSelect.Option value="balanced">Balanced resize</NativeSelect.Option>
+							<NativeSelect.Option value="performance">Stable resize</NativeSelect.Option>
+							<NativeSelect.Option value="quality">Fast resize</NativeSelect.Option>
 						</NativeSelect.Root>
 						<NativeSelect.Root
 							size="sm"

@@ -5,6 +5,8 @@ export type {
 	HostMutationInput,
 	HostSummary,
 	LaunchProtocol,
+	LiveRdpAttach,
+	LiveRdpSessionSummary,
 	LiveSshAttach,
 	LiveSshSessionSummary,
 	RdpLaunchCredentials,

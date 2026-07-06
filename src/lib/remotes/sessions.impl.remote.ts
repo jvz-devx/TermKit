@@ -11,15 +11,20 @@ import { resolveVncLaunchCredentials } from '$lib/server/protocols/vnc';
 import { resolveRdpLaunchCredentials } from '$lib/server/protocols/rdp-credentials';
 import { connectionSessionService } from '$lib/server/services/connection-sessions';
 import { settingsService } from '$lib/server/services/settings';
+import { rdpLiveSessionService } from '$lib/server/services/rdp-live-sessions';
 import { sshLiveSessionService } from '$lib/server/services/ssh-live-sessions';
 import { liveSshManager } from '$lib/server/ssh-live/manager';
+import type { SessionTicketRecord } from '$lib/server/services/types';
 import {
 	assertSshHostKeyLaunchAllowed,
 	createLiveSshAttach,
+	type LiveRdpAttach,
+	type LiveRdpSessionSummary,
 	rdpLaunchErrorCode,
 	requireRemoteUser,
 	sanitizeConnectionErrorCode,
 	toConnectionHistorySummary,
+	toLiveRdpSessionSummary,
 	toLiveSshSessionSummary,
 	type LiveSshAttach,
 	type LiveSshSessionSummary,
@@ -30,6 +35,8 @@ export type {
 	ConnectionHistorySummary,
 	HostSummary,
 	LaunchProtocol,
+	LiveRdpAttach,
+	LiveRdpSessionSummary,
 	LiveSshAttach,
 	LiveSshSessionSummary,
 	RdpLaunchCredentials,
@@ -55,6 +62,22 @@ export const listLiveSshSessions = query(async () => {
 		.map((session): LiveSshSessionSummary => {
 			const host = hostsById.get(session.hostId);
 			return toLiveSshSessionSummary(session, host);
+		});
+});
+
+export const listLiveRdpSessions = query(async () => {
+	const userId = requireRemoteUser();
+	const [sessions, hosts] = await Promise.all([
+		rdpLiveSessionService.listVisible(userId),
+		hostService.list(userId)
+	]);
+	const hostsById = new Map(hosts.map((host) => [host.id, host]));
+
+	return sessions
+		.sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
+		.map((session): LiveRdpSessionSummary => {
+			const host = hostsById.get(session.hostId);
+			return toLiveRdpSessionSummary(session, host);
 		});
 });
 
@@ -132,43 +155,7 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 		const ticket = created.ticket;
 
 		if (launchProtocol === 'rdp') {
-			const bootstrapper = new RdpGatewayBootstrapper();
-			const rdpCredentials = await resolveRdpLaunchCredentials(
-				userId,
-				parseSessionTicketTargetSnapshot(created.record)
-			);
-			const consumed = await new SessionTicketConsumer().consume(ticket, 'rdp');
-			if (!consumed) throw new ServiceValidationError(['Could not authorize RDP launch']);
-			const connectionSession = await connectionSessionService.start({
-				userId: consumed.userId,
-				hostId: consumed.hostId,
-				protocol: 'rdp'
-			});
-			let rdp: RdpGatewayBootstrap;
-
-			try {
-				rdp = {
-					...(await bootstrapper.bootstrap(consumed)),
-					connectionSessionId: connectionSession.id
-				};
-			} catch (error) {
-				await connectionSessionService
-					.fail(connectionSession.id, rdpLaunchErrorCode(error))
-					.catch(() => null);
-				throw error;
-			}
-
-			return {
-				hostId,
-				protocol: launchProtocol,
-				ticket: null,
-				websocketPath: null,
-				expiresAt: created.record.expiresAt.toISOString(),
-				connectionSessionId: connectionSession.id,
-				rdp,
-				rdpCredentials,
-				vncCredentials: null
-			};
+			return createRdpSessionLaunch(userId, hostId, created.record, ticket);
 		}
 
 		const vncCredentials =
@@ -192,6 +179,122 @@ export const createSessionLaunch = command<{ hostId?: unknown; protocol?: unknow
 		};
 	}
 );
+
+export const createLiveRdpSession = command<{ hostId?: unknown; title?: unknown }, LiveRdpAttach>(
+	'unchecked',
+	async (input) => {
+		const userId = requireRemoteUser();
+		const session = await rdpLiveSessionService.create(userId, input);
+		const attached = await createLiveRdpAttach(userId, session.id);
+		void listLiveRdpSessions().refresh();
+		return attached;
+	}
+);
+
+export const attachLiveRdpSession = command<{ sessionId?: unknown }, LiveRdpAttach>(
+	'unchecked',
+	async (input) => {
+		const userId = requireRemoteUser();
+		const sessionId = typeof input.sessionId === 'string' ? input.sessionId : '';
+		if (!sessionId) throw new ServiceValidationError(['sessionId is required']);
+		const attach = await createLiveRdpAttach(userId, sessionId);
+		void listLiveRdpSessions().refresh();
+
+		return attach;
+	}
+);
+
+export const renameLiveRdpSession = command<{ sessionId?: unknown; title?: unknown }, void>(
+	'unchecked',
+	async (input) => {
+		const userId = requireRemoteUser();
+		const sessionId = typeof input.sessionId === 'string' ? input.sessionId : '';
+		if (!sessionId) throw new ServiceValidationError(['sessionId is required']);
+
+		await rdpLiveSessionService.rename(userId, sessionId, input.title);
+		void listLiveRdpSessions().refresh();
+	}
+);
+
+export const closeLiveRdpSession = command<string, void>('unchecked', async (sessionId) => {
+	const userId = requireRemoteUser();
+	if (typeof sessionId !== 'string' || !sessionId) {
+		throw new ServiceValidationError(['sessionId is required']);
+	}
+
+	await rdpLiveSessionService.close(userId, sessionId);
+	void listLiveRdpSessions().refresh();
+});
+
+async function createLiveRdpAttach(userId: string, sessionId: string): Promise<LiveRdpAttach> {
+	const session = await rdpLiveSessionService.prepareAttach(userId, sessionId);
+	const host = await hostService.get(userId, session.hostId);
+	const settings = await settingsService.getBasicAppSettings();
+	const created = await sessionTicketService.create(userId, {
+		hostId: session.hostId,
+		protocol: 'rdp',
+		ttlMs: settings.ticketTtlSeconds * 1000
+	});
+	let launch: SessionLaunch;
+	try {
+		launch = await createRdpSessionLaunch(userId, session.hostId, created.record, created.ticket);
+	} catch (error) {
+		await rdpLiveSessionService.detach(userId, session.id).catch(() => null);
+		throw error;
+	}
+
+	return {
+		session: toLiveRdpSessionSummary(session, host),
+		launch
+	};
+}
+
+async function createRdpSessionLaunch(
+	userId: string,
+	hostId: string,
+	record: SessionTicketRecord,
+	ticket: string
+): Promise<SessionLaunch> {
+	const bootstrapper = new RdpGatewayBootstrapper();
+	const rdpCredentials = await resolveRdpLaunchCredentials(
+		userId,
+		parseSessionTicketTargetSnapshot(record)
+	);
+	const consumed = await new SessionTicketConsumer().consume(ticket, 'rdp');
+	if (!consumed || consumed.userId !== userId || consumed.hostId !== hostId) {
+		throw new ServiceValidationError(['Could not authorize RDP launch']);
+	}
+	const connectionSession = await connectionSessionService.start({
+		userId: consumed.userId,
+		hostId: consumed.hostId,
+		protocol: 'rdp'
+	});
+	let rdp: RdpGatewayBootstrap;
+
+	try {
+		rdp = {
+			...(await bootstrapper.bootstrap(consumed)),
+			connectionSessionId: connectionSession.id
+		};
+	} catch (error) {
+		await connectionSessionService
+			.fail(connectionSession.id, rdpLaunchErrorCode(error))
+			.catch(() => null);
+		throw error;
+	}
+
+	return {
+		hostId,
+		protocol: 'rdp',
+		ticket: null,
+		websocketPath: null,
+		expiresAt: record.expiresAt.toISOString(),
+		connectionSessionId: connectionSession.id,
+		rdp,
+		rdpCredentials,
+		vncCredentials: null
+	};
+}
 
 export const createLiveSshSession = command<
 	{ hostId?: unknown; title?: unknown; cols?: unknown; rows?: unknown },

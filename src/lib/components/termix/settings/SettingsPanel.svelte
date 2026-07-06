@@ -342,7 +342,7 @@
 			</Card.Header>
 			<Card.Content class="space-y-4">
 				<div class="grid gap-2 sm:max-w-xs">
-					<Label for="rdp-performance-preset">RDP quality preset</Label>
+					<Label for="rdp-performance-preset">RDP resize behavior</Label>
 					<NativeSelect.Root
 						id="rdp-performance-preset"
 						class="w-full"

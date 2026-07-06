@@ -23,6 +23,8 @@ import type {
 	CredentialRecord,
 	HostShareInvitationRecord,
 	HostRecord,
+	RdpLiveSessionPatch,
+	RdpLiveSessionRecord,
 	SessionTicketRecord,
 	SshAttachTicketRecord,
 	SshLiveSessionPatch,
@@ -44,6 +46,7 @@ import {
 	allowedCurrentSshLiveStatusesForUpdate,
 	connectionSessionPatchToDb,
 	credentialPatchToDb,
+	getRdpLiveSchema,
 	getSshLiveSchema,
 	hostShareInvitationPatchToDb,
 	hostPatchToDb,
@@ -52,6 +55,7 @@ import {
 	matchesSshTunnelProfileFilters,
 	matchesSshTunnelSessionFilters,
 	matchesWorkspaceLayoutFilters,
+	rdpLiveSessionPatchToDb,
 	sshLiveSessionPatchToDb,
 	sshTunnelProfilePatchToDb,
 	sshTunnelSessionPatchToDb,
@@ -61,6 +65,8 @@ import {
 	toCredentialRecord,
 	toHostRecord,
 	toHostShareInvitationRecord,
+	toRdpLiveSessionInsert,
+	toRdpLiveSessionRecord,
 	toSessionTicketRecord,
 	toSshAttachTicketRecord,
 	toSshLiveSessionInsert,
@@ -75,6 +81,7 @@ import {
 	workspacePatchToDb,
 	type HostRow,
 	type HostShareInvitationRow,
+	type RdpLiveSessionRow,
 	type SshAttachTicketRow,
 	type SshLiveSessionRow,
 	type WorkspaceRow
@@ -747,6 +754,7 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 				workspaceId: layout.workspaceId,
 				layoutKind: layout.layoutKind,
 				panes: layout.panes,
+				tree: layout.tree,
 				createdAt: layout.createdAt,
 				updatedAt: layout.updatedAt
 			})
@@ -934,6 +942,51 @@ export class DrizzleTermixServicesRepository implements TermixServicesRepository
 			.returning();
 
 		return row ? toSshAttachTicketRecord(row as unknown as SshAttachTicketRow) : null;
+	}
+
+	async listRdpLiveSessions(userId: string): Promise<RdpLiveSessionRecord[]> {
+		const { rdpLiveSessions } = getRdpLiveSchema();
+		const rows = await this.database
+			.select()
+			.from(rdpLiveSessions)
+			.where(eq(rdpLiveSessions.userId, userId));
+
+		return (rows as unknown as RdpLiveSessionRow[]).map(toRdpLiveSessionRecord);
+	}
+
+	async getRdpLiveSession(userId: string, id: string): Promise<RdpLiveSessionRecord | null> {
+		const { rdpLiveSessions } = getRdpLiveSchema();
+		const [row] = await this.database
+			.select()
+			.from(rdpLiveSessions)
+			.where(and(eq(rdpLiveSessions.id, id), eq(rdpLiveSessions.userId, userId)))
+			.limit(1);
+
+		return row ? toRdpLiveSessionRecord(row as unknown as RdpLiveSessionRow) : null;
+	}
+
+	async createRdpLiveSession(session: RdpLiveSessionRecord): Promise<RdpLiveSessionRecord> {
+		const { rdpLiveSessions } = getRdpLiveSchema();
+		const [row] = await (this.database.insert(rdpLiveSessions) as unknown as ReturningInsert)
+			.values(toRdpLiveSessionInsert(session))
+			.returning();
+
+		if (!row) throw new Error('Could not create RDP live session');
+		return toRdpLiveSessionRecord(row as unknown as RdpLiveSessionRow);
+	}
+
+	async updateRdpLiveSession(
+		userId: string,
+		id: string,
+		patch: RdpLiveSessionPatch
+	): Promise<RdpLiveSessionRecord | null> {
+		const { rdpLiveSessions } = getRdpLiveSchema();
+		const [row] = await (this.database.update(rdpLiveSessions) as unknown as ReturningUpdate)
+			.set(rdpLiveSessionPatchToDb(patch))
+			.where(and(eq(rdpLiveSessions.id, id), eq(rdpLiveSessions.userId, userId)))
+			.returning();
+
+		return row ? toRdpLiveSessionRecord(row as unknown as RdpLiveSessionRow) : null;
 	}
 
 	private async getAccessibleWorkspaceIds(userId: string): Promise<string[]> {

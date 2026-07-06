@@ -18,6 +18,7 @@ import {
 	fileTransferProtocol,
 	ftpsMode,
 	hostProtocol,
+	rdpLiveSessionStatus,
 	sshLiveSessionStatus,
 	sshTunnelSessionStatus,
 	terminalRecordingStatus,
@@ -348,6 +349,7 @@ export const workspaceLayouts = pgTable(
 		workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
 		layoutKind: text('layout_kind').notNull(),
 		panes: jsonb('panes').$type<Record<string, unknown>[]>().notNull().default([]),
+		tree: jsonb('tree').$type<Record<string, unknown> | null>(),
 		...timestamps
 	},
 	(table) => [
@@ -430,6 +432,32 @@ export const sshAttachTickets = pgTable(
 		index('ssh_attach_tickets_user_id_idx').on(table.userId),
 		index('ssh_attach_tickets_ssh_live_session_id_idx').on(table.sshLiveSessionId),
 		index('ssh_attach_tickets_expires_at_idx').on(table.expiresAt)
+	]
+);
+
+export const rdpLiveSessions = pgTable(
+	'rdp_live_sessions',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		hostId: uuid('host_id')
+			.notNull()
+			.references(() => hosts.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		status: rdpLiveSessionStatus('status').notNull().default('detached'),
+		startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+		lastAttachedAt: timestamp('last_attached_at', { withTimezone: true }),
+		endedAt: timestamp('ended_at', { withTimezone: true }),
+		errorCode: text('error_code'),
+		errorMessage: text('error_message'),
+		...timestamps
+	},
+	(table) => [
+		index('rdp_live_sessions_user_id_idx').on(table.userId),
+		index('rdp_live_sessions_host_id_idx').on(table.hostId),
+		index('rdp_live_sessions_status_idx').on(table.status)
 	]
 );
 
@@ -685,6 +713,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 	workspaceLayouts: many(workspaceLayouts),
 	sshLiveSessions: many(sshLiveSessions),
 	sshAttachTickets: many(sshAttachTickets),
+	rdpLiveSessions: many(rdpLiveSessions),
 	terminalPreferences: many(terminalPreferences),
 	commandSnippets: many(commandSnippets),
 	terminalRecordings: many(terminalRecordings),
@@ -749,6 +778,7 @@ export const hostsRelations = relations(hosts, ({ one, many }) => ({
 	sshTunnelProfiles: many(sshTunnelProfiles),
 	sshTunnelSessions: many(sshTunnelSessions),
 	sshLiveSessions: many(sshLiveSessions),
+	rdpLiveSessions: many(rdpLiveSessions),
 	terminalPreferences: many(terminalPreferences),
 	commandSnippets: many(commandSnippets),
 	terminalRecordings: many(terminalRecordings),
@@ -851,6 +881,11 @@ export const sshAttachTicketsRelations = relations(sshAttachTickets, ({ one }) =
 		fields: [sshAttachTickets.sshLiveSessionId],
 		references: [sshLiveSessions.id]
 	})
+}));
+
+export const rdpLiveSessionsRelations = relations(rdpLiveSessions, ({ one }) => ({
+	user: one(users, { fields: [rdpLiveSessions.userId], references: [users.id] }),
+	host: one(hosts, { fields: [rdpLiveSessions.hostId], references: [hosts.id] })
 }));
 
 export const terminalPreferencesRelations = relations(terminalPreferences, ({ one }) => ({

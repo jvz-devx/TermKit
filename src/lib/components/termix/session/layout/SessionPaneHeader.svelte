@@ -3,6 +3,8 @@
 	import FolderUp from '@lucide/svelte/icons/folder-up';
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import Network from '@lucide/svelte/icons/network';
+	import PanelBottom from '@lucide/svelte/icons/panel-bottom';
+	import PanelRight from '@lucide/svelte/icons/panel-right';
 	import RadioTower from '@lucide/svelte/icons/radio-tower';
 	import Route from '@lucide/svelte/icons/route';
 	import Server from '@lucide/svelte/icons/server';
@@ -47,6 +49,8 @@
 		onKindChange,
 		onHostChange,
 		onReconnect,
+		onSplitHorizontal,
+		onSplitVertical,
 		onClose
 	}: {
 		paneId: string;
@@ -58,6 +62,8 @@
 		onKindChange: (paneId: string, kind: SessionPaneKind) => void;
 		onHostChange: (paneId: string, hostId: string) => void;
 		onReconnect: (paneId: string) => void;
+		onSplitHorizontal: (paneId: string) => void;
+		onSplitVertical: (paneId: string) => void;
 		onClose: (paneId: string) => void;
 	} = $props();
 
@@ -137,6 +143,22 @@
 			onclick={() => onReconnect(paneId)}
 		>
 			<RotateCcw class="size-4" />
+		</Button>
+		<Button
+			size="icon-sm"
+			variant="ghost"
+			aria-label="Split pane right"
+			onclick={() => onSplitHorizontal(paneId)}
+		>
+			<PanelRight class="size-4" />
+		</Button>
+		<Button
+			size="icon-sm"
+			variant="ghost"
+			aria-label="Split pane down"
+			onclick={() => onSplitVertical(paneId)}
+		>
+			<PanelBottom class="size-4" />
 		</Button>
 		<Button size="icon-sm" variant="ghost" aria-label="Close pane" onclick={() => onClose(paneId)}>
 			<X class="size-4" />

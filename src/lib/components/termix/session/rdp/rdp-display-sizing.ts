@@ -7,8 +7,6 @@ import type { RdpPerformancePreset } from '$lib/remotes/settings.remote';
 
 export const minDesktopWidth = 320;
 export const minDesktopHeight = 240;
-export const maxDesktopWidth = 7680;
-export const maxDesktopHeight = 4320;
 
 export function preferredDesktopSize({
 	viewportRect,
@@ -23,20 +21,30 @@ export function preferredDesktopSize({
 		width: normalizeDesktopDimension(
 			viewportRect?.width ?? fallback.width,
 			minDesktopWidth,
-			maxDesktopWidth,
+			Number.MAX_SAFE_INTEGER,
 			true
 		),
 		height: normalizeDesktopDimension(
 			viewportRect?.height ?? fallback.height,
 			minDesktopHeight,
-			maxDesktopHeight,
+			Number.MAX_SAFE_INTEGER,
 			false
 		)
 	};
 	const presetSize = applyRdpDisplayPreset(rawSize, preset);
 	return {
-		width: normalizeDesktopDimension(presetSize.width, minDesktopWidth, maxDesktopWidth, true),
-		height: normalizeDesktopDimension(presetSize.height, minDesktopHeight, maxDesktopHeight, false)
+		width: normalizeDesktopDimension(
+			presetSize.width,
+			minDesktopWidth,
+			Number.MAX_SAFE_INTEGER,
+			true
+		),
+		height: normalizeDesktopDimension(
+			presetSize.height,
+			minDesktopHeight,
+			Number.MAX_SAFE_INTEGER,
+			false
+		)
 	};
 }
 

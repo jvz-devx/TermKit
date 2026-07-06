@@ -6,8 +6,9 @@
 	import { Button } from '$lib/components/ui/button';
 	import StatePanel from './StatePanel.svelte';
 	import LiveSshTabStrip from './session/ssh/LiveSshTabStrip.svelte';
-	import RdpLaunchPane from './session/rdp/RdpLaunchPane.svelte';
+	import LiveRdpTabStrip from './session/rdp/LiveRdpTabStrip.svelte';
 	import RdpPane from './session/rdp/RdpPane.svelte';
+	import RdpPersistentLaunchPane from './session/rdp/RdpPersistentLaunchPane.svelte';
 	import SessionPaneFallback from './session/layout/SessionPaneFallback.svelte';
 	import SessionPaneHeader from './session/layout/SessionPaneHeader.svelte';
 	import SessionWorkbenchBar from './session/layout/SessionWorkbenchBar.svelte';
@@ -88,6 +89,15 @@
 				onRename={workspace.renamePersistentSshTab}
 				onClose={workspace.closePersistentSshTab}
 			/>
+			<LiveRdpTabStrip
+				sessions={workspace.liveRdpSessions}
+				activeSessionId={workspace.activeLiveRdpSessionId}
+				busy={workspace.liveRdpBusy}
+				onCreate={() => workspace.createPersistentRdpSession()}
+				onAttach={workspace.attachPersistentRdpSession}
+				onRename={workspace.renamePersistentRdpSession}
+				onClose={workspace.closePersistentRdpSession}
+			/>
 			<SessionHostLauncher
 				hosts={workspace.hostSelectionHosts}
 				allHostsCount={workspace.hosts.length}
@@ -130,6 +140,18 @@
 					onClose={workspace.closePersistentSshTab}
 				/>
 			{/if}
+			{#if !immersiveRdp && (workspace.workspaceHasRdpPane || workspace.liveRdpSessions.length)}
+				<LiveRdpTabStrip
+					sessions={workspace.liveRdpSessions}
+					activeSessionId={workspace.activeLiveRdpSessionId}
+					currentHostId={workspace.selectedHost.id}
+					busy={workspace.liveRdpBusy}
+					onCreate={() => workspace.createPersistentRdpSession({ host: workspace.selectedHost })}
+					onAttach={workspace.attachPersistentRdpSession}
+					onRename={workspace.renamePersistentRdpSession}
+					onClose={workspace.closePersistentRdpSession}
+				/>
+			{/if}
 
 			<div
 				class={immersiveRdp
@@ -140,6 +162,7 @@
 					<SessionTileGrid
 						layout={workspace.activeWorkspaceLayout.layout}
 						panes={workspace.activeWorkspaceLayout.panes}
+						tree={workspace.activeWorkspaceLayout.tree}
 						immersive={immersiveRdp}
 					>
 						{#snippet children(pane, index)}
@@ -195,6 +218,8 @@
 									onKindChange={workspace.selectPaneKind}
 									onHostChange={workspace.selectPaneHost}
 									onReconnect={workspace.reconnectPane}
+									onSplitHorizontal={workspace.splitPaneHorizontal}
+									onSplitVertical={workspace.splitPaneVertical}
 									onClose={workspace.closePane}
 									compact={pane.kind === 'rdp'}
 								/>
@@ -351,11 +376,66 @@
 									<SshTunnelPane host={paneHost} />
 								</div>
 							{:else if pane.kind === 'rdp'}
+								{@const paneLiveRdpError = workspace.liveRdpError}
+								{@const attachableRdpSessions = workspace.attachableLiveRdpSessionsForHost(
+									paneHost.id
+								)}
+								{@const paneLiveRdpAttach = workspace.liveRdpAttachByPaneId[pane.id] ?? null}
 								<div class={immersiveRdp ? 'min-h-0 flex-1 p-0' : 'min-h-0 flex-1 p-1'}>
-									{#if workspace.isPanePaused(paneHost, pane.kind)}
+									{#if paneLiveRdpError}
+										<div class="min-h-0 flex-1 p-3">
+											<StatePanel
+												state="error"
+												title="RDP session failed"
+												detail={paneLiveRdpError}
+											>
+												<Button
+													size="sm"
+													onclick={() =>
+														workspace.createPersistentRdpSession({
+															host: paneHost,
+															paneId: pane.id
+														})}
+													disabled={workspace.liveRdpBusy}
+												>
+													<RotateCcw class="size-4" />
+													Retry RDP
+												</Button>
+												<Button size="sm" variant="outline" onclick={workspace.returnToLauncher}
+													>Change host</Button
+												>
+											</StatePanel>
+										</div>
+									{:else if workspace.liveRdpBusy && workspace.liveRdpBusyPaneId === pane.id}
+										<div class="min-h-0 flex-1 p-3">
+											<StatePanel
+												state="loading"
+												title="Opening RDP session"
+												detail="Preparing gateway connection."
+											/>
+										</div>
+									{:else if paneLiveRdpAttach && paneLiveRdpAttach.session.hostId === paneHost.id}
+										{#key `rdp-live:${paneLiveRdpAttach.session.id}:${paneLiveRdpAttach.launch.connectionSessionId}:${workspace.reconnectNonce}`}
+											<RdpPane
+												launch={paneLiveRdpAttach.launch}
+												error={null}
+												onReconnect={() =>
+													workspace.attachPersistentRdpSession(paneLiveRdpAttach.session, pane.id)}
+												clipboardSync={workspace.appSettings.clipboardSync}
+												clipboardPolicy={workspace.appSettings.rdpClipboard}
+												performancePreset={workspace.appSettings.rdpPerformancePreset}
+												audioRedirection={workspace.appSettings.rdpAudioRedirection}
+												immersive={immersiveRdp}
+											>
+												{#snippet detailsControls()}
+													{@render rdpDetailsControls()}
+												{/snippet}
+											</RdpPane>
+										{/key}
+									{:else if workspace.isPanePaused(paneHost, pane.kind)}
 										<RdpPane
 											launch={null}
-											error="Disconnected. Reconnect to create a new session."
+											error="Disconnected. Reconnect to attach the RDP session again."
 											onReconnect={workspace.reconnect}
 											clipboardSync={workspace.appSettings.clipboardSync}
 											clipboardPolicy={workspace.appSettings.rdpClipboard}
@@ -367,22 +447,55 @@
 												{@render rdpDetailsControls()}
 											{/snippet}
 										</RdpPane>
-									{:else if browser}
-										{#key `rdp:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
-											<RdpLaunchPane
-												hostId={paneHost.id}
-												onReconnect={workspace.reconnect}
-												clipboardSync={workspace.appSettings.clipboardSync}
-												clipboardPolicy={workspace.appSettings.rdpClipboard}
-												performancePreset={workspace.appSettings.rdpPerformancePreset}
-												audioRedirection={workspace.appSettings.rdpAudioRedirection}
-												immersive={immersiveRdp}
+									{:else if workspace.liveRdpSessionsQuery.loading}
+										<div class="min-h-0 flex-1 p-3">
+											<StatePanel
+												state="loading"
+												title="Loading RDP sessions"
+												detail="Fetching persistent session state."
+											/>
+										</div>
+									{:else if attachableRdpSessions.length > 0}
+										<div class="min-h-0 flex-1 p-3">
+											<StatePanel
+												state="ready"
+												title="RDP sessions available"
+												detail="Reconnect an existing persistent session or create a new RDP session."
 											>
-												{#snippet detailsControls()}
-													{@render rdpDetailsControls()}
-												{/snippet}
-											</RdpLaunchPane>
-										{/key}
+												<Button
+													size="sm"
+													onclick={() =>
+														workspace.attachPersistentRdpSession(attachableRdpSessions[0], pane.id)}
+													disabled={workspace.liveRdpBusy}
+												>
+													Reconnect session
+												</Button>
+												<Button
+													size="sm"
+													variant="outline"
+													onclick={() =>
+														workspace.createPersistentRdpSession({
+															host: paneHost,
+															paneId: pane.id
+														})}
+													disabled={workspace.liveRdpBusy}
+												>
+													New RDP session
+												</Button>
+											</StatePanel>
+										</div>
+									{:else if browser}
+										<div class="min-h-0 flex-1 p-3">
+											{#key `rdp-create:${paneHost.id}:${pane.id}:${workspace.reconnectNonce}`}
+												<RdpPersistentLaunchPane
+													onCreate={() =>
+														workspace.createPersistentRdpSession({
+															host: paneHost,
+															paneId: pane.id
+														})}
+												/>
+											{/key}
+										</div>
 									{/if}
 								</div>
 							{:else if pane.kind === 'vnc'}

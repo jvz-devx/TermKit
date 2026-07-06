@@ -225,10 +225,17 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		await seedCoreHosts(page);
 
 		await page.goto('/sessions');
-		await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Persistent Sessions' })).toBeVisible();
 		await expect(
 			page.getByText('Choose a host from the inventory before launching a session.')
 		).toBeVisible();
+		await test.info().attach('persistent-sessions-launcher', {
+			body: await page.screenshot({
+				fullPage: true,
+				path: test.info().outputPath('persistent-sessions-launcher.png')
+			}),
+			contentType: 'image/png'
+		});
 
 		const protocolFilters = page.getByLabel('Protocol filters');
 		for (const label of ['All', 'SSH', 'SFTP', 'RDP', 'VNC', 'TELNET', 'FTP', 'FTPS', 'Tunnel']) {
@@ -276,13 +283,20 @@ test.describe.serial('V7 operator workflow hardening', () => {
 		await expect(page.getByLabel('Remote path')).toBeVisible();
 		await expectWorkspacePane(page, byName(v7RdpName).id, 'rdp', [
 			v7RdpName,
-			'RDP launch failed',
-			'Diagnostic:'
+			'RDP Gateway ready',
+			'RDP credentials required'
 		]);
-		await page.getByRole('button', { name: 'Close session' }).click();
-		await expect(page.getByText('Disconnected. Reconnect to create a new session.')).toBeVisible();
-		await page.getByRole('button', { name: 'Reconnect', exact: true }).first().click();
-		await expect(page.getByText('RDP launch failed', { exact: true }).first()).toBeVisible();
+		await test.info().attach('persistent-rdp-credentials', {
+			body: await page.screenshot({
+				fullPage: true,
+				path: test.info().outputPath('persistent-rdp-credentials.png')
+			}),
+			contentType: 'image/png'
+		});
+		await page
+			.getByRole('dialog', { name: 'RDP credentials required' })
+			.getByRole('button', { name: 'Cancel' })
+			.click();
 		await expectWorkspacePane(page, byName(v7VncName).id, 'vnc', [
 			v7VncName,
 			'VNC session',
@@ -790,6 +804,7 @@ async function exerciseFileManagerAbort(
 
 function isExpectedBrowserConsoleError(message: string) {
 	if (message.includes('Failed to load resource') && message.includes('500')) return true;
+	if (message.includes('Tried changing state of a disconnected RFB object')) return true;
 	return message.includes(
 		'Failed when connecting: Connection closed (code: 1011, reason: target connection failed)'
 	);

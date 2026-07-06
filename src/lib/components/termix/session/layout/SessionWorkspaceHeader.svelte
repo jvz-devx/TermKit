@@ -42,7 +42,7 @@
 >
 	<div class="min-w-0">
 		<div class="flex min-w-0 items-center gap-2">
-			<h1 class="truncate text-sm font-semibold">{selectedHost?.name ?? 'Sessions'}</h1>
+			<h1 class="truncate text-sm font-semibold">{selectedHost?.name ?? 'Persistent Sessions'}</h1>
 			<Badge variant={workspaceStatusVariant}>{workspaceStatus}</Badge>
 		</div>
 		<p class="truncate font-mono text-xs text-muted-foreground">

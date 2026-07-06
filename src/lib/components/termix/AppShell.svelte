@@ -16,7 +16,7 @@
 
 	const titles: Record<string, string> = {
 		'/hosts': 'Hosts',
-		'/sessions': 'Sessions',
+		'/sessions': 'Persistent Sessions',
 		'/history': 'History',
 		'/credentials': 'Credentials',
 		'/import': 'Import',

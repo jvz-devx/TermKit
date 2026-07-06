@@ -38,6 +38,9 @@ export const sshLiveSessionStatuses = [
 ] as const;
 export type SshLiveSessionStatus = (typeof sshLiveSessionStatuses)[number];
 
+export const rdpLiveSessionStatuses = ['active', 'detached', 'ended', 'failed'] as const;
+export type RdpLiveSessionStatus = (typeof rdpLiveSessionStatuses)[number];
+
 export interface HostRecord {
 	id: string;
 	userId: string;
@@ -227,6 +230,7 @@ export interface WorkspaceLayoutRecord {
 	workspaceId: string | null;
 	layoutKind: string;
 	panes: Record<string, unknown>[];
+	tree?: Record<string, unknown> | null;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -265,6 +269,21 @@ export interface SshAttachTicketRecord {
 	createdAt: Date;
 }
 
+export interface RdpLiveSessionRecord {
+	id: string;
+	userId: string;
+	hostId: string;
+	title: string;
+	status: RdpLiveSessionStatus;
+	startedAt: Date;
+	lastAttachedAt: Date | null;
+	endedAt: Date | null;
+	errorCode: string | null;
+	errorMessage: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
 export type ConnectionSessionPatch = Partial<
 	Pick<
 		ConnectionSessionRecord,
@@ -297,7 +316,7 @@ export type SshTunnelSessionPatch = Partial<
 >;
 
 export type WorkspaceLayoutPatch = Partial<
-	Pick<WorkspaceLayoutRecord, 'workspaceId' | 'layoutKind' | 'panes' | 'updatedAt'>
+	Pick<WorkspaceLayoutRecord, 'workspaceId' | 'layoutKind' | 'panes' | 'tree' | 'updatedAt'>
 >;
 
 export type SshLiveSessionPatch = Partial<
@@ -314,6 +333,13 @@ export type SshLiveSessionPatch = Partial<
 		| 'terminalCols'
 		| 'terminalRows'
 		| 'updatedAt'
+	>
+>;
+
+export type RdpLiveSessionPatch = Partial<
+	Pick<
+		RdpLiveSessionRecord,
+		'title' | 'status' | 'lastAttachedAt' | 'endedAt' | 'errorCode' | 'errorMessage' | 'updatedAt'
 	>
 >;
 
@@ -483,6 +509,17 @@ export interface SshLiveSessionRepository {
 	): Promise<SshAttachTicketRecord | null>;
 }
 
+export interface RdpLiveSessionRepository {
+	listRdpLiveSessions(userId: string): Promise<RdpLiveSessionRecord[]>;
+	getRdpLiveSession(userId: string, id: string): Promise<RdpLiveSessionRecord | null>;
+	createRdpLiveSession(session: RdpLiveSessionRecord): Promise<RdpLiveSessionRecord>;
+	updateRdpLiveSession(
+		userId: string,
+		id: string,
+		patch: RdpLiveSessionPatch
+	): Promise<RdpLiveSessionRecord | null>;
+}
+
 export interface TermixServicesRepository
 	extends
 		HostRepository,
@@ -495,4 +532,5 @@ export interface TermixServicesRepository
 		SshTunnelProfileRepository,
 		SshTunnelSessionRepository,
 		WorkspaceLayoutRepository,
-		SshLiveSessionRepository {}
+		SshLiveSessionRepository,
+		RdpLiveSessionRepository {}

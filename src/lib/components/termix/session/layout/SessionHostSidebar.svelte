@@ -101,7 +101,7 @@
 		'flex h-full min-h-0 shrink-0 flex-col border-l bg-background transition-[width]',
 		expanded ? 'w-72' : 'w-14'
 	]}
-	aria-label="Session sidebar"
+	aria-label="Host sidebar"
 >
 	<div
 		class={[
@@ -113,7 +113,7 @@
 			<div class="flex min-w-0 items-center gap-2">
 				<Server class="size-4 shrink-0 text-muted-foreground" />
 				<div class="min-w-0">
-					<h2 class="truncate text-sm font-semibold">Sessions</h2>
+					<h2 class="truncate text-sm font-semibold">Hosts</h2>
 					<p class="truncate text-xs text-muted-foreground">
 						{protocolLabels[activeProtocol]} open
 					</p>
@@ -123,8 +123,8 @@
 		<Button
 			size="icon-sm"
 			variant="ghost"
-			aria-label={expanded ? 'Collapse session sidebar' : 'Expand session sidebar'}
-			title={expanded ? 'Collapse sessions' : 'Expand sessions'}
+			aria-label={expanded ? 'Collapse host sidebar' : 'Expand host sidebar'}
+			title={expanded ? 'Collapse hosts' : 'Expand hosts'}
 			onclick={onToggleExpanded}
 		>
 			{#if expanded}
@@ -140,7 +140,7 @@
 				<Search
 					class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
 				/>
-				<Input class="h-8 pl-8 text-sm" placeholder="Filter sessions" bind:value={search} />
+				<Input class="h-8 pl-8 text-sm" placeholder="Filter hosts" bind:value={search} />
 			</div>
 		</div>
 	{/if}
@@ -250,7 +250,7 @@
 				{/if}
 			{:else}
 				{#if expanded}
-					<div class="p-4 text-sm text-muted-foreground">No sessions match this filter.</div>
+					<div class="p-4 text-sm text-muted-foreground">No hosts match this filter.</div>
 				{/if}
 			{/each}
 		</div>

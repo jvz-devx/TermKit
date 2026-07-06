@@ -5,6 +5,7 @@ import {
 	normalizeSessionLayout,
 	removeSessionPane,
 	resizeSessionLayout,
+	splitSessionPane,
 	updateSessionPaneKind,
 	updateSessionPaneHost
 } from './workspace-layout';
@@ -32,6 +33,14 @@ describe('session workspace layout metadata', () => {
 		]);
 		expect(updateSessionPaneHost(layout, 'right', 'host-3').panes[1]).toMatchObject({
 			hostId: 'host-3'
+		});
+		expect(layout.tree).toEqual({
+			type: 'split',
+			direction: 'horizontal',
+			children: [
+				{ type: 'pane', paneId: 'left' },
+				{ type: 'pane', paneId: 'right' }
+			]
 		});
 	});
 
@@ -122,6 +131,68 @@ describe('session workspace layout metadata', () => {
 		});
 		expect(changed.panes[1]).toMatchObject({ id: 'two', kind: 'ftp' });
 		expect(changed.updatedAt).toEqual(expect.any(String));
+	});
+
+	it('splits panes into a persistent nested tree', () => {
+		const layout = normalizeSessionLayout(
+			{
+				layout: 'two-columns',
+				panes: [
+					{ id: 'left', kind: 'rdp', hostId: 'host-1' },
+					{ id: 'right', kind: 'ssh', hostId: 'host-1' }
+				]
+			},
+			'single',
+			'rdp',
+			'host-1'
+		);
+
+		const split = splitSessionPane(layout, 'left', 'vertical', 'ssh', 'host-1');
+
+		expect(split.panes).toEqual([
+			{ id: 'left', kind: 'rdp', hostId: 'host-1' },
+			{ id: 'right', kind: 'ssh', hostId: 'host-1' },
+			{ id: 'pane-3', kind: 'ssh', hostId: 'host-1' }
+		]);
+		expect(split.tree).toEqual({
+			type: 'split',
+			direction: 'horizontal',
+			children: [
+				{
+					type: 'split',
+					direction: 'vertical',
+					children: [
+						{ type: 'pane', paneId: 'left' },
+						{ type: 'pane', paneId: 'pane-3' }
+					]
+				},
+				{ type: 'pane', paneId: 'right' }
+			]
+		});
+	});
+
+	it('collapses a nested split when a pane is closed', () => {
+		const layout = splitSessionPane(
+			normalizeSessionLayout(
+				{
+					layout: 'single',
+					panes: [{ id: 'rdp-main', kind: 'rdp', hostId: 'host-1' }]
+				},
+				'single',
+				'rdp',
+				'host-1'
+			),
+			'rdp-main',
+			'horizontal',
+			'ssh',
+			'host-1'
+		);
+
+		expect(removeSessionPane(layout, 'rdp-main', 'rdp', 'host-1')).toMatchObject({
+			layout: 'single',
+			panes: [{ id: 'pane-2', kind: 'ssh', hostId: 'host-1' }],
+			tree: { type: 'pane', paneId: 'pane-2' }
+		});
 	});
 
 	it('keeps dense workspace normalization bounded to renderable panes', () => {
